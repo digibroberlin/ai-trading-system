@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
-from typing import ClassVar, Iterable, List, Optional, Sequence
+from typing import ClassVar, Iterable, List, Optional, Sequence, Tuple
 
 from trading.agents.base import AgentName, BaseAgent
 from trading.agents.contracts import AgentOpinion, ExitSignal, SizingProposal
 from trading.ai.provider import AIProvider
 from trading.audit.event_log import EventLog
 from trading.audit.events import EventType
+from trading.audit.performance import EquityPoint, PerformanceReport, build_report
 from trading.audit.stats import PerformanceStats, compute_performance
-from trading.domain.models import ClosedTrade, TradeSetup
+from trading.domain.models import ClosedTrade, PortfolioState, Position, TradeSetup
 from trading.domain.reasons import RejectReason
 
 
@@ -29,6 +31,7 @@ class AkiAgent(BaseAgent):
         super().__init__(ai)
         self._log = event_log
         self._trades = []  # type: List[ClosedTrade]
+        self._curve = []  # type: List[EquityPoint]
 
     # --- Dokumentation ---
 
@@ -74,5 +77,26 @@ class AkiAgent(BaseAgent):
         bereits der Executor.)"""
         self._trades.extend(trades)
 
+    def record_equity(self, time: datetime, state: PortfolioState) -> EquityPoint:
+        """Haengt einen Punkt an die Kapitalkurve an (alle offenen Positionen zum aktuellen Kurs bewertet)."""
+        point = EquityPoint.from_state(time, state)
+        if self._curve and point.time <= self._curve[-1].time:
+            raise ValueError("Kapitalkurve: Zeitpunkte muessen streng aufsteigend sein.")
+        self._curve.append(point)
+        return point
+
+    @property
+    def trades(self) -> Tuple[ClosedTrade, ...]:
+        return tuple(self._trades)
+
+    @property
+    def equity_curve(self) -> Tuple[EquityPoint, ...]:
+        return tuple(self._curve)
+
     def performance(self, initial_equity: Decimal) -> PerformanceStats:
+        """Kennzahlen nur aus abgeschlossenen Trades."""
         return compute_performance(self._trades, initial_equity)
+
+    def report(self, initial_equity: Decimal, open_positions: Sequence[Position]) -> PerformanceReport:
+        """Gesamtbericht aus Trades UND Kapitalkurve (realisiert/unrealisiert getrennt, alles nach Kosten)."""
+        return build_report(initial_equity, self._trades, self._curve, open_positions)
