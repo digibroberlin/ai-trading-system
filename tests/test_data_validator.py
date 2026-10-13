@@ -4,7 +4,7 @@ import dataclasses
 from datetime import timedelta
 from decimal import Decimal
 
-from helpers import D, T0, flat_candle, make_candle, snapshot
+from helpers import D, T0, flat_candle, inst, make_candle, snapshot
 
 from trading.clock import FixedClock
 from trading.domain.models import MarketType
@@ -71,7 +71,7 @@ def test_price_jump_is_blocked_until_reset():
     assert v.validate(snapshot(mid=D(101))).ok
     # Ein echter, bewusst bestaetigter Marktsprung erfordert ein manuelles Zuruecksetzen.
     assert R.PRICE_JUMP in v.validate(snapshot(mid=D(140))).reasons
-    v.reset("BTC-USD")
+    v.reset(inst("BTC-USD"))
     assert v.validate(snapshot(mid=D(140))).ok
 
 
@@ -142,3 +142,74 @@ def test_invalid_tick_does_not_poison_validator_state():
     assert v.validate(snapshot(mid=D(100))).ok
     assert not v.validate(dataclasses.replace(snapshot(), last=Decimal("NaN"))).ok
     assert v.validate(snapshot(mid=D(101))).ok
+
+
+# ------------------------------------------------------------------ Stufe 1: Instrument-Schluessel und Referenzkurs
+
+
+def test_spot_and_futures_of_the_same_pair_are_validated_separately():
+    """H1: Der Spot-Kurs darf nicht als Referenz fuer den Futures-Kurs desselben Paars dienen."""
+    clock, v = make_validator()
+    assert v.validate(snapshot(mid=D(100))).ok  # Spot bei 100
+    fut = snapshot(mid=D(130), market_type=MarketType.FUTURES, funding=D(0))
+    assert v.validate(fut).ok  # Futures bei 130: eigenes Instrument, kein "Kurssprung"
+    assert R.PRICE_JUMP in v.validate(snapshot(mid=D(130))).reasons  # Spot selbst: sehr wohl
+
+
+def test_same_pair_on_another_exchange_is_a_different_instrument():
+    from trading.domain.instrument import Exchange
+
+    clock, v = make_validator()
+    assert v.validate(snapshot(mid=D(100))).ok
+    assert v.validate(snapshot(mid=D(140), exchange=Exchange.COINBASE)).ok
+
+
+def test_malformed_instrument_is_rejected():
+    clock, v = make_validator()
+    for bad in ("btc-usd", "BTCUSD", "", None):
+        assert v.validate(snapshot(symbol=bad)).reasons == (R.INVALID_SYMBOL,)
+    assert v.validate(dataclasses.replace(snapshot(), instrument=None)).reasons == (R.INVALID_SYMBOL,)
+
+
+def test_old_reference_price_expires_instead_of_blocking_forever():
+    """M6: Nach laengerer Pause wird nicht gegen einen Stunden alten Kurs geprueft."""
+    clock, v = make_validator()
+    assert v.validate(snapshot(mid=D(100), ts=T0)).ok
+    clock.advance(6 * 3600)
+    later = snapshot(mid=D(125), ts=clock.now())  # +25 % nach 6 Stunden: normale Bewegung
+    assert v.validate(later).ok
+    clock.advance(60)
+    assert R.PRICE_JUMP in v.validate(snapshot(mid=D(160), ts=clock.now())).reasons  # +28 % in 1 Minute
+
+
+def test_reference_just_inside_the_window_still_counts():
+    clock, v = make_validator()
+    assert v.validate(snapshot(mid=D(100), ts=T0)).ok
+    clock.advance(900)
+    assert R.PRICE_JUMP in v.validate(snapshot(mid=D(130), ts=clock.now())).reasons
+    clock.advance(1)  # jetzt 901 s alt -> Referenz verfallen
+    assert v.validate(snapshot(mid=D(130), ts=clock.now())).ok
+
+
+def test_observed_candle_close_becomes_the_reference():
+    clock, v = make_validator()
+    v.observe(inst(), T0, D(100))
+    assert R.PRICE_JUMP in v.validate(snapshot(mid=D(125), ts=T0)).reasons
+    v.observe(inst(), T0 - timedelta(hours=1), D(125))  # aelterer Kurs ersetzt den neueren NICHT
+    assert R.PRICE_JUMP in v.validate(snapshot(mid=D(125), ts=T0)).reasons
+    assert R.OUT_OF_ORDER in v.validate(snapshot(mid=D(100), ts=T0 - timedelta(seconds=1))).reasons
+
+
+def test_negative_candle_volume_and_misaligned_candles_are_rejected():
+    clock, v = make_validator()
+    good = flat_candle(T0)
+    assert v.validate(snapshot(candle=good)).ok
+    assert R.BAD_CANDLE in v.validate(snapshot(candle=dataclasses.replace(good, volume=D(-1)))).reasons
+    shifted = dataclasses.replace(good, open_time=T0 + timedelta(seconds=30))  # 12:00:30 bei 1-Minuten-Kerzen
+    assert R.BAD_CANDLE in v.validate(snapshot(candle=shifted)).reasons
+
+
+def test_candle_of_the_other_market_type_does_not_fit_the_snapshot():
+    clock, v = make_validator()
+    futures_candle = flat_candle(T0, market_type=MarketType.FUTURES)
+    assert R.BAD_CANDLE in v.validate(snapshot(candle=futures_candle)).reasons  # Spot-Snapshot

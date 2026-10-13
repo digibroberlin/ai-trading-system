@@ -1,33 +1,35 @@
-# Stufe 1 – Zwischenstand (Arbeit unterbrochen, NICHT fertig)
+# Stufe 1 – Fortschritt
 
-Stand: 2026-10-13. Die Umsetzung wurde mitten im Umbau unterbrochen (Nutzungslimit).
-**Der Code ist in diesem Zustand nicht lauffähig; die Tests wurden seit Beginn des Umbaus nicht ausgeführt.**
+Diese Datei wird nach jedem abgeschlossenen Abschnitt aktualisiert. Sie ist so geschrieben, dass die Arbeit
+jederzeit ohne Informationsverlust fortgesetzt werden kann. Jeder Abschnitt endet mit einem Git-Commit.
 
-## Rückweg zum letzten funktionierenden Stand (354 Tests grün)
+Rückweg zum Stand vor Stufe 1: Git-Commit „Stand vor Stufe 1“ (`git log`), zusätzlich
+`backups/projekt_2026-10-13_vor-stufe1.tar.gz` und `backups/datenbank_trading_2026-10-13_vor-stufe1.sql`.
 
-- Projekt: `backups/projekt_2026-10-13_vor-stufe1.tar.gz` (kompletter Stand vor Stufe 1)
-- Datenbank: `backups/datenbank_trading_2026-10-13_vor-stufe1.sql` (Dump ohne Passwörter)
-- Die laufende Datenbank `trading` wurde **nicht** verändert (kein Schema-Umbau, keine Migration ausgeführt).
+## Abschnitt A – Kern, Agenten, Pipeline: **fertig**
 
-## Bereits neu geschrieben (ungetestet)
+Tatsächlich ausgeführt (Python 3.12.14, ohne Datenbank): **415 Tests bestanden**, ruff ohne Befund.
+Die vier PostgreSQL-Testdateien wurden in diesem Abschnitt NICHT ausgeführt (Persistenzschicht noch alt).
 
-- `docs/AUDIT.md` – vollständiger Audit-Bericht
-- `src/trading/domain/instrument.py` – Instrument-Schlüssel (Börse, Markttyp, Symbol) [H1]
-- `src/trading/domain/models.py`, `domain/universe.py`, `domain/reasons.py` – auf Instrument-Schlüssel umgestellt; `FundingEvent`, `Mark`, `CloseResult`, neue `PortfolioState`-Felder
-- `src/trading/safety/limits.py` – 100 % Brutto-Exposure, 10 %-Schock / 5 % Stress-Verlust, Bewertungskurs-Alter [H5]
-- `src/trading/execution/costs.py` – Rundung zu Ungunsten des Händlers, `FillQuote`, Ausstieg per Market-Order
-- `src/trading/safety/order_risk.py` – die EINE Risikorechnung (Zustand nach der Order, alle Grenzen gleichzeitig) [M4, H5]
-- `src/trading/safety/risk_manager.py` – dünne Hülle um `order_risk`
-- `src/trading/marketdata/candles.py` – Prüfung einzelner Kerzen und ganzer Reihen [H3]
-- `src/trading/safety/data_validator.py` – je Instrument, Referenzkurs verfällt
-- `src/trading/execution/paper_executor.py` – Kerzenprüfung/Reihenfolge, Funding als Ereignis, `close_position`, volle Margin bei Liquidation, atomare Operationen [H3, M10, M11]
-- `src/trading/audit/events.py` – neue Ereignistypen
+Umgesetzt:
+- H1 Instrument-Schlüssel (`domain/instrument.py`): Börse + Markttyp + Symbol in Kerze, Snapshot, Setup, Position, Trade,
+  Bewertungskurs, Validator-Zustand, Handelsuniversum.
+- H3 Kerzenprüfung (`marketdata/candles.py`), Executor nimmt nur abgeschlossene, gültige Kerzen in zeitlicher Reihenfolge;
+  doppelte/ältere/fehlerhafte Kerzen werden protokolliert und verworfen; Lücken und extreme Kerzen werden protokolliert.
+- M10 Funding nur über `FundingEvent` (Satz und Kurs aus den Daten), je Position höchstens einmal.
+- M11 `close_position` (Signal/Eingriff), Pipeline: `propose`/`process_setup`, `propose_exits`/`process_exit`, MOMO `exit_signals`.
+- M4/H5 Eine Risikorechnung (`safety/order_risk.py`): Zustand NACH der Order, alle Grenzen gleichzeitig
+  (0,5 % je Trade, 2 % Gesamtrisiko, 100 % Brutto-Exposure, 5 % Verlust bei 10 % Schock, Margin, Liquidation, Notbremsen,
+  veraltete Bewertung → Ablehnung). SORA nutzt dieselbe Funktion für die Endkontrolle.
+- Zusätzlich aus Stufe 2 vorgezogen, weil im selben Code: H2 (Teil-Kerze konservativ), H4 (Tageswechsel nur vorwärts),
+  M5 (Operationen im Speicher-Executor atomar), M6 (Referenzkurs verfällt), volle Margin bei Liquidation, Rundung auf 8 Stellen.
 
-## Noch offen (alte Schnittstelle, passt nicht mehr zum neuen Kern)
+## Noch offen
 
-- `agents/sora_rules.py`, `agents/rin_rules.py`, `agents/momo.py`, `agents/contracts.py`, `agents/aki.py`, `pipeline.py`
-- `marketdata/synthetic.py`, `demo.py`, `execution/protocol.py`
-- `persistence/pg_executor.py`, Schema-Migration (`db/migrations/…`), Migrations-Läufer, `docker-compose.yml`/`Dockerfile`
-- Performance-Modul mit Kapitalkurve [M13], Backtesting-Engine (noch nicht begonnen)
-- Sämtliche Tests (`tests/…`) und `scripts/restart_check.py` – noch auf dem alten Stand
-- Verifikation (Unit, PostgreSQL, mypy, ruff, Mutationstests, Docker), Dokumentation, Abschlussbericht
+- Abschnitt B: Performance (Kapitalkurve, Kennzahlen) [M13]
+- Abschnitt C: PostgreSQL (Migrationen, Executor, Tests, Neustart-Skript), Docker
+- Abschnitt D: Backtesting-Engine
+- Abschnitt E: Testlücken aus dem Audit (H9) + Gegenproben, Gesamtverifikation, Dokumentation
+
+`src/trading/persistence/pg_executor.py`, `tests/test_pg_*.py`, `tests/pg_workers.py`, `scripts/restart_check.py`,
+`db/schema.sql`, `docker-compose.yml`, `Dockerfile` sind noch auf dem ALTEN Stand und passen nicht zum neuen Kern.

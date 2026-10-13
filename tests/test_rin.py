@@ -6,7 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from helpers import D, NO_SLIP, T0, make_candle, make_setup, snapshot
+from helpers import D, NO_SLIP, T0, inst, make_candle, make_setup, snapshot
 
 from trading.agents import AgentName, MarketContext, RinConfig, RuleBasedRin
 from trading.clock import FixedClock
@@ -84,9 +84,34 @@ def test_empty_universe_allows_nothing():
 def test_universe_rejects_malformed_whitelist_entries_and_odd_inputs():
     with pytest.raises(ValueError):
         TradingUniverse.of(spot=["btc-usd"])
-    assert not UNIVERSE.allows(None, MarketType.SPOT)
-    assert not UNIVERSE.allows("BTC-USD", "spot")  # Enum erforderlich
+    assert UNIVERSE.allows(inst("BTC-USD", MarketType.SPOT))
+    assert not UNIVERSE.allows(None) and not UNIVERSE.allows("BTC-USD")  # nur vollstaendige Instrument-Schluessel
+    assert not UNIVERSE.allows(dataclasses.replace(inst(), market_type="spot"))  # Enum erforderlich
     assert is_well_formed_symbol("BTC-USD") and not is_well_formed_symbol(b"BTC-USD")
+
+
+def test_instrument_must_match_in_exchange_market_type_and_pair():
+    """H1: Dasselbe Paar an einer anderen Boerse oder in einer anderen Marktart ist nicht erlaubt,
+    nur weil es anderswo auf der Whitelist steht."""
+    from trading.domain.instrument import Exchange
+
+    coinbase_spot = TradingUniverse.of(spot=["BTC-USD"], exchange=Exchange.COINBASE)
+    _, rin = make_rin(universe=coinbase_spot)
+    assert R.INVALID_SYMBOL in check(rin=rin).reject_reasons  # synthetische Boerse: nicht erlaubt
+    cb = check(make_setup(exchange=Exchange.COINBASE), {"exchange": Exchange.COINBASE}, rin=rin)
+    assert cb.approve
+    # Marktdaten einer ANDEREN Boerse fuer dieses Setup: abgelehnt
+    mixed = check(make_setup(exchange=Exchange.COINBASE), {"exchange": Exchange.BITGET}, rin=rin)
+    assert R.SYMBOL_MISMATCH in mixed.reject_reasons
+    merged = coinbase_spot.merged(TradingUniverse.of(futures=["BTC-USD"], exchange=Exchange.BITGET))
+    assert merged.allows(inst("BTC-USD", MarketType.FUTURES, Exchange.BITGET))
+    assert not merged.allows(inst("BTC-USD", MarketType.SPOT, Exchange.BITGET))
+
+
+def test_history_candles_of_another_instrument_are_rejected():
+    futures_candle = make_candle(T0 - timedelta(minutes=1), D(100), D("100.5"), D("99.5"), D(100),
+                                 market_type=MarketType.FUTURES)
+    assert R.BAD_CANDLE in check(candles=[futures_candle]).reject_reasons  # Spot-Setup, Futures-Kerze
 
 
 def test_snapshot_for_another_pair_is_a_mismatch():
@@ -318,9 +343,14 @@ def test_all_violations_are_reported_together_with_plain_text():
 
 
 def test_rejection_never_raises_for_garbage_setup():
-    garbage = dataclasses.replace(make_setup(), side="long", market_type="spot", entry="x")
-    op = check(garbage)
-    assert not op.approve
+    for garbage in (
+        dataclasses.replace(make_setup(), side="long", entry="x"),
+        dataclasses.replace(make_setup(), instrument="BTC-USD"),
+        dataclasses.replace(make_setup(), instrument=None),
+        dataclasses.replace(make_setup(), instrument=dataclasses.replace(inst(), market_type="spot")),
+    ):
+        op = check(garbage)
+        assert not op.approve and op.reject_reasons
 
 
 def test_config_cannot_loosen_data_limits_or_use_nonpositive_thresholds():

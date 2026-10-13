@@ -1,4 +1,4 @@
-"""Synthetische (erfundene) Marktdaten fuer Tests und Demos.
+"""Synthetische (erfundene) Marktdaten fuer Tests, Demos und Backtests.
 
 Reproduzierbar: gleicher `seed` ergibt exakt die gleichen Kerzen. Es werden keine echten
 Marktdaten verwendet. Ergebnisse darauf sagen NICHTS ueber echte Profitabilitaet aus - sie
@@ -11,10 +11,40 @@ import math
 import random
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Iterator, List, Optional
+from typing import Iterator, List, Optional, Sequence
 
-from trading.domain.models import Candle, MarketSnapshot, MarketType
+from trading.domain.instrument import Exchange, InstrumentId, MarketType
+from trading.domain.models import Candle, FundingEvent, MarketSnapshot
+from trading.marketdata.candles import is_aware
 from trading.marketdata.feed import MarketDataFeed
+
+
+def snapshot_from_price(
+    instrument: InstrumentId,
+    time: datetime,
+    price: Decimal,
+    spread_bps: Decimal,
+    funding_rate: Optional[Decimal] = None,
+    candle: Optional[Candle] = None,
+) -> MarketSnapshot:
+    """Momentaufnahme mit symmetrischem Spread um `price` (z. B. Eroeffnungs- oder Schlusskurs einer Kerze)."""
+    half = price * spread_bps / 20000
+    return MarketSnapshot(instrument, time, price - half, price + half, price, candle, funding_rate)
+
+
+def funding_events(
+    candles: Sequence[Candle], rate: Decimal, interval_hours: int = 8
+) -> List[FundingEvent]:
+    """Erzeugt Funding-Abrechnungen zu jedem vollen `interval_hours`-Raster (UTC), an dem eine Kerze schliesst.
+    Bewertungskurs ist der Schlusskurs dieser Kerze."""
+    step = timedelta(hours=interval_hours)
+    out: List[FundingEvent] = []
+    for c in candles:
+        t = c.close_time
+        midnight = t.replace(hour=0, minute=0, second=0, microsecond=0)
+        if (t - midnight) % step == timedelta(0):
+            out.append(FundingEvent(c.instrument, t, rate, c.close))
+    return out
 
 
 class SyntheticMarket(MarketDataFeed):
@@ -31,9 +61,11 @@ class SyntheticMarket(MarketDataFeed):
         market_type: MarketType = MarketType.SPOT,
         funding_rate: Optional[Decimal] = None,
         tick: Decimal = Decimal("0.01"),
+        exchange: Exchange = Exchange.SYNTHETIC,
     ) -> None:
-        if start_time is None or start_time.tzinfo is None:
+        if start_time is None or not is_aware(start_time):
             raise ValueError("start_time (UTC, timezone-aware) ist Pflicht.")
+        self.instrument = InstrumentId(exchange, market_type, symbol)
         self.symbol = symbol
         self.market_type = market_type
         self.interval_s = interval_s
@@ -64,7 +96,7 @@ class SyntheticMarket(MarketDataFeed):
         high = max(self._q(float(max(o, c)) * (1 + wick_up)), o, c)
         low = min(self._q(float(min(o, c)) * (1 - wick_dn)), o, c)
         volume = self._q(10 + self._rng.random() * 90)
-        candle = Candle(self.symbol, self._next_open, self.interval_s, o, high, low, c, volume)
+        candle = Candle(self.instrument, self._next_open, self.interval_s, o, high, low, c, volume)
         self._price = c
         self._next_open = self._next_open + timedelta(seconds=self.interval_s)
         return candle
@@ -74,16 +106,8 @@ class SyntheticMarket(MarketDataFeed):
 
     def snapshot_for(self, candle: Candle) -> MarketSnapshot:
         """Marktzustand zum Schlusszeitpunkt der Kerze."""
-        half_spread = candle.close * self.spread_bps / 20000
-        return MarketSnapshot(
-            symbol=self.symbol,
-            market_type=self.market_type,
-            timestamp=candle.close_time,
-            bid=candle.close - half_spread,
-            ask=candle.close + half_spread,
-            last=candle.close,
-            candle=candle,
-            funding_rate=self.funding_rate,
+        return snapshot_from_price(
+            self.instrument, candle.close_time, candle.close, self.spread_bps, self.funding_rate, candle
         )
 
     def snapshots(self) -> Iterator[MarketSnapshot]:

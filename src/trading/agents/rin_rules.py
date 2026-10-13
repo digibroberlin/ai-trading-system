@@ -4,7 +4,8 @@ RIN beantwortet: "Ist dieses Setup auf diesen Marktdaten formal und plausibel in
 RIN hat Vetorecht, ersetzt aber NICHT den Risikomanager (der prueft unabhaengig nochmals).
 
 Geprueft wird (alle Verstoesse werden gesammelt):
-  1. Handelspaar: korrektes Format UND ausdruecklich erlaubt (Whitelist je Markt); passt zum Snapshot
+  1. Instrument (Boerse + Marktart + Handelspaar): formal korrekt UND ausdruecklich erlaubt (Whitelist);
+     die Marktdaten muessen zu GENAU diesem Instrument gehoeren (Spot und Futures werden nie vermischt)
   2. Spot-Short ist verboten
   3. Marktdaten: vollstaendig, endlich, aktuell, Bid <= Ask, Spread, Kurssprung, Kerzen konsistent
   4. Setup selbst: vollstaendig (nur endliche Decimal-Werte), nicht veraltet, nicht aus der Zukunft
@@ -28,11 +29,13 @@ from trading.agents.contracts import AgentOpinion, MarketContext
 from trading.agents.rin import RinAgent
 from trading.ai.provider import AIProvider
 from trading.clock import Clock
-from trading.domain.models import MarketType, Side, TradeSetup
+from trading.domain.instrument import InstrumentId, MarketType
+from trading.domain.models import Side, TradeSetup
 from trading.domain.numeric import is_finite_decimal, is_positive_decimal
 from trading.domain.reasons import RejectReason as R
 from trading.domain.universe import TradingUniverse
 from trading.execution.costs import CostModel
+from trading.marketdata.candles import candle_problems
 from trading.safety.data_validator import SnapshotValidator
 from trading.safety.limits import (
     HARD_MAX_DATA_AGE_S,
@@ -126,15 +129,18 @@ class RuleBasedRin(RinAgent):
         cfg = self._config
         snap = context.snapshot
 
-        # --- 1./2. Handelspaar und Markt ---
-        if not self._universe.allows(setup.symbol, setup.market_type):
-            fail(R.INVALID_SYMBOL, "Handelspaar %r ist fuer %s nicht erlaubt" % (
-                setup.symbol, getattr(setup.market_type, "value", setup.market_type)))
-        if snap.symbol != setup.symbol or snap.market_type != setup.market_type:
-            fail(R.SYMBOL_MISMATCH, "Marktdaten gehoeren nicht zum Handelspaar des Setups")
-        if setup.market_type is MarketType.SPOT and setup.side is Side.SHORT:
+        # --- 1./2. Instrument und Markt ---
+        instrument = setup.instrument
+        if not isinstance(instrument, InstrumentId):
+            fail(R.INVALID_SYMBOL, "Instrument fehlt")
+            return None
+        if not self._universe.allows(instrument):
+            fail(R.INVALID_SYMBOL, "Instrument %s ist nicht erlaubt" % instrument.key)
+        if snap.instrument != instrument:
+            fail(R.SYMBOL_MISMATCH, "Marktdaten gehoeren nicht zum Instrument des Setups")
+        if instrument.market_type is MarketType.SPOT and setup.side is Side.SHORT:
             fail(R.SPOT_SHORT_NOT_ALLOWED, "Spot-Short ist verboten")
-        if not isinstance(setup.side, Side) or not isinstance(setup.market_type, MarketType):
+        if not isinstance(setup.side, Side) or not isinstance(instrument.market_type, MarketType):
             fail(R.MISSING_DATA, "Seite oder Markttyp fehlen/ungueltig")
             return None
 
@@ -200,7 +206,7 @@ class RuleBasedRin(RinAgent):
 
         # --- 8. Netto-Chance-Risiko ---
         funding = snap.funding_rate if (
-            setup.market_type is MarketType.FUTURES and is_finite_decimal(snap.funding_rate)
+            instrument.market_type is MarketType.FUTURES and is_finite_decimal(snap.funding_rate)
         ) else None
         risk_unit = c.worst_case_loss(setup.side, D(1), fill, setup.stop_loss, funding)
         reward_unit = (
@@ -235,7 +241,7 @@ class RuleBasedRin(RinAgent):
             return
         prev = None
         for cd in candles:
-            if not SnapshotValidator._candle_ok(cd, context.snapshot.symbol):
+            if candle_problems(cd, context.snapshot.instrument):
                 fail(R.BAD_CANDLE, "Kerze unvollstaendig oder in sich widerspruechlich")
                 return
             if prev is not None and cd.open_time < prev.close_time:

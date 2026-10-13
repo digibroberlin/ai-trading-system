@@ -4,7 +4,7 @@ from decimal import Decimal
 from typing import ClassVar, Iterable, List, Optional, Sequence
 
 from trading.agents.base import AgentName, BaseAgent
-from trading.agents.contracts import AgentOpinion, SizingProposal
+from trading.agents.contracts import AgentOpinion, ExitSignal, SizingProposal
 from trading.ai.provider import AIProvider
 from trading.audit.event_log import EventLog
 from trading.audit.events import EventType
@@ -48,6 +48,19 @@ class AkiAgent(BaseAgent):
         self._log.append(
             EventType.SETUP_BLOCKED,
             {"setup": setup, "stage": stage, "reasons": tuple(reasons), "details": details},
+        )
+
+    def record_exit_signal(self, signal: ExitSignal) -> None:
+        self._log.append(EventType.EXIT_SIGNAL, {"agent": AgentName.MOMO, "signal": signal})
+
+    def record_exit_blocked(
+        self, signal: ExitSignal, stage: str, reasons: Iterable[RejectReason]
+    ) -> None:
+        """Ein Ausstiegssignal, das nicht ausgefuehrt werden konnte (die Position bleibt mit ihrem Stop)."""
+        self._log.append(
+            EventType.CLOSE_REJECTED,
+            {"request_id": signal.signal_id, "instrument": signal.instrument.key, "stage": stage,
+             "reasons": tuple(reasons)},
         )
 
     def record_system_error(self, source: str, message: str) -> None:

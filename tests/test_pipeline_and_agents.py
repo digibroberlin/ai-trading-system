@@ -193,7 +193,110 @@ def test_aki_statistics_after_a_full_round_trip():
     env = Env()
     pipe, aki = build(env)
     pipe.run_cycle(ctx(env))
-    trades = env.executor.on_candle(make_candle(T0, D(100), D(103), D(100), D(102)))
+    trades = env.feed(make_candle(T0, D(100), D(103), D(100), D(102)))
     aki.register_closed_trades(trades)
     stats = aki.performance(env.equity0)
     assert stats.trade_count == 1 and stats.wins == 1 and stats.net_pnl > 0
+
+
+# ------------------------------------------------------------------ Stufe 1: getrennte Schritte, Ausstiegssignale, neutrale Agenten
+
+
+def exit_signal(symbol="BTC-USD", sid="x1"):
+    from helpers import inst
+    from trading.agents import ExitSignal
+
+    return ExitSignal(sid, inst(symbol), "test", T0, "Trend gedreht")
+
+
+def test_proposing_and_executing_are_separate_steps_with_separate_market_data():
+    """Ein Setup entsteht aus den Daten des Entscheidungszeitpunkts und wird mit den Daten des
+    Ausfuehrungszeitpunkts geprueft und dimensioniert."""
+    from trading.agents import RuleBasedSora, SizingPolicy
+    from trading.safety.limits import DEFAULT_LIMITS
+
+    env = Env()
+    pipe, _ = build(env, sora=RuleBasedSora(SizingPolicy.from_limits(DEFAULT_LIMITS), env.risk.costs))
+    setups = pipe.propose(ctx(env))
+    assert [s.setup_id for s in setups] == ["s1"] and types(env) == ["SETUP_PROPOSED"]
+    assert env.executor.open_positions == ()  # ein Vorschlag ist noch kein Handel
+    out = pipe.process_setup(setups[0], MarketContext(env.snap(mid=D("100.5"))))  # Kurs bei Ausfuehrung: 100,5
+    assert out.executed and out.result.position.entry_price == D("100.5")
+    # dimensioniert wurde mit dem Ausfuehrungskurs (Stop-Abstand 1,5 statt 1): Risiko bleibt bei 0,4 %
+    assert D("39.9") < out.result.position.risk_at_open <= D(40)
+
+
+def test_size_computed_from_the_proposal_price_is_stopped_when_the_market_has_moved():
+    env = Env()
+    pipe, _ = build(env)  # Test-SORA rechnet (falsch) mit dem Wunsch-Entry 100
+    (setup,) = pipe.propose(ctx(env))
+    out = pipe.process_setup(setup, MarketContext(env.snap(mid=D("100.5"))))
+    assert out.stage == "EXECUTOR" and R.TRADE_RISK_TOO_HIGH in out.reasons  # der Risikomanager faengt es ab
+
+
+def test_setup_without_execution_data_is_blocked_and_documented():
+    env = Env()
+    pipe, _ = build(env)
+    (setup,) = pipe.propose(ctx(env))
+    out = pipe.process_setup(setup, None)
+    assert not out.executed and out.reasons == (R.NO_MARKET_DATA,)
+    assert env.log.of_type(EventType.SETUP_BLOCKED)[0].payload["stage"] == "PIPELINE"
+
+
+def test_exit_signal_closes_the_position_and_is_documented():
+    env = Env()
+    pipe, _ = build(env, momo=StubMomo([make_setup("s1")], exits=[exit_signal()]))
+    pipe.run_cycle(ctx(env))
+    env.clock.advance(60)
+    signals = pipe.propose_exits(ctx(env), env.executor.open_positions)
+    assert [s.signal_id for s in signals] == ["x1"]
+    out = pipe.process_exit(signals[0], MarketContext(env.snap(mid=D(101))))
+    assert out.closed and out.result.trade.exit_reason.value == "signal"
+    assert env.executor.open_positions == ()
+    assert types(env)[-2:] == ["EXIT_SIGNAL", "POSITION_CLOSED"]
+    assert env.log.of_type(EventType.EXIT_SIGNAL)[0].payload["signal"]["rationale"] == "Trend gedreht"
+
+
+def test_exit_signal_that_cannot_be_executed_keeps_the_position_and_leaves_a_trace():
+    env = Env()
+    pipe, _ = build(env, momo=StubMomo([make_setup("s1")], exits=[exit_signal(), exit_signal("ETH-USD", "x2")]))
+    pipe.run_cycle(ctx(env))
+    env.clock.advance(60)
+    s1, s2 = pipe.propose_exits(ctx(env), env.executor.open_positions)
+    no_data = pipe.process_exit(s1, None)
+    assert not no_data.closed and no_data.reasons == (R.NO_MARKET_DATA,)
+    stale = pipe.process_exit(s1, MarketContext(env.snap(ts=env.clock.now() - timedelta(seconds=20))))
+    assert not stale.closed and stale.reasons == (R.STALE_DATA,)
+    nothing = pipe.process_exit(s2, MarketContext(env.snap(symbol="ETH-USD")))
+    assert nothing.reasons == (R.NO_POSITION,)
+    assert len(env.executor.open_positions) == 1
+    rejected = [e.payload for e in env.log.of_type(EventType.CLOSE_REJECTED)]
+    assert [tuple(p["reasons"]) for p in rejected] == [("NO_MARKET_DATA",), ("STALE_DATA",), ("NO_POSITION",)]
+    assert rejected[0]["stage"] == "PIPELINE"
+
+
+def test_crashing_momo_produces_no_exit_signals_and_is_logged():
+    env = Env()
+    pipe, _ = build(env, momo=BrokenMomo())
+    assert pipe.propose_exits(ctx(env), ()) == []
+    assert len(env.log.of_type(EventType.SYSTEM_ERROR)) == 1
+
+
+def test_default_momo_has_no_exit_signals():
+    assert MomoAgent.exit_signals(StubMomo([]), [], []) == []
+
+
+def test_neutral_placeholder_agents_approve_without_a_verdict_but_never_bypass_rin_or_the_risk_manager():
+    from trading.agents import NeutralKibo, NeutralYuzu
+
+    env = Env()
+    setup = make_setup("s1")
+    for agent, name in ((NeutralKibo(), AgentName.KIBO), (NeutralYuzu(), AgentName.YUZU)):
+        op = agent.evaluate(setup, MarketContext(env.snap()))
+        assert op.approve and op.agent is name and op.score == D("0.5") and "Platzhalter" in op.reasons[0]
+    # RIN blockiert trotzdem, und eine zu grosse Position scheitert weiter am Risikomanager:
+    pipe, _ = build(env, rin=StubRin(approve=False), kibo=NeutralKibo(), yuzu=NeutralYuzu())
+    assert pipe.run_cycle(ctx(env))[0].stage == "RIN"
+    pipe, _ = build(env, setups=[make_setup("s2")], kibo=NeutralKibo(), yuzu=NeutralYuzu(),
+                    sora=StubSora(env.risk.costs, override_qty=D(100)))
+    assert pipe.run_cycle(ctx(env))[0].stage == "EXECUTOR"

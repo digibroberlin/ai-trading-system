@@ -20,7 +20,7 @@ from trading.audit.events import EventType
 from trading.domain.models import MarketType, Side
 from trading.domain.reasons import RejectReason as R
 from trading.domain.universe import TradingUniverse
-from trading.marketdata.synthetic import SyntheticMarket
+from trading.marketdata.synthetic import SyntheticMarket, funding_events
 from trading.pipeline import TradingPipeline
 from trading.safety.limits import DEFAULT_LIMITS
 
@@ -55,7 +55,7 @@ def test_full_flow_with_real_rin_and_sora_fills_and_logs():
     sizing = env.log.of_type(EventType.SIZING_PROPOSED)[0].payload["sizing"]
     assert sizing["approve"] is True and D(sizing["planned_loss"]) == pos.risk_at_open
     # Das Ergebnis des Trades in AKI:
-    trades = env.executor.on_candle(make_candle(T0, D(100), D(103), D(100), D(102.6)))
+    trades = env.feed(make_candle(T0, D(100), D(103), D(100), D("102.6")))
     aki.register_closed_trades(trades)
     assert aki.performance(env.equity0).wins == 1
 
@@ -81,29 +81,27 @@ def test_rin_blocks_arrive_with_specific_machine_readable_reasons(setup_kw, snap
     assert reason.value in blocked["reasons"] and blocked["stage"] == stage and blocked["details"]
 
 
-def test_sora_blocks_when_the_two_percent_budget_is_used_up():
-    env = Env()
-    # Hebel-Positionen bis das Budget aufgebraucht ist (verschiedene Maerkte)
-    setups = [make_setup("f%d" % i, symbol="BTC-USD" if i == 0 else "ETH-USD",
-                         market_type=MarketType.FUTURES) for i in range(2)]
-    pipe, _ = build(env, setups)
-    # Vorhandenes Risiko simulieren: eine fremde Position, die fast alles belegt
-    env.order("pre", qty=D(40), lev=D(2), symbol="XRP-USD", market_type=MarketType.FUTURES,
-              snap_kw=dict(FUT, symbol="XRP-USD"))
-    env.order("pre2", qty=D(40), lev=D(2), symbol="SOL-USD", market_type=MarketType.FUTURES,
-              snap_kw=dict(FUT, symbol="SOL-USD"))
-    env.order("pre3", qty=D(40), lev=D(2), symbol="ADA-USD", market_type=MarketType.FUTURES,
-              snap_kw=dict(FUT, symbol="ADA-USD"))
-    env.order("pre4", qty=D(40), lev=D(2), symbol="LTC-USD", market_type=MarketType.FUTURES,
-              snap_kw=dict(FUT, symbol="LTC-USD"))
-    ctxs = [MarketContext(env.snap(symbol=s, **FUT)) for s in ("BTC-USD", "ETH-USD")]
-    out = pipe.run_cycle(ctxs)
-    # 4 Positionen = ca. 1,8 % belegt: der Rest reicht nur fuer eine kleine Position, danach ist Schluss
-    assert out[0].executed
-    assert not out[1].executed and out[1].stage == "SORA"
-    assert R.PORTFOLIO_RISK_TOO_HIGH in out[1].reasons or R.TOO_MANY_POSITIONS in out[1].reasons
+def test_sora_shrinks_into_the_remaining_budget_and_blocks_when_it_is_used_up():
+    """Gesamtrisiko hier auf 1 % verschaerft: 0,4 % + 0,4 % + Rest 0,2 % - danach ist Schluss."""
+    limits = DEFAULT_LIMITS.tightened(max_portfolio_risk=D("0.01"))
+    env = Env(limits=limits)
+    symbols = ["AAA-USD", "BBB-USD", "CCC-USD", "DDD-USD"]
+    setups = [make_setup("w%d" % i, symbol=s, stop=D(95), tp=D(115)) for i, s in enumerate(symbols)]
+    rin = RuleBasedRin(TradingUniverse.of(spot=symbols), env.clock, None, env.risk.costs)
+    sora = RuleBasedSora(SizingPolicy.from_limits(limits), env.risk.costs)
+    pipe = TradingPipeline(StubMomo(setups), rin, StubKibo(), StubYuzu(), sora, AkiAgent(env.log), env.executor)
+    out = pipe.run_cycle([MarketContext(env.snap(symbol=s)) for s in symbols])
+
+    assert [o.executed for o in out] == [True, True, True, False]
+    risks = [o.result.position.risk_at_open for o in out[:3]]
+    # 1 % von rund 9 999 = 99,99; zwei Positionen belegen je 39,53 Restrisiko (40 minus 0,47 Gebuehr).
+    # Fuer die dritte bleiben rund 20,9 Restrisiko = 21,2 Hoechstverlust inkl. ihrer Einstiegsgebuehr.
+    assert risks[0] > D("39.9") and risks[1] > D("39.9") and D(20) < risks[2] < D("21.5")
+    assert out[3].stage == "SORA" and R.PORTFOLIO_RISK_TOO_HIGH in out[3].reasons
     st = env.executor.portfolio_state()
-    assert st.open_risk / st.equity <= D("0.02")
+    assert D("0.0099") < st.open_risk / st.equity <= D("0.01")  # Budget genutzt, nie ueberschritten
+    blocked = env.log.of_type(EventType.SETUP_BLOCKED)[0].payload
+    assert blocked["stage"] == "SORA" and "PORTFOLIO_RISK_TOO_HIGH" in blocked["reasons"]
 
 
 def test_rin_does_not_replace_the_risk_manager_executor_still_checks_independently():
@@ -138,7 +136,9 @@ def test_synthetic_market_run_through_rin_and_sora_never_breaks_limits():
     for i in range(400):
         candle = market.next_candle()
         env.clock.set(candle.close_time)
-        env.executor.on_candle(candle, D("0.0001"))
+        env.executor.on_candle(candle)
+        for event in funding_events([candle], D("0.0001")):
+            env.executor.apply_funding(event)
         snap = market.snapshot_for(candle)
         if i % 5 == 0:
             p = snap.ask

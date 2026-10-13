@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from typing import Mapping, Optional, Tuple
 
 from trading.agents.base import AgentName
+from trading.domain.instrument import InstrumentId
 from trading.domain.models import Candle, MarketSnapshot
 from trading.domain.reasons import RejectReason
 
 
 @dataclass(frozen=True)
 class MarketContext:
-    """Alles, was ein Agent ueber einen Markt sehen darf (nur lesend)."""
+    """Alles, was ein Agent ueber einen Markt sehen darf (nur lesend).
+
+    `candles` enthaelt ausschliesslich ABGESCHLOSSENE Kerzen bis zum Entscheidungszeitpunkt."""
 
     snapshot: MarketSnapshot
     candles: Tuple[Candle, ...] = ()
@@ -52,3 +56,14 @@ class SizingProposal:
     notional: Decimal = Decimal(0)
     margin: Decimal = Decimal(0)
     liquidation_price: Optional[Decimal] = None
+
+
+@dataclass(frozen=True)
+class ExitSignal:
+    """Ausstiegssignal fuer eine offene Position (von MOMO bzw. einer Strategie)."""
+
+    signal_id: str
+    instrument: InstrumentId
+    strategy: str
+    created_at: datetime
+    rationale: str = ""

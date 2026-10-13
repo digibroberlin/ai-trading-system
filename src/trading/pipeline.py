@@ -6,6 +6,14 @@
 Jede Stufe darf blockieren. AKI dokumentiert jeden Schritt. Faellt ein Agent aus (Exception),
 gilt das als Blockade ("fail closed"), nie als Freigabe.
 
+Vorschlagen und Ausfuehren sind getrennte Schritte (`propose` / `process_setup`): Ein Setup entsteht
+zu einem Entscheidungszeitpunkt aus den bis dahin bekannten Daten und wird mit den Marktdaten des
+AUSFUEHRUNGSZEITPUNKTS geprueft und dimensioniert. `run_cycle` erledigt beides in einem Zug.
+
+Ausstiegssignale (`propose_exits` / `process_exit`) durchlaufen keine Chance-Risiko-Pruefung: Eine
+Schliessung senkt das Risiko. Die Marktdaten prueft der Executor trotzdem; ohne gueltigen Kurs wird
+nicht geschlossen, und die Position bleibt mit ihrem Stop-Loss bestehen.
+
 Die Freigaberegel ist absichtlich streng und einfach: RIN, KIBO und YUZU muessen alle
 zustimmen. Gewichtung/Scoring kommt spaeter, wenn Backtests Belege liefern.
 
@@ -17,20 +25,22 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
+from typing import Callable, List, Optional, Sequence, Tuple, TypeVar
 
 from trading.agents.aki import AkiAgent
-from trading.agents.contracts import AgentOpinion, MarketContext
+from trading.agents.contracts import AgentOpinion, ExitSignal, MarketContext
 from trading.agents.kibo import KiboAgent
 from trading.agents.momo import MomoAgent
 from trading.agents.rin import RinAgent
 from trading.agents.sora import SoraAgent
 from trading.agents.yuzu import YuzuAgent
 from trading.domain.models import (
+    CloseResult,
     ExecutionResult,
-    MarketType,
+    ExitReason,
     OrderIntent,
     OrderStatus,
+    Position,
     TradeSetup,
 )
 from trading.domain.reasons import RejectReason
@@ -46,6 +56,14 @@ class CycleOutcome:
     stage: str  # Stufe, an der es endete (z. B. "RIN", "EXECUTOR", "FILLED")
     reasons: Tuple[RejectReason, ...] = ()
     result: Optional[ExecutionResult] = None
+
+
+@dataclass(frozen=True)
+class ExitOutcome:
+    signal: ExitSignal
+    closed: bool
+    reasons: Tuple[RejectReason, ...] = ()
+    result: Optional[CloseResult] = None
 
 
 class TradingPipeline:
@@ -64,50 +82,90 @@ class TradingPipeline:
         self._executor = executor
         self._lock = threading.RLock()
 
-    def run_cycle(self, contexts: Sequence[MarketContext]) -> List[CycleOutcome]:
-        outcomes = []  # type: List[CycleOutcome]
+    # ------------------------------------------------------------------ Einstiege
+
+    def propose(self, contexts: Sequence[MarketContext]) -> List[TradeSetup]:
+        """MOMO schlaegt Setups vor; jeder Vorschlag wird dokumentiert. Ein Fehler ergibt keine Vorschlaege."""
         try:
-            setups = self._momo.scan(contexts)
+            setups = list(self._momo.scan(contexts))
         except Exception as exc:  # noqa: BLE001 - jeder Agentenfehler ist eine Blockade
             self._aki.record_system_error("MOMO", repr(exc))
-            return outcomes
-
-        by_market = {
-            (c.snapshot.symbol, c.snapshot.market_type): c for c in contexts
-        }  # type: Dict[Tuple[str, MarketType], MarketContext]
-
+            return []
         for setup in setups:
             self._aki.record_setup(setup)
-            ctx = by_market.get((setup.symbol, setup.market_type))
-            if ctx is None:
-                outcomes.append(self._block(setup, "PIPELINE", (RejectReason.NO_MARKET_DATA,)))
-                continue
+        return setups
 
-            blocked = self._opinions(setup, ctx)
-            if blocked is not None:
-                outcomes.append(blocked)
-                continue
+    def process_setup(self, setup: TradeSetup, ctx: Optional[MarketContext]) -> CycleOutcome:
+        """Prueft, dimensioniert und fuehrt EIN Setup mit den Marktdaten `ctx` aus (oder blockiert es)."""
+        if ctx is None:
+            return self.reject_setup(setup, "PIPELINE", (RejectReason.NO_MARKET_DATA,))
+        blocked = self._opinions(setup, ctx)
+        if blocked is not None:
+            return blocked
+        with self._lock:
+            return self._size_and_execute(setup, ctx)
 
-            with self._lock:
-                outcomes.append(self._size_and_execute(setup, ctx))
-        return outcomes
+    def run_cycle(self, contexts: Sequence[MarketContext]) -> List[CycleOutcome]:
+        by_instrument = {c.snapshot.instrument: c for c in contexts}
+        return [
+            self.process_setup(setup, by_instrument.get(setup.instrument))
+            for setup in self.propose(contexts)
+        ]
+
+    def reject_setup(
+        self, setup: TradeSetup, stage: str, reasons: Tuple[RejectReason, ...], details: str = ""
+    ) -> CycleOutcome:
+        self._aki.record_blocked(setup, stage, reasons, details)
+        return CycleOutcome(setup, False, stage, reasons)
+
+    # ------------------------------------------------------------------ Ausstiege
+
+    def propose_exits(
+        self, contexts: Sequence[MarketContext], positions: Sequence[Position]
+    ) -> List[ExitSignal]:
+        try:
+            signals = list(self._momo.exit_signals(contexts, positions))
+        except Exception as exc:  # noqa: BLE001
+            self._aki.record_system_error("MOMO", repr(exc))
+            return []
+        for signal in signals:
+            self._aki.record_exit_signal(signal)
+        return signals
+
+    def process_exit(self, signal: ExitSignal, ctx: Optional[MarketContext]) -> ExitOutcome:
+        if ctx is None:
+            return self._exit_blocked(signal, (RejectReason.NO_MARKET_DATA,))
+        snapshot = ctx.snapshot
+        with self._lock:
+            result = self._guarded(
+                lambda: self._executor.close_position(
+                    signal.instrument, snapshot, ExitReason.SIGNAL, signal.signal_id
+                )
+            )
+        if result is None:
+            return self._exit_blocked(signal, (RejectReason.EXECUTION_ERROR,))
+        return ExitOutcome(signal, result.closed, result.reasons, result)  # der Executor protokolliert selbst
+
+    def _exit_blocked(self, signal: ExitSignal, reasons: Tuple[RejectReason, ...]) -> ExitOutcome:
+        self._aki.record_exit_blocked(signal, "PIPELINE", reasons)
+        return ExitOutcome(signal, False, reasons)
 
     # ------------------------------------------------------------------ intern
 
     def _opinions(self, setup: TradeSetup, ctx: MarketContext) -> Optional[CycleOutcome]:
         """RIN, KIBO, YUZU nacheinander. Gibt eine Blockade zurueck oder None (alle stimmen zu)."""
-        checks = (
+        checks: Tuple[Tuple[str, Callable[[], AgentOpinion]], ...] = (
             ("RIN", lambda: self._rin.validate(setup, ctx)),
             ("KIBO", lambda: self._kibo.evaluate(setup, ctx)),
             ("YUZU", lambda: self._yuzu.evaluate(setup, ctx)),
-        )  # type: Tuple[Tuple[str, Callable[[], AgentOpinion]], ...]
+        )
         for stage, check in checks:
             opinion = self._guarded(check)
             if opinion is None:
-                return self._block(setup, stage, (RejectReason.AGENT_ERROR,))
+                return self.reject_setup(setup, stage, (RejectReason.AGENT_ERROR,))
             self._aki.record_opinion(opinion)
             if not opinion.approve:
-                return self._block(
+                return self.reject_setup(
                     setup,
                     stage,
                     opinion.reject_reasons or (RejectReason.AGENT_REJECTED,),
@@ -120,10 +178,10 @@ class TradingPipeline:
             lambda: self._sora.size(setup, ctx, self._executor.portfolio_state())
         )
         if sizing is None:
-            return self._block(setup, "SORA", (RejectReason.AGENT_ERROR,))
+            return self.reject_setup(setup, "SORA", (RejectReason.AGENT_ERROR,))
         self._aki.record_sizing(sizing)
         if not sizing.approve:
-            return self._block(
+            return self.reject_setup(
                 setup,
                 "SORA",
                 sizing.reject_reasons or (RejectReason.AGENT_REJECTED,),
@@ -137,7 +195,7 @@ class TradingPipeline:
         )
         result = self._guarded(lambda: self._executor.submit(intent, ctx.snapshot))
         if result is None:  # z. B. Datenbankfehler: die Transaktion wurde zurueckgerollt, nichts wurde gehandelt
-            return self._block(setup, "EXECUTOR", (RejectReason.EXECUTION_ERROR,))
+            return self.reject_setup(setup, "EXECUTOR", (RejectReason.EXECUTION_ERROR,))
         if result.status is OrderStatus.FILLED:
             return CycleOutcome(setup, True, "FILLED", result=result)
         return CycleOutcome(setup, False, "EXECUTOR", result.reasons, result=result)
@@ -148,13 +206,3 @@ class TradingPipeline:
         except Exception as exc:  # noqa: BLE001
             self._aki.record_system_error("AGENT", repr(exc))
             return None
-
-    def _block(
-        self,
-        setup: TradeSetup,
-        stage: str,
-        reasons: Tuple[RejectReason, ...],
-        details: str = "",
-    ) -> CycleOutcome:
-        self._aki.record_blocked(setup, stage, reasons, details)
-        return CycleOutcome(setup, False, stage, reasons)

@@ -6,7 +6,7 @@ import threading
 from decimal import ROUND_DOWN, Decimal
 
 import pytest
-from helpers import D, NO_SLIP, make_setup, portfolio, snapshot
+from helpers import D, NO_SLIP, inst, make_setup, portfolio, snapshot
 
 from trading.agents import AgentName, MarketContext, RuleBasedSora, SizingPolicy, SoraConfig
 from trading.domain.models import MarketType, Side
@@ -106,11 +106,21 @@ def test_quantity_is_rounded_down_to_the_step_never_up():
 # ------------------------------------------------------------------ 2-%-Gesamtrisiko
 
 
+def remaining_after(p, pf):
+    """Gesamtrisiko NACH dem Trade wie im Risikomanager: (offen + Hoechstverlust - Einstiegsgebuehr) / Equity danach."""
+    fee = NO_SLIP.fee(p.notional)
+    return (pf.open_risk + p.planned_loss - fee) / (pf.equity - fee)
+
+
 def test_remaining_budget_shrinks_position_and_zero_budget_blocks():
-    full = size(pf=portfolio(open_risk=D(160)))  # Rest genau 40 -> volles Ziel-Risiko
-    half = size(pf=portfolio(open_risk=D(180)))  # Rest 20
-    assert abs(half.quantity - full.quantity / 2) <= D("0.0002")
-    assert half.planned_loss <= D(20)
+    # Je Stueck: Restrisiko 1,0594 (= 1,1194 - 0,06 Einstiegsgebuehr); die Gebuehr mindert zudem die Equity.
+    per_unit = D("1.0594") + D("0.02") * D("0.06")
+    full = size(pf=portfolio(open_risk=D(160)))  # Rest 40 -> das Ziel-Risiko je Trade (0,4 %) begrenzt
+    assert full.quantity == floor4(D(40) / unit_loss())
+    half_pf = portfolio(open_risk=D(180))  # Rest 20 -> das Gesamtrisiko begrenzt
+    half = size(pf=half_pf)
+    assert half.quantity == floor4(D(20) / per_unit)  # 18,8572
+    assert D("0.0199999") < remaining_after(half, half_pf) <= D("0.02")  # Budget ausgeschoepft, nie ueberschritten
     for used in (D(200), D(250)):
         blocked = size(pf=portfolio(open_risk=used))
         assert not blocked.approve and R.PORTFOLIO_RISK_TOO_HIGH in blocked.reject_reasons
@@ -118,9 +128,11 @@ def test_remaining_budget_shrinks_position_and_zero_budget_blocks():
 
 def test_risk_of_other_strategies_counts_against_the_same_budget():
     # SORA kennt keine einzelnen Strategien - es zaehlt das gemeinsame Gesamtrisiko aller Positionen.
-    own = size(make_setup(strategy="a"), pf=portfolio(open_risk=D(190)))
-    other = size(make_setup(strategy="b"), pf=portfolio(open_risk=D(190)))
-    assert own.quantity == other.quantity and own.planned_loss <= D(10)
+    pf = portfolio(open_risk=D(190))
+    own = size(make_setup(strategy="a"), pf=pf)
+    other = size(make_setup(strategy="b"), pf=pf)
+    assert own.quantity == other.quantity == floor4(D(10) / (D("1.0594") + D("0.02") * D("0.06")))
+    assert remaining_after(own, pf) <= D("0.02")
 
 
 def test_filling_the_portfolio_never_exceeds_two_percent():
@@ -138,8 +150,10 @@ def test_filling_the_portfolio_never_exceeds_two_percent():
 
 def test_stricter_limits_lower_the_budget():
     strict = SizingPolicy.from_limits(DEFAULT_LIMITS.tightened(max_portfolio_risk=D("0.01")))
-    p = size(pf=portfolio(open_risk=D(80)), sora=make_sora(policy=strict))
-    assert p.planned_loss <= D(20)  # 1 % = 100, bereits 80 belegt
+    pf = portfolio(open_risk=D(80))
+    p = size(pf=pf, sora=make_sora(policy=strict))
+    assert p.quantity == floor4(D(20) / (D("1.0594") + D("0.01") * D("0.06")))  # 1 % = 100, bereits 80 belegt
+    assert remaining_after(p, pf) <= D("0.01")
     assert not size(pf=portfolio(open_risk=D(100)), sora=make_sora(policy=strict)).approve
 
 
@@ -279,7 +293,7 @@ def test_emergency_brakes_and_portfolio_state_block():
     assert R.DAILY_LOSS_LIMIT in size(pf=portfolio(equity=D(9700), day_start=D(10000))).reject_reasons
     assert R.DRAWDOWN_LIMIT in size(pf=portfolio(equity=D(9000), peak=D(10000), day_start=D(9000))).reject_reasons
     assert R.TOO_MANY_POSITIONS in size(pf=portfolio(open_count=5)).reject_reasons
-    dup = portfolio(keys=frozenset({("BTC-USD", MarketType.SPOT)}), open_count=1)
+    dup = portfolio(keys=frozenset({inst("BTC-USD", MarketType.SPOT)}), open_count=1)
     assert R.DUPLICATE_POSITION in size(pf=dup).reject_reasons
 
 
@@ -320,7 +334,9 @@ def test_every_sora_approval_is_accepted_by_the_independent_risk_manager_random(
         free = equity * D(str(round(rng.uniform(0.02, 1.0), 3)))
         open_risk = equity * D(str(round(rng.uniform(0, 0.022), 5)))
         pf = portfolio(equity=equity, free_margin=free, open_risk=open_risk,
-                       open_count=rng.randint(0, 5))
+                       open_count=rng.randint(0, 5),
+                       gross_exposure=equity * D(str(round(rng.uniform(0, 1.05), 4))),
+                       stress_loss=equity * D(str(round(rng.uniform(0, 0.055), 5))))
         funding = D(str(round(rng.uniform(-0.001, 0.001), 6))) if mt is MarketType.FUTURES else None
         spread = D(str(round(rng.uniform(0, 8), 2)))
         costs = rng.choice([NO_SLIP, CostModel()])
@@ -334,11 +350,11 @@ def test_every_sora_approval_is_accepted_by_the_independent_risk_manager_random(
             continue
         approved += 1
         rm = RiskManager(DEFAULT_LIMITS, costs)
-        fill = costs.entry_fill_price(side, snap)
-        decision = rm.evaluate(setup, proposal.quantity, proposal.leverage, fill, funding, pf)
+        decision = rm.evaluate(setup, proposal.quantity, proposal.leverage, costs.quote(side, snap), pf)
         assert decision.approved, (case, decision.reasons, proposal)
         assert decision.worst_case_loss == proposal.planned_loss
         assert decision.risk_pct <= D("0.005") and decision.total_risk_pct_after <= D("0.02")
+        assert decision.gross_exposure_pct_after <= D(1) and decision.stress_loss_pct_after <= D("0.05")
         assert proposal.risk_pct <= D("0.004")
         assert proposal.quantity % D("0.0001") == 0 and proposal.quantity > 0
     assert approved > 300 and blocked > 100  # der Test ist nicht trivial
@@ -360,3 +376,58 @@ def test_concurrent_sizing_requests_are_deterministic_and_thread_safe():
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert errors == [] and len(out) == 64 and len(set(out)) == 1
+
+
+# ------------------------------------------------------------------ Stufe 1: Exposure, Stress, unsichere Bewertung
+
+
+def test_stress_limit_caps_positions_with_tight_stops():
+    """Enger Stop (0,4 %) erlaubt nach dem Risiko allein 77 Stueck - der 10-%-Schock begrenzt auf rund 50 %."""
+    p = size(make_setup(stop=D("99.6"), tp=D(104)))
+    stress_unit = D("10.054")  # 10 Kursverlust + 0,06 % x 90
+    assert p.approve and p.quantity == floor4(D(500) / (stress_unit + D("0.05") * D("0.06")))  # 49,7166
+    assert p.risk_pct < D("0.003")  # das Risiko-Budget wird NICHT ausgeschoepft
+    d = RM.evaluate(make_setup(stop=D("99.6"), tp=D(104)), p.quantity, p.leverage,
+                    NO_SLIP.quote(Side.LONG, snapshot()), portfolio())
+    assert d.approved and D("0.0499") < d.stress_loss_pct_after <= D("0.05")
+
+
+def test_existing_stress_and_exposure_shrink_the_new_position():
+    stressed = size(pf=portfolio(stress_loss=D(300)))  # Rest 200
+    assert stressed.quantity == floor4(D(200) / (D("10.054") + D("0.05") * D("0.06")))  # 19,8866
+    exposed = size(pf=portfolio(gross_exposure=D(8000)))  # Rest 2 000 von 10 000
+    assert exposed.quantity == floor4(D(2000) / (D(100) + D("0.06")))  # 19,9880
+    assert stressed.planned_loss < D(40) and exposed.planned_loss < D(40)  # kleiner, nie groesser
+
+
+def test_exhausted_exposure_or_stress_budget_blocks_with_the_right_reason():
+    full_exposure = size(pf=portfolio(gross_exposure=D(10000)))
+    assert not full_exposure.approve and R.GROSS_EXPOSURE_TOO_HIGH in full_exposure.reject_reasons
+    full_stress = size(pf=portfolio(stress_loss=D(500)))
+    assert not full_stress.approve and R.STRESS_LOSS_TOO_HIGH in full_stress.reject_reasons
+    assert full_stress.quantity == 0 and full_exposure.reasons  # mit Klartext
+
+
+def test_uncertain_valuation_blocks_sizing():
+    p = size(pf=portfolio(valuation_complete=False))
+    assert not p.approve and p.reject_reasons == (R.EQUITY_UNCERTAIN,)
+
+
+def test_leverage_does_not_help_against_exposure_or_stress():
+    spot = size(make_setup(stop=D("99.6"), tp=D(104)))
+    fut = size(fut_setup(stop=D("99.6"), tp=D(104)), dict(FUT, funding=D(0)))
+    assert abs(fut.quantity - spot.quantity) < D("0.01")  # gleicher Positionswert trotz moeglichem Hebel
+
+
+def test_liquidation_safety_factor_of_sora_is_stricter_than_the_limit():
+    """Stop 14 % entfernt: Bei 5x laege die Liquidation 19,5 % entfernt - genug fuer das Limit (1,25x),
+    aber nicht fuer SORAs eigenen Sicherheitsfaktor (1,5x). Also hoechstens 4x."""
+    s = make_sora(config=SoraConfig(max_leverage=D(5)))
+    p = size(fut_setup(stop=D(86), tp=D(140)), FUT, pf=portfolio(free_margin=D(50)), sora=s)
+    assert p.approve and p.leverage == D(4)
+
+
+def test_spread_costs_shrink_the_position_and_are_checked_against_equity_after_costs():
+    p = size(snap_kw={"half_spread": D("0.1")})  # Kauf zu 100,1 bei Mitte 100
+    unit = NO_SLIP.worst_case_loss(Side.LONG, D(1), D("100.1"), D(99))
+    assert p.quantity == floor4(D(40) / unit) and p.quantity < size().quantity

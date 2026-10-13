@@ -5,7 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from helpers import D, T0
+from helpers import D, T0, inst
 
 from trading.audit.stats import compute_performance
 from trading.clock import FixedClock
@@ -17,7 +17,7 @@ from trading.safety.limits import DEFAULT_LIMITS
 
 def trade(net, risk=D(50), fees=D(1), funding=D(0)):
     return ClosedTrade(
-        "P", "S", "test", "BTC-USD", MarketType.SPOT, Side.LONG, D(1), D(100), D(101), T0, T0,
+        "P", "S", "test", inst("BTC-USD", MarketType.SPOT), Side.LONG, D(1), D(100), D(101), T0, T0,
         ExitReason.TAKE_PROFIT, net + fees + funding, fees, funding, net, risk,
     )
 

@@ -2,14 +2,14 @@
 
 Aufruf:  python -m trading.demo
 
-Die Demo oeffnet fest vorgegebene Beispiel-Trades, nur um zu zeigen, dass Executor, Risiko,
-Kosten und Ereignisprotokoll zusammenspielen. Sie ist KEINE Handelsstrategie.
+Die Demo oeffnet einen fest vorgegebenen Beispiel-Trade, nur um zu zeigen, dass Executor, Risiko,
+Kosten, Funding und Ereignisprotokoll zusammenspielen. Sie ist KEINE Handelsstrategie.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from trading.audit.event_log import InMemoryEventLog
 from trading.audit.stats import compute_performance
@@ -17,7 +17,7 @@ from trading.clock import FixedClock
 from trading.config import load_settings
 from trading.domain.models import Horizon, MarketType, OrderIntent, Side, TradeSetup
 from trading.execution.paper_executor import PaperExecutor
-from trading.marketdata.synthetic import SyntheticMarket
+from trading.marketdata.synthetic import SyntheticMarket, funding_events
 from trading.safety.data_validator import SnapshotValidator
 from trading.safety.limits import DEFAULT_LIMITS
 from trading.safety.risk_manager import RiskManager
@@ -34,23 +34,20 @@ def main() -> None:
     equity = Decimal("10000")
     executor = PaperExecutor(equity, risk, SnapshotValidator(DEFAULT_LIMITS, clock), log, clock)
 
+    rate = Decimal("0.0001")
     market = SyntheticMarket(
-        start_time=start,
-        seed=7,
-        drift=0.0002,
-        volatility=0.002,
-        market_type=MarketType.FUTURES,
-        funding_rate=Decimal("0.0001"),
+        start_time=start, seed=7, drift=0.0002, volatility=0.002,
+        market_type=MarketType.FUTURES, funding_rate=rate,
     )
     first = market.next_candle()
     snap = market.snapshot_for(first)
     clock.set(snap.timestamp)
+    executor.on_candle(first)
 
     price = snap.ask
     setup = TradeSetup(
         setup_id="demo-1",
-        symbol=market.symbol,
-        market_type=MarketType.FUTURES,
+        instrument=market.instrument,
         side=Side.LONG,
         entry=price,
         stop_loss=price * Decimal("0.99"),
@@ -60,15 +57,18 @@ def main() -> None:
         created_at=snap.timestamp,
     )
     # Menge so waehlen, dass der geplante Hoechstverlust 0,4 % des Kapitals betraegt.
-    per_unit = risk.costs.worst_case_loss(Side.LONG, Decimal(1), price, setup.stop_loss)
-    quantity = (equity * Decimal("0.004") / per_unit).quantize(Decimal("0.0001"))
+    quote = risk.costs.quote(Side.LONG, snap)
+    per_unit = risk.costs.worst_case_loss(Side.LONG, Decimal(1), quote.fill_price, setup.stop_loss, rate)
+    quantity = (equity * Decimal("0.004") / per_unit).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
     result = executor.submit(OrderIntent("demo-1", setup, quantity, Decimal(2)), snap)
     print("Order: %s %s" % (result.status.value, [r.value for r in result.reasons]))
 
-    for _ in range(300):
+    for _ in range(600):
         candle = market.next_candle()
         clock.set(candle.close_time)
-        executor.on_candle(candle, funding_rate=Decimal("0.0001"))
+        executor.on_candle(candle)
+        for event in funding_events([candle], rate):
+            executor.apply_funding(event)
         if not executor.open_positions:
             break
 

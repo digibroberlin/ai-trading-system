@@ -6,7 +6,7 @@ import time
 from typing import List, Sequence
 
 import pytest
-from helpers import D, Env, make_setup, snapshot
+from helpers import D, FUT, Env, T0, inst, make_candle, make_setup, minutes
 from stubs import StubKibo, StubYuzu
 
 from trading.agents import (
@@ -19,13 +19,12 @@ from trading.agents import (
     SizingPolicy,
 )
 from trading.audit.events import EventType
-from trading.domain.models import MarketType, OrderStatus, TradeSetup
+from trading.domain.models import ExitReason, FundingEvent, MarketType, OrderStatus, TradeSetup
 from trading.domain.reasons import RejectReason as R
 from trading.domain.universe import TradingUniverse
 from trading.pipeline import TradingPipeline
 from trading.safety.limits import DEFAULT_LIMITS
 
-FUT = {"market_type": MarketType.FUTURES, "funding": D("0.0001")}
 N_PARALLEL_REPEATS = 5  # mehrere Durchlaeufe, weil Race Conditions nicht jedes Mal auftreten
 
 
@@ -71,16 +70,20 @@ def test_parallel_orders_never_exceed_the_two_percent_cap(run):
     widen_race_window(env)
 
     def place(i):
-        sym = "S%d" % i
-        return env.order("o%d" % i, qty=D(40), lev=D(2), symbol=sym, market_type=MarketType.FUTURES,
-                         snap_kw=dict(FUT, symbol=sym))
+        # Kleine Positionen mit weitem Stop (9 Stueck, Stop 95): Hoechstverlust 46,143 = 0,46 %.
+        # Vier passen unter 2 %; beim fuenften griffe NUR das Gesamtrisiko (Exposure 45 %, Stress 4,5 %).
+        sym = "S%d-USD" % i
+        return env.order("o%d" % i, qty=D(9), lev=D(2), symbol=sym, market_type=MarketType.FUTURES,
+                         stop=D(95), tp=D(110), snap_kw=dict(FUT, symbol=sym))
 
     results = run_parallel(24, place)
     filled = [r for r in results if r.status is OrderStatus.FILLED]
     rejected = [r for r in results if r.status is OrderStatus.REJECTED]
-    assert len(filled) == 4 and len(rejected) == 20  # 4 x 0,45 % passen, der 5. nicht
+    assert len(filled) == 4 and len(rejected) == 20  # 4 x 0,46 % passen, der 5. nicht
+    assert all(r.reasons == (R.PORTFOLIO_RISK_TOO_HIGH,) for r in rejected)
     state = env.executor.portfolio_state()
     assert state.open_risk / state.equity <= D("0.02")
+    assert state.gross_exposure / state.equity <= D(1) and state.stress_loss / state.equity <= D("0.05")
     assert state.open_count == 4
     assert len(env.log.of_type(EventType.ORDER_FILLED)) == 4
     assert len(env.log.of_type(EventType.ORDER_REJECTED)) == 20
@@ -111,8 +114,8 @@ def test_queries_during_trading_do_not_break_or_deadlock():
 
     def mixed(i):
         if i % 3 == 0:
-            return env.order("o%d" % i, qty=D(40), lev=D(2), symbol="S%d" % i,
-                             market_type=MarketType.FUTURES, snap_kw=dict(FUT, symbol="S%d" % i))
+            return env.order("o%d" % i, qty=D(9), lev=D(2), symbol="S%d-USD" % i, stop=D(95), tp=D(110),
+                             market_type=MarketType.FUTURES, snap_kw=dict(FUT, symbol="S%d-USD" % i))
         if i % 3 == 1:
             return env.executor.portfolio_state()
         return (env.executor.equity(), env.executor.open_positions, env.executor.closed_trades)
@@ -138,8 +141,9 @@ class OneSetupPerMarketMomo(MomoAgent):
             with self._lock:
                 n = next(self._counter)
             s = c.snapshot
+            # Weiter Stop (5 %): so begrenzt das Risiko-Budget, nicht der Stress-Test.
             out.append(make_setup("par-%d" % n, symbol=s.symbol, market_type=s.market_type,
-                                  entry=s.mid, stop=s.mid * D("0.99"), tp=s.mid * D("1.03")))
+                                  entry=s.mid, stop=s.mid * D("0.95"), tp=s.mid * D("1.15")))
         return out
 
 
@@ -194,3 +198,80 @@ def test_parallel_and_sequential_runs_end_in_the_same_risk_state():
         return s.open_count, s.open_risk / s.equity <= D("0.02")
 
     assert run(True) == run(False) == (5, True)
+
+
+# ------------------------------------------------------------------ Stufe 1: neue Operationen unter Parallelitaet
+
+
+def open_futures(env, qty=D(9)):
+    r = env.order("base", qty=qty, lev=D(2), market_type=MarketType.FUTURES, stop=D(95), tp=D(110),
+                  snap_kw=dict(FUT))
+    assert r.status is OrderStatus.FILLED
+    return inst("BTC-USD", MarketType.FUTURES)
+
+
+@pytest.mark.parametrize("run", range(N_PARALLEL_REPEATS))
+def test_parallel_close_requests_close_the_position_exactly_once(run):
+    env = Env()
+    widen_race_window(env)
+    instrument = open_futures(env)
+    snap = env.snap(**FUT)
+    results = run_parallel(16, lambda i: env.executor.close_position(instrument, snap, ExitReason.SIGNAL, "c%d" % i))
+    assert sum(r.closed for r in results) == 1
+    assert sum(r.reasons == (R.NO_POSITION,) for r in results) == 15
+    assert len(env.executor.closed_trades) == 1 and env.executor.open_positions == ()
+    assert env.executor.balance == env.equity0 + env.executor.closed_trades[0].net_pnl
+    assert len(env.log.of_type(EventType.POSITION_CLOSED)) == 1 and env.log.verify().ok
+
+
+@pytest.mark.parametrize("run", range(N_PARALLEL_REPEATS))
+def test_parallel_delivery_of_the_same_funding_event_charges_once(run):
+    env = Env()
+    instrument = open_futures(env)
+    env.clock.advance(4 * 3600)
+    event = FundingEvent(instrument, env.clock.now(), D("0.0001"), D(100))
+    costs = run_parallel(16, lambda i: env.executor.apply_funding(event))
+    assert sorted(costs)[-1] == D("0.09") and sum(costs) == D("0.09")  # 9 x 100 x 0,01 %, genau einmal
+    assert env.executor.open_positions[0].funding_paid == D("0.09")
+    assert len(env.log.of_type(EventType.FUNDING_APPLIED)) == 1
+
+
+@pytest.mark.parametrize("run", range(N_PARALLEL_REPEATS))
+def test_parallel_delivery_of_the_same_candle_is_processed_once(run):
+    env = Env()
+    open_futures(env)
+    stop_candle = make_candle(T0, D(100), D(100), D(94), D(95), market_type=MarketType.FUTURES)
+    env.clock.set(stop_candle.close_time)
+    results = run_parallel(16, lambda i: env.executor.on_candle(stop_candle))
+    assert sorted(len(r) for r in results) == [0] * 15 + [1]  # genau EIN Stop-Out
+    assert len(env.executor.closed_trades) == 1
+    rejected = [tuple(e.payload["reasons"]) for e in env.log.of_type(EventType.DATA_REJECTED)]
+    assert rejected == [("DUPLICATE_CANDLE",)] * 15
+
+
+def test_orders_closes_candles_and_funding_in_parallel_keep_the_books_consistent():
+    env = Env(equity=D(100000))
+    symbols = ["M%d-USD" % i for i in range(6)]
+
+    def work(i):
+        sym = symbols[i % 6]
+        instrument = inst(sym, MarketType.FUTURES)
+        kind = i % 4
+        if kind == 0:
+            return env.order("o%d" % i, qty=D(9), lev=D(2), symbol=sym, market_type=MarketType.FUTURES,
+                             stop=D(95), tp=D(110), snap_kw=dict(FUT, symbol=sym))
+        if kind == 1:
+            return env.executor.close_position(instrument, env.snap(symbol=sym, **FUT), ExitReason.MANUAL, "c%d" % i)
+        if kind == 2:
+            return env.executor.on_candle(make_candle(T0 - minutes(1), D(100), D(100.5), D(99.5), D(100),
+                                                      symbol=sym, market_type=MarketType.FUTURES))
+        return env.executor.apply_funding(FundingEvent(instrument, T0, D("0.0001"), D(100)))
+
+    run_parallel(48, work)
+    ex = env.executor
+    expected = env.equity0 + sum(t.net_pnl for t in ex.closed_trades) \
+        - sum(p.entry_fee + p.funding_paid for p in ex.open_positions)
+    assert ex.balance == expected
+    s = ex.portfolio_state()
+    assert s.open_count == len(ex.open_positions) == len({p.instrument for p in ex.open_positions})
+    assert s.open_risk / s.equity <= D("0.02") and env.log.verify().ok

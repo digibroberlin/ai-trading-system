@@ -37,6 +37,11 @@ def test_limits_cannot_be_changed_at_runtime():
         {"max_daily_loss": D("0.5")},
         {"max_drawdown": D("0.9")},
         {"max_data_age_s": 600},
+        {"max_gross_exposure": D("1.5")},
+        {"max_stress_loss": D("0.20")},
+        {"stress_shock": D("0.05")},
+        {"stress_shock": D("1")},
+        {"max_mark_age_s": 99999},
         {"max_spread_bps": D("500")},
         {"liquidation_buffer": D("1.0")},
         {"maintenance_margin_rate": D("0.001")},
@@ -47,6 +52,16 @@ def test_limits_cannot_be_changed_at_runtime():
 def test_limits_cannot_be_loosened(overrides):
     with pytest.raises(LimitViolationError):
         DEFAULT_LIMITS.tightened(**overrides)
+
+
+def test_exposure_and_stress_caps_have_the_agreed_values():
+    assert DEFAULT_LIMITS.max_gross_exposure == D("1.00")  # 100 % Brutto-Exposure
+    assert DEFAULT_LIMITS.stress_shock == D("0.10")  # 10 % Kursschock ...
+    assert DEFAULT_LIMITS.max_stress_loss == D("0.05")  # ... darf hoechstens 5 % der Equity kosten
+    stricter = DEFAULT_LIMITS.tightened(max_gross_exposure=D("0.5"), stress_shock=D("0.25"),
+                                        max_stress_loss=D("0.02"))
+    assert (stricter.max_gross_exposure, stricter.stress_shock, stricter.max_stress_loss) == \
+        (D("0.5"), D("0.25"), D("0.02"))
 
 
 def test_limits_can_be_tightened():

@@ -23,16 +23,23 @@ D = Decimal
 
 
 class StubMomo(MomoAgent):
-    def __init__(self, setups: Sequence[TradeSetup]) -> None:
+    def __init__(self, setups: Sequence[TradeSetup], exits=()) -> None:  # type: ignore[no-untyped-def]
         super().__init__()
         self.setups = list(setups)
+        self.exits = list(exits)
 
     def scan(self, contexts: Sequence[MarketContext]) -> List[TradeSetup]:
         return list(self.setups)
 
+    def exit_signals(self, contexts, positions):  # type: ignore[no-untyped-def]
+        return list(self.exits)
+
 
 class BrokenMomo(MomoAgent):
     def scan(self, contexts: Sequence[MarketContext]) -> List[TradeSetup]:
+        raise RuntimeError("MOMO abgestuerzt")
+
+    def exit_signals(self, contexts, positions):  # type: ignore[no-untyped-def]
         raise RuntimeError("MOMO abgestuerzt")
 
 

@@ -4,20 +4,21 @@ SORA beantwortet: "Wie gross darf diese Position hoechstens sein - oder darf sie
 eroeffnet werden?" Alle Rechnungen sind deterministisch (kein Zufall, keine KI), zustandslos
 und damit thread-sicher.
 
-Rechenweg (immer vom ERWARTETEN EINSTIEGSKURS inkl. Slippage aus, nicht vom Wunsch-Entry):
+Vorgehen (immer vom ERWARTETEN EINSTIEGSKURS inkl. Spread und Slippage aus, nie vom Wunsch-Entry):
 
-  Risikobudget     = min( Ziel-Risiko je Trade,
-                          2 % Gesamtrisiko - bereits eingeplantes Risiko aller offenen Positionen )
-                     (jeweils in % des AKTUELLEN Eigenkapitals; gilt fuer ALLE Strategien/Agenten)
-  Verlust je Stueck = Kursverlust bis Stop (inkl. Stop-Slippage) + Gebuehr Ein- und Ausstieg
-                      (+ eine Funding-Zahlung als Puffer bei Futures)
-  Menge            = Risikobudget / Verlust je Stueck   -> auf Mengenschritt ABGERUNDET
-  Hebel (Futures)  = kleinster Hebel, bei dem die Margin reicht; nie hoeher als das Limit und nur
-                     solange die Liquidation sicher HINTER dem Stop liegt. Reicht selbst der
-                     hoechste zulaessige Hebel nicht, wird die Menge verkleinert (nie vergroessert).
-
-Abrunden garantiert: der tatsaechliche Hoechstverlust liegt nie ueber dem Budget.
-Der Risikomanager im Executor prueft danach unabhaengig noch einmal.
+  1. Groesste Menge, die ALLE Grenzen zugleich einhaelt - jede Grenze liefert eine Obergrenze:
+       Risiko je Trade    (Ziel 0,4 %, hoechstens 0,5 % der Equity)
+       Gesamtrisiko       (2 %  der Equity nach dem Trade, abzueglich offener Risiken)
+       Brutto-Exposure    (100 % der Equity nach dem Trade, abzueglich offener Positionswerte)
+       Stress-Verlust     (5 %  der Equity nach dem Trade bei 10 % Kursschock gegen jede Position)
+       Margin             (hoechstens 80 % der freien Margin)
+     Die kleinste dieser Obergrenzen zaehlt; sie wird auf den Mengenschritt ABGERUNDET.
+  2. Hebel (Futures): der kleinste, bei dem die Margin reicht - nie ueber dem Limit und nur,
+     solange die Liquidation sicher HINTER dem Stop liegt. Reicht selbst der hoechste zulaessige
+     Hebel nicht, wird die Menge verkleinert (nie vergroessert).
+  3. Endkontrolle mit DERSELBEN Funktion, die auch der Risikomanager benutzt
+     (`trading.safety.order_risk.evaluate_order`). Es gibt keine zweite Regel-Implementierung:
+     Was SORA freigibt, akzeptiert der Risikomanager bei gleichem Kontostand ebenfalls.
 
 Der Agent erhaelt KEIN SafetyLimits-Objekt, sondern eine unveraenderliche Zahlenkopie
 (`SizingPolicy`), die ausserhalb des Agenten aus den Limits erzeugt wird.
@@ -26,21 +27,56 @@ Der Agent erhaelt KEIN SafetyLimits-Objekt, sondern eine unveraenderliche Zahlen
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_DOWN, Decimal
-from typing import ClassVar, List, Optional, Tuple
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
+from typing import ClassVar, Dict, List, Optional, Sequence
 
 from trading.agents.base import AgentName
 from trading.agents.contracts import MarketContext, SizingProposal
 from trading.agents.sora import SoraAgent
 from trading.ai.provider import AIProvider
-from trading.domain.models import MarketType, PortfolioState, Side, TradeSetup
+from trading.domain.instrument import MarketType, is_instrument
+from trading.domain.models import PortfolioState, RiskDecision, Side, TradeSetup
 from trading.domain.numeric import is_finite_decimal, is_positive_decimal
 from trading.domain.reasons import RejectReason as R
-from trading.execution.costs import CostModel
+from trading.execution.costs import CostModel, cost_up
 from trading.safety.limits import SafetyLimits
-from trading.safety.risk_manager import liquidation_price
+from trading.safety.order_risk import evaluate_order, liquidation_price, position_stress_loss
 
 D = Decimal
+ZERO = D(0)
+
+_TEXT: Dict[R, str] = {
+    R.MISSING_DATA: "Preis- oder Kontodaten unvollstaendig",
+    R.NON_FINITE_VALUE: "Ungueltige Zahl (NaN/Infinity/float)",
+    R.NON_POSITIVE_PRICE: "Preise muessen positiv sein",
+    R.INVALID_SYMBOL: "Instrument fehlt oder ist formal ungueltig",
+    R.SYMBOL_MISMATCH: "Marktdaten gehoeren nicht zum Instrument des Setups",
+    R.CROSSED_BOOK: "Bid ueber Ask",
+    R.NO_EQUITY: "Kein Eigenkapital",
+    R.STOP_WRONG_SIDE: "Stop-Loss liegt nicht hinter dem Einstiegskurs",
+    R.TAKE_PROFIT_WRONG_SIDE: "Take-Profit liegt nicht vor dem Einstiegskurs",
+    R.FUNDING_MISSING: "Funding-Satz fehlt (Kosten nicht bestimmbar)",
+    R.EQUITY_UNCERTAIN: "Bewertungskurse offener Positionen fehlen oder sind veraltet",
+    R.SPOT_SHORT_NOT_ALLOWED: "Spot-Short ist verboten",
+    R.TOO_MANY_POSITIONS: "Maximale Zahl offener Positionen erreicht",
+    R.DUPLICATE_POSITION: "Es gibt bereits eine Position in diesem Instrument",
+    R.DAILY_LOSS_LIMIT: "Tagesverlust-Limit erreicht",
+    R.DRAWDOWN_LIMIT: "Drawdown-Limit erreicht",
+    R.TRADE_RISK_TOO_HIGH: "Risiko je Trade waere zu hoch",
+    R.PORTFOLIO_RISK_TOO_HIGH: "Gesamtrisiko-Limit (2 %) ausgeschoepft",
+    R.GROSS_EXPOSURE_TOO_HIGH: "Brutto-Exposure-Limit (100 %) ausgeschoepft",
+    R.STRESS_LOSS_TOO_HIGH: "Stress-Limit (Verlust bei Kursschock) ausgeschoepft",
+    R.INSUFFICIENT_MARGIN: "Freie Margin reicht nicht",
+    R.LIQUIDATION_TOO_CLOSE: "Liquidation laege zu nah am Stop",
+    R.QUANTITY_TOO_SMALL: "Zulaessige Positionsgroesse liegt unter dem handelbaren Minimum",
+}
+
+# Gruende, die weder Menge noch Hebel aendern koennen: sofort blockieren.
+_SIZE_INDEPENDENT = frozenset({
+    R.NON_FINITE_VALUE, R.INVALID_SYMBOL, R.NO_EQUITY, R.INVALID_QUANTITY, R.STOP_WRONG_SIDE,
+    R.TAKE_PROFIT_WRONG_SIDE, R.FUNDING_MISSING, R.EQUITY_UNCERTAIN, R.SPOT_SHORT_NOT_ALLOWED,
+    R.TOO_MANY_POSITIONS, R.DUPLICATE_POSITION, R.DAILY_LOSS_LIMIT, R.DRAWDOWN_LIMIT,
+})
 
 
 @dataclass(frozen=True)
@@ -49,6 +85,9 @@ class SizingPolicy:
 
     max_portfolio_risk: Decimal
     max_risk_per_trade: Decimal
+    max_gross_exposure: Decimal
+    stress_shock: Decimal
+    max_stress_loss: Decimal
     max_leverage: Decimal
     max_open_positions: int
     max_daily_loss: Decimal
@@ -61,6 +100,9 @@ class SizingPolicy:
         return SizingPolicy(
             max_portfolio_risk=limits.max_portfolio_risk,
             max_risk_per_trade=limits.max_risk_per_trade,
+            max_gross_exposure=limits.max_gross_exposure,
+            stress_shock=limits.stress_shock,
+            max_stress_loss=limits.max_stress_loss,
             max_leverage=limits.max_leverage,
             max_open_positions=limits.max_open_positions,
             max_daily_loss=limits.max_daily_loss,
@@ -111,157 +153,135 @@ class RuleBasedSora(SoraAgent):
     # ------------------------------------------------------------------ Hilfsfunktionen
 
     def risk_budget(self, portfolio: PortfolioState) -> Decimal:
-        """Betrag (in Geld), den ein NEUER Trade hoechstens riskieren darf."""
-        equity = portfolio.equity
-        per_trade = min(self._cfg.risk_per_trade, self._policy.max_risk_per_trade) * equity
-        remaining = self._policy.max_portfolio_risk * equity - portfolio.open_risk
-        return max(min(per_trade, remaining), D(0))
+        """Betrag (in Geld), den ein NEUER Trade nach den beiden Risiko-Grenzen hoechstens riskieren darf
+        (ohne Exposure-, Stress- und Margin-Grenze - die begrenzen die Menge zusaetzlich)."""
+        per_trade = self._cfg.risk_per_trade * portfolio.equity
+        remaining = self._policy.max_portfolio_risk * portfolio.equity - portfolio.open_risk
+        return max(min(per_trade, remaining), ZERO)
 
-    def _floor_qty(self, qty: Decimal) -> Decimal:
+    def _floor(self, qty: Decimal) -> Decimal:
         step = self._cfg.quantity_step
         return (qty / step).to_integral_value(rounding=ROUND_DOWN) * step
+
+    def _ceil(self, qty: Decimal) -> Decimal:
+        step = self._cfg.quantity_step
+        return (qty / step).to_integral_value(rounding=ROUND_CEILING) * step
+
+    def _leverage_candidates(self, setup: TradeSetup, fill: Decimal) -> List[Decimal]:
+        if setup.instrument.market_type is MarketType.SPOT:
+            return [D(1)]
+        dist_stop = abs(fill - setup.stop_loss)
+        out: List[Decimal] = []
+        for i in range(1, int(self._max_leverage) + 1):
+            liq = liquidation_price(setup.side, fill, D(i), self._policy.maintenance_margin_rate)
+            if abs(fill - liq) >= self._liq_factor * dist_stop:
+                out.append(D(i))
+        return out
 
     # ------------------------------------------------------------------ Vertrag
 
     def size(
         self, setup: TradeSetup, context: MarketContext, portfolio: PortfolioState
     ) -> SizingProposal:
-        reasons = []  # type: List[R]
-        notes = []  # type: List[str]
         sid = setup.setup_id if isinstance(getattr(setup, "setup_id", None), str) else "?"
 
-        def block(*extra: Tuple[R, str]) -> SizingProposal:
-            for code, text in extra:
-                if code not in reasons:
-                    reasons.append(code)
-                notes.append(text)
-            return SizingProposal(sid, False, D(0), D(1), tuple(notes), tuple(reasons))
+        def block(reasons: Sequence[R], *extra: str) -> SizingProposal:
+            unique = tuple(dict.fromkeys(reasons))
+            notes = tuple(_TEXT.get(r, r.value) for r in unique) + extra
+            return SizingProposal(sid, False, ZERO, D(1), notes, unique)
 
+        # --- 1. Lassen sich ueberhaupt Kurse bilden? ---
         snap = context.snapshot
-        pol, cfg, costs = self._policy, self._cfg, self._costs
-
-        # --- strukturelle Pruefungen: Abbruch, wenn nicht rechenbar ---
-        if not isinstance(setup.side, Side) or not isinstance(setup.market_type, MarketType):
-            return block((R.MISSING_DATA, "Seite oder Markttyp fehlen"))
-        numbers = (setup.entry, setup.stop_loss, setup.take_profit, snap.bid, snap.ask,
-                   portfolio.equity, portfolio.free_margin, portfolio.open_risk,
-                   portfolio.day_start_equity, portfolio.peak_equity)
-        if any(x is None for x in numbers):
-            return block((R.MISSING_DATA, "Preis- oder Kontodaten unvollstaendig"))
-        if not all(is_finite_decimal(x) for x in numbers):
-            return block((R.NON_FINITE_VALUE, "Ungueltige Zahl (NaN/Infinity/float)"))
-        if not all(x > 0 for x in (setup.entry, setup.stop_loss, setup.take_profit,
-                                   snap.bid, snap.ask)):
-            return block((R.NON_POSITIVE_PRICE, "Preise muessen positiv sein"))
-        if portfolio.equity <= 0:
-            return block((R.NO_EQUITY, "Kein Eigenkapital"))
-        if snap.symbol != setup.symbol or snap.market_type != setup.market_type:
-            return block((R.SYMBOL_MISMATCH, "Marktdaten passen nicht zum Setup"))
+        if not is_instrument(setup.instrument) or not isinstance(setup.side, Side):
+            return block([R.INVALID_SYMBOL])
+        if snap.instrument != setup.instrument:
+            return block([R.SYMBOL_MISMATCH])
+        prices = (setup.entry, setup.stop_loss, setup.take_profit, snap.bid, snap.ask)
+        if any(x is None for x in prices):
+            return block([R.MISSING_DATA])
+        if not all(is_finite_decimal(x) for x in prices):
+            return block([R.NON_FINITE_VALUE])
+        if not all(x > 0 for x in prices):
+            return block([R.NON_POSITIVE_PRICE])
         if snap.bid > snap.ask:
-            return block((R.CROSSED_BOOK, "Bid ueber Ask"))
-        if setup.market_type is MarketType.SPOT and setup.side is Side.SHORT:
-            return block((R.SPOT_SHORT_NOT_ALLOWED, "Spot-Short ist verboten"))
+            return block([R.CROSSED_BOOK])
 
-        side, equity = setup.side, portfolio.equity
-        funding = None  # type: Optional[Decimal]
-        if setup.market_type is MarketType.FUTURES:
-            if snap.funding_rate is None:
-                return block((R.FUNDING_MISSING, "Funding-Rate fehlt"))
-            if not is_finite_decimal(snap.funding_rate):
-                return block((R.NON_FINITE_VALUE, "Funding-Rate ungueltig"))
-            funding = snap.funding_rate
+        pol, cfg, costs, side = self._policy, self._cfg, self._costs, setup.side
+        quote = costs.quote(side, snap)
+        fill, mark = quote.fill_price, quote.mark_price
 
-        # Erwarteter Einstiegskurs inkl. Slippage - identisch mit der Berechnung im Executor.
-        fill = costs.entry_fill_price(side, snap)
-        sign = side.sign
-        if not sign * (fill - setup.stop_loss) > 0:
-            return block((R.STOP_WRONG_SIDE, "Stop-Loss liegt nicht hinter dem Einstiegskurs"))
-        if not sign * (setup.take_profit - fill) > 0:
-            return block((R.TAKE_PROFIT_WRONG_SIDE, "Take-Profit liegt nicht vor dem Einstiegskurs"))
+        def check(quantity: Decimal, leverage: Decimal) -> RiskDecision:
+            return evaluate_order(pol, costs, setup, quantity, leverage, quote, portfolio)
 
-        # --- Notbremsen und Bestand (gesammelt) ---
-        if portfolio.day_start_equity > 0 and (
-            (portfolio.day_start_equity - equity) / portfolio.day_start_equity >= pol.max_daily_loss
-        ):
-            reasons.append(R.DAILY_LOSS_LIMIT)
-            notes.append("Tagesverlust-Limit erreicht")
-        if portfolio.peak_equity > 0 and (
-            (portfolio.peak_equity - equity) / portfolio.peak_equity >= pol.max_drawdown
-        ):
-            reasons.append(R.DRAWDOWN_LIMIT)
-            notes.append("Drawdown-Limit erreicht")
-        if portfolio.open_count >= pol.max_open_positions:
-            reasons.append(R.TOO_MANY_POSITIONS)
-            notes.append("Maximale Zahl offener Positionen erreicht")
-        if (setup.symbol, setup.market_type) in portfolio.open_keys:
-            reasons.append(R.DUPLICATE_POSITION)
-            notes.append("Es gibt bereits eine Position in diesem Markt")
+        # --- 2. Gruende, an denen keine Menge etwas aendert (alle gesammelt) ---
+        fatal = [r for r in check(cfg.quantity_step, D(1)).reasons if r in _SIZE_INDEPENDENT]
+        if fatal:
+            return block(fatal)
+        candidates = self._leverage_candidates(setup, fill)
+        if not candidates:
+            return block([R.LIQUIDATION_TOO_CLOSE])
 
-        budget = self.risk_budget(portfolio)
-        if budget <= 0:
-            reasons.append(R.PORTFOLIO_RISK_TOO_HIGH)
-            notes.append("Gesamtrisiko-Limit ausgeschoepft (kein Restbudget)")
-        if reasons:
-            return block()
-
-        # --- Menge aus dem Risikobudget ---
-        unit_loss = costs.worst_case_loss(side, D(1), fill, setup.stop_loss, funding)
-        if unit_loss <= 0:
-            return block((R.STOP_WRONG_SIDE, "Verlust je Einheit nicht positiv"))
-        qty_by_risk = budget / unit_loss
+        # --- 3. Groesste Menge, die alle Grenzen zugleich einhaelt (jede Grenze ist linear in der Menge) ---
+        equity = portfolio.equity
         fee_unit = costs.fee(fill)
+        cost_unit = fee_unit + side.sign * (fill - mark)  # mindert die Equity sofort
+        loss_unit = costs.worst_case_loss(side, D(1), fill, setup.stop_loss, quote.funding_rate)
 
-        # --- Hebel (nur Futures) ---
-        liq_price = None  # type: Optional[Decimal]
-        if setup.market_type is MarketType.SPOT:
-            candidates = [D(1)]
-        else:
-            dist_stop = abs(fill - setup.stop_loss)
-            candidates = []
-            for i in range(1, int(self._max_leverage) + 1):
-                lev = D(i)
-                liq = liquidation_price(side, fill, lev, pol.maintenance_margin_rate)
-                if abs(fill - liq) >= self._liq_factor * dist_stop:
-                    candidates.append(lev)
-            if not candidates:
-                return block((R.LIQUIDATION_TOO_CLOSE,
-                              "Selbst mit minimalem Hebel liegt die Liquidation zu nah am Stop"))
+        def cap(budget: Decimal, per_unit: Decimal, limit: Decimal) -> Decimal:
+            return budget / (per_unit + limit * cost_unit)
 
-        def qty_by_margin(lev: Decimal) -> Decimal:
+        by_trade = cfg.risk_per_trade * equity / loss_unit
+        by_risk = cap(pol.max_portfolio_risk * equity - portfolio.open_risk,
+                      loss_unit - fee_unit, pol.max_portfolio_risk)
+        by_exposure = cap(pol.max_gross_exposure * equity - portfolio.gross_exposure,
+                          mark, pol.max_gross_exposure)
+
+        def limit_for(lev: Decimal) -> Decimal:
+            liq = (liquidation_price(side, fill, lev, pol.maintenance_margin_rate)
+                   if setup.instrument.market_type is MarketType.FUTURES else None)
+            stress_unit = position_stress_loss(
+                side, D(1), mark, fill, cost_up(fill / lev), liq, pol.stress_shock, costs)
+            by_stress = cap(pol.max_stress_loss * equity - portfolio.stress_loss,
+                            stress_unit, pol.max_stress_loss)
+            return min(by_trade, by_risk, by_exposure, by_stress)
+
+        def margin_for(lev: Decimal) -> Decimal:
             return portfolio.free_margin * cfg.margin_utilization / (fill / lev + fee_unit)
 
-        leverage = next((lv for lv in candidates if qty_by_margin(lv) >= qty_by_risk), None)
-        margin_limited = leverage is None
-        if leverage is None:
-            leverage = candidates[-1]
-        raw_qty = min(qty_by_risk, qty_by_margin(leverage))
-        quantity = self._floor_qty(raw_qty) if raw_qty > 0 else D(0)
-        if margin_limited:
-            notes.append("Menge wegen verfuegbarer Margin verkleinert")
+        leverage = next((lv for lv in candidates if margin_for(lv) >= limit_for(lv)), candidates[-1])
+        raw = min(limit_for(leverage), margin_for(leverage))
+        quantity = self._floor(raw) if raw > 0 else ZERO
+        minimum = self._ceil(cfg.min_notional / fill)
 
-        if quantity <= 0 or quantity * fill < cfg.min_notional:
-            code = R.INSUFFICIENT_MARGIN if margin_limited else R.QUANTITY_TOO_SMALL
-            return block((code, "Positionsgroesse unter dem Minimum (Notional < %s)" % cfg.min_notional))
+        if quantity < minimum:
+            # Welche Grenzen verhindern schon die kleinste handelbare Groesse?
+            return block([*check(minimum, leverage).reasons, R.QUANTITY_TOO_SMALL])
 
-        # --- Endkontrolle mit den abgerundeten Werten ---
-        planned = costs.worst_case_loss(side, quantity, fill, setup.stop_loss, funding)
-        notional = quantity * fill
-        margin = notional / leverage
-        if planned > budget or margin + costs.fee(notional) > portfolio.free_margin:
-            return block((R.TRADE_RISK_TOO_HIGH, "Interne Endkontrolle fehlgeschlagen"))
-        if setup.market_type is MarketType.FUTURES:
-            liq_price = liquidation_price(side, fill, leverage, pol.maintenance_margin_rate)
+        # --- 4. Endkontrolle mit den abgerundeten Werten (dieselbe Funktion wie der Risikomanager) ---
+        decision = check(quantity, leverage)
+        for _ in range(3):  # Rundungsreste: hoechstens ein paar Mengenschritte zurueck, nie nach oben
+            if decision.approved or quantity - cfg.quantity_step < minimum:
+                break
+            quantity -= cfg.quantity_step
+            decision = check(quantity, leverage)
+        if not decision.approved:
+            return block(decision.reasons)
 
-        notes.append("Risiko %.4f %% des Kapitals, Hebel %sx" % (planned / equity * 100, leverage))
+        note = "Risiko %.4f %% des Kapitals, Hebel %sx, Exposure danach %.1f %%, Stress danach %.2f %%" % (
+            decision.risk_pct * 100, leverage,
+            decision.gross_exposure_pct_after * 100, decision.stress_loss_pct_after * 100)
         return SizingProposal(
             setup_id=sid,
             approve=True,
             quantity=quantity,
             leverage=leverage,
-            reasons=tuple(notes),
-            planned_loss=planned,
-            risk_pct=planned / equity,
-            notional=notional,
-            margin=margin,
-            liquidation_price=liq_price,
+            reasons=(note,),
+            planned_loss=decision.worst_case_loss,
+            risk_pct=decision.risk_pct,
+            notional=quantity * fill,
+            margin=decision.margin_required,
+            liquidation_price=decision.liquidation_price,
         )
+
+
+__all__ = ["RuleBasedSora", "SizingPolicy", "SoraConfig"]
