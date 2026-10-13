@@ -2,52 +2,64 @@
 
 Wie mehrere Prozesse sicher zusammenarbeiten ("Teamrisiko"):
 
-  1. Jede Aktion (Order, Kerze, Portfolio-Abfrage) ist EINE Datenbank-Transaktion.
+  1. Jede Aktion (Order, Schliessung, Kerze, Funding, Portfolio-Abfrage) ist EINE Datenbank-Transaktion.
   2. Gleich zu Beginn wird die Konto-Zeile gesperrt (`SELECT ... FOR UPDATE`). Alle anderen
      Prozesse warten dort in einer Schlange - fuer dieses Konto arbeitet immer nur einer.
-  3. Unter der Sperre wird der aktuelle Zustand geladen und die BEREITS GETESTETE Engine
+  3. Unter der Sperre wird der aktuelle Zustand geladen, und die BEREITS GETESTETE Engine
      (`PaperExecutor` samt unabhaengigem Risikomanager) entscheidet. Es gibt keine zweite,
-     abweichende Rechenlogik.
-  4. Zustand, Positionen, Order-ID, Handelsergebnisse UND Protokolleintraege werden in
+     abweichende Rechenlogik: alle Grenzen (Risiko, Exposure, Stress, Margin ...) werden damit atomar geprueft.
+  4. Zustand, Positionen, Order-ID, Handelsergebnisse, Marktzustand UND Protokolleintraege werden in
      derselben Transaktion gespeichert. Stuerzt der Prozess vorher ab, passiert nichts
      (Rollback) - es bleiben keine halben Handel zurueck.
-  5. Zweiter Gurt: Beim COMMIT prueft die Datenbank das 2-%-Limit erneut (Constraint-Trigger).
+  5. Zweiter Gurt: Beim COMMIT prueft die Datenbank Gesamtrisiko und Brutto-Exposure erneut (Constraint-Trigger).
 
-Ein Neustart ist daher trivial: Es gibt keinen Zustand im Prozess, der verloren gehen koennte.
+Ein Neustart ist daher trivial: Es gibt keinen Zustand im Prozess, der verloren gehen koennte. Auch der
+Stand der Kerzen-Verarbeitung je Instrument liegt in der Datenbank - wiederholt gelieferte Kerzen und
+Funding-Ereignisse bleiben nach einem Neustart wirkungslos.
 """
 
 from __future__ import annotations
 
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, TypeVar
 
 from psycopg.rows import dict_row
 
 from trading.audit.event_log import EventLog
 from trading.clock import Clock
 from trading.config import TradingMode
+from trading.domain.instrument import Exchange, InstrumentId, MarketType, is_instrument
 from trading.domain.models import (
     Candle,
     ClosedTrade,
+    CloseResult,
     ExecutionResult,
     ExitReason,
+    FundingEvent,
+    Mark,
     MarketSnapshot,
-    MarketType,
     OrderIntent,
     PortfolioState,
     Position,
     Side,
 )
+from trading.domain.numeric import is_positive_decimal
 from trading.execution.paper_executor import ExecutorState, PaperExecutor
 from trading.persistence.db import connect
 from trading.persistence.pg_event_log import append_raw
 from trading.safety.data_validator import SnapshotValidator
 from trading.safety.risk_manager import RiskManager
 
+T = TypeVar("T")
 FaultHook = Callable[[str], None]
+# Zustand eines Instruments, wie er in `instrument_state` steht: (Kurs, Zeit, Referenzkurs, Zeit, Kerzen-Stand)
+InstrumentRow = Tuple[Optional[Decimal], Optional[datetime], Optional[Decimal], Optional[datetime],
+                      Optional[datetime]]
+_EMPTY_ROW: InstrumentRow = (None, None, None, None, None)
 
 
 class _CollectingLog(EventLog):
@@ -55,6 +67,16 @@ class _CollectingLog(EventLog):
 
     def _persist(self, event: Any) -> None:
         return None
+
+
+@dataclass
+class _Loaded:
+    account: Dict[str, Any]
+    engine: PaperExecutor
+    sink: _CollectingLog
+    validator: SnapshotValidator
+    positions: Dict[str, Position]
+    instruments: Dict[InstrumentId, InstrumentRow]
 
 
 class PostgresPaperExecutor:
@@ -83,34 +105,24 @@ class PostgresPaperExecutor:
     # ------------------------------------------------------------------ oeffentliche API
 
     def submit(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
-        with self._transaction() as cur:
-            acct = self._lock_account(cur)
-            seen = self._order_seen(cur, intent.client_order_id)
-            engine, sink, before = self._load(
-                cur, acct, snapshot.symbol, seen=(intent.client_order_id,) if seen else ()
-            )
-            result = engine.submit(intent, snapshot)
-            order = None if seen else (intent.client_order_id, result)
-            self._persist(cur, acct, engine, sink, before, snapshot.symbol, order)
-            return result
+        return self._run(snapshot.instrument, lambda engine: engine.submit(intent, snapshot), intent)
 
-    def on_candle(
-        self, candle: Candle, funding_rate: Decimal = Decimal(0)
-    ) -> List[ClosedTrade]:
-        with self._transaction() as cur:
-            acct = self._lock_account(cur)
-            engine, sink, before = self._load(cur, acct, candle.symbol, seen=())
-            closed = engine.on_candle(candle, funding_rate)
-            self._persist(cur, acct, engine, sink, before, candle.symbol, None)
-            return closed
+    def close_position(
+        self, instrument: InstrumentId, snapshot: MarketSnapshot, reason: ExitReason, request_id: str
+    ) -> CloseResult:
+        return self._run(
+            instrument, lambda engine: engine.close_position(instrument, snapshot, reason, request_id)
+        )
+
+    def on_candle(self, candle: Candle) -> List[ClosedTrade]:
+        return self._run(getattr(candle, "instrument", None), lambda engine: engine.on_candle(candle))
+
+    def apply_funding(self, event: FundingEvent) -> Decimal:
+        return self._run(getattr(event, "instrument", None), lambda engine: engine.apply_funding(event))
 
     def portfolio_state(self) -> PortfolioState:
-        with self._transaction() as cur:
-            acct = self._lock_account(cur)
-            engine, sink, before = self._load(cur, acct, None, seen=())
-            state = engine.portfolio_state()
-            self._persist(cur, acct, engine, sink, before, None, None)  # speichert ggf. neuen Hoechststand
-            return state
+        # Schreibt nur, wenn sich Hoechststand oder Tageswechsel geaendert haben.
+        return self._run(None, lambda engine: engine.portfolio_state())
 
     def equity(self) -> Decimal:
         return self.portfolio_state().equity
@@ -141,9 +153,29 @@ class PostgresPaperExecutor:
         with self._conn_lock, self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:
             yield cur
 
+    def _run(
+        self,
+        instrument: Any,
+        operation: Callable[[PaperExecutor], T],
+        order: Optional[OrderIntent] = None,
+    ) -> T:
+        """Sperren -> laden -> Engine entscheidet -> Differenz und Protokoll speichern -> COMMIT."""
+        with self._transaction() as cur:
+            account = self._lock_account(cur)
+            seen = order is not None and self._order_seen(cur, order.client_order_id)
+            loaded = self._load(cur, account, instrument,
+                                (order.client_order_id,) if order is not None and seen else ())
+            result = operation(loaded.engine)
+            new_order = None
+            if order is not None and not seen:
+                assert isinstance(result, ExecutionResult)
+                new_order = (order.client_order_id, result)
+            self._persist(cur, loaded, new_order)
+            return result
+
     def _ensure_account(self, initial_equity: Decimal) -> None:
-        if initial_equity <= 0:
-            raise ValueError("Startkapital muss positiv sein.")
+        if not is_positive_decimal(initial_equity):
+            raise ValueError("Startkapital muss eine positive Decimal-Zahl sein.")
         with self._transaction() as cur:
             cur.execute(
                 "INSERT INTO accounts (account_id, initial_equity, balance, equity, peak_equity,"
@@ -185,57 +217,57 @@ class PostgresPaperExecutor:
         )
         return [_position_from_row(r) for r in cur.fetchall()]
 
-    def _load(
-        self, cur: Any, acct: Dict[str, Any], symbol: Optional[str], seen: Tuple[str, ...]
-    ) -> Tuple[PaperExecutor, _CollectingLog, Dict[str, Position]]:
+    def _load(self, cur: Any, account: Dict[str, Any], instrument: Any, seen: Tuple[str, ...]) -> _Loaded:
         positions = self._load_positions(cur)
-        symbols = sorted({p.symbol for p in positions} | ({symbol} if symbol else set()))
-        marks: Dict[str, Decimal] = {}
-        last_ts: Optional[datetime] = None
-        last_price: Optional[Decimal] = None
-        if symbols:
+        wanted: Set[InstrumentId] = {p.instrument for p in positions}
+        if is_instrument(instrument):
+            wanted.add(instrument)
+
+        instruments: Dict[InstrumentId, InstrumentRow] = {}
+        for inst in sorted(wanted, key=lambda i: i.key):
             cur.execute(
-                "SELECT symbol, mark, last_ts, last_price FROM market_state WHERE symbol = ANY(%s)",
-                (symbols,),
+                "SELECT mark, mark_ts, ref_price, ref_ts, last_candle_close FROM instrument_state"
+                " WHERE exchange = %s AND market_type = %s AND symbol = %s",
+                (inst.exchange.value, inst.market_type.value, inst.symbol),
             )
-            for r in cur.fetchall():
-                if r["mark"] is not None:
-                    marks[r["symbol"]] = r["mark"]
-                if r["symbol"] == symbol:
-                    last_ts, last_price = r["last_ts"], r["last_price"]
+            r = cur.fetchone()
+            instruments[inst] = _EMPTY_ROW if r is None else (
+                r["mark"], r["mark_ts"], r["ref_price"], r["ref_ts"], r["last_candle_close"])
+
+        validator = SnapshotValidator(self._risk.limits, self._clock)
+        marks: Dict[InstrumentId, Mark] = {}
+        candle_state: Dict[InstrumentId, datetime] = {}
+        for inst, (mark, mark_ts, ref_price, ref_ts, last_close) in instruments.items():
+            if mark is not None and mark_ts is not None:
+                marks[inst] = Mark(mark, mark_ts)
+            if ref_price is not None and ref_ts is not None:
+                validator.restore_state(inst, (ref_ts, ref_price))
+            if last_close is not None:
+                candle_state[inst] = last_close
 
         sink = _CollectingLog(self._clock)
-        validator = SnapshotValidator(self._risk.limits, self._clock)
-        if symbol is not None:
-            validator.restore_state(symbol, last_ts, last_price)
-        engine = PaperExecutor(acct["initial_equity"], self._risk, validator, sink, self._clock)
+        engine = PaperExecutor(account["initial_equity"], self._risk, validator, sink, self._clock)
         engine.restore_state(
             ExecutorState(
-                balance=acct["balance"],
+                balance=account["balance"],
                 positions=tuple(positions),
                 marks=marks,
-                peak_equity=acct["peak_equity"],
-                day=acct["day"],
-                day_start_equity=acct["day_start_equity"],
-                position_counter=int(acct["position_counter"]),
+                last_candle_close=candle_state,
+                peak_equity=account["peak_equity"],
+                day=account["day"],
+                day_start_equity=account["day_start_equity"],
+                position_counter=int(account["position_counter"]),
             ),
             seen,
         )
-        self._validator = validator  # fuer _persist (letzter gueltiger Tick)
-        return engine, sink, {p.position_id: p for p in positions}
+        return _Loaded(account, engine, sink, validator, {p.position_id: p for p in positions}, instruments)
 
     # ------------------------------------------------------------------ Speichern
 
     def _persist(
-        self,
-        cur: Any,
-        acct: Dict[str, Any],
-        engine: PaperExecutor,
-        sink: _CollectingLog,
-        before: Dict[str, Position],
-        symbol: Optional[str],
-        order: Optional[Tuple[str, ExecutionResult]],
+        self, cur: Any, loaded: _Loaded, order: Optional[Tuple[str, ExecutionResult]]
     ) -> None:
+        engine, account, before = loaded.engine, loaded.account, loaded.positions
         after = engine.export_state()
         after_by_id = {p.position_id: p for p in after.positions}
         closed = engine.closed_trades
@@ -256,11 +288,10 @@ class PostgresPaperExecutor:
         for t in closed:
             self._insert_closed_trade(cur, t)
 
-        equity = engine.equity()
-        new_vals = (after.balance, equity, after.peak_equity, after.day, after.day_start_equity,
-                    after.position_counter)
-        old_vals = (acct["balance"], acct["equity"], acct["peak_equity"], acct["day"],
-                    acct["day_start_equity"], int(acct["position_counter"]))
+        new_vals = (after.balance, engine.equity(), after.peak_equity, after.day,
+                    after.day_start_equity, after.position_counter)
+        old_vals = (account["balance"], account["equity"], account["peak_equity"], account["day"],
+                    account["day_start_equity"], int(account["position_counter"]))
         if new_vals != old_vals:
             cur.execute(
                 "UPDATE accounts SET balance = %s, equity = %s, peak_equity = %s, day = %s,"
@@ -269,18 +300,23 @@ class PostgresPaperExecutor:
                 (*new_vals, self._account_id),
             )
 
-        for sym, mark in after.marks.items():
-            ts, price = (None, None)
-            if sym == symbol:
-                ts, price = self._validator.export_state(sym)
-            cur.execute(
-                "INSERT INTO market_state (symbol, mark, last_ts, last_price) VALUES (%s, %s, %s, %s)"
-                " ON CONFLICT (symbol) DO UPDATE SET mark = EXCLUDED.mark,"
-                " last_ts = COALESCE(EXCLUDED.last_ts, market_state.last_ts),"
-                " last_price = COALESCE(EXCLUDED.last_price, market_state.last_price),"
-                " updated_at = now()",
-                (sym, mark, ts, price),
+        for inst, old_row in loaded.instruments.items():
+            mark = after.marks.get(inst)
+            ref = loaded.validator.export_state(inst)
+            new_row: InstrumentRow = (
+                mark.price if mark else None, mark.time if mark else None,
+                ref[1] if ref else None, ref[0] if ref else None,
+                after.last_candle_close.get(inst),
             )
+            if new_row != old_row:
+                cur.execute(
+                    "INSERT INTO instrument_state (exchange, market_type, symbol, mark, mark_ts,"
+                    " ref_price, ref_ts, last_candle_close) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+                    " ON CONFLICT (exchange, market_type, symbol) DO UPDATE SET mark = EXCLUDED.mark,"
+                    " mark_ts = EXCLUDED.mark_ts, ref_price = EXCLUDED.ref_price, ref_ts = EXCLUDED.ref_ts,"
+                    " last_candle_close = EXCLUDED.last_candle_close, updated_at = now()",
+                    (inst.exchange.value, inst.market_type.value, inst.symbol, *new_row),
+                )
 
         if order is not None:
             oid, result = order
@@ -291,7 +327,7 @@ class PostgresPaperExecutor:
                  ",".join(r.value for r in result.reasons), self._clock.now()),
             )
 
-        for ev in sink.events():  # Protokoll in DERSELBEN Transaktion wie der Handel
+        for ev in loaded.sink.events():  # Protokoll in DERSELBEN Transaktion wie der Handel
             append_raw(cur, ev.ts, ev.event_type, ev.payload_json)
 
         if self._fault_hook is not None:
@@ -299,14 +335,14 @@ class PostgresPaperExecutor:
 
     def _insert_position(self, cur: Any, p: Position) -> None:
         cur.execute(
-            "INSERT INTO positions (account_id, position_id, status, setup_id, strategy, symbol,"
+            "INSERT INTO positions (account_id, position_id, status, setup_id, strategy, exchange, symbol,"
             " market_type, side, quantity, entry_price, stop_loss, take_profit, leverage, opened_at,"
             " margin, risk_at_open, entry_fee, liquidation_price, last_funding_ts, funding_paid)"
-            " VALUES (%s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (self._account_id, p.position_id, p.setup_id, p.strategy, p.symbol, p.market_type.value,
-             p.side.value, p.quantity, p.entry_price, p.stop_loss, p.take_profit, p.leverage,
-             p.opened_at, p.margin, p.risk_at_open, p.entry_fee, p.liquidation_price,
-             p.last_funding_ts, p.funding_paid),
+            " VALUES (%s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (self._account_id, p.position_id, p.setup_id, p.strategy, p.instrument.exchange.value,
+             p.instrument.symbol, p.instrument.market_type.value, p.side.value, p.quantity, p.entry_price,
+             p.stop_loss, p.take_profit, p.leverage, p.opened_at, p.margin, p.risk_at_open, p.entry_fee,
+             p.liquidation_price, p.last_funding_ts, p.funding_paid),
         )
 
     def _update_position(self, cur: Any, p: Position) -> None:
@@ -318,20 +354,25 @@ class PostgresPaperExecutor:
 
     def _insert_closed_trade(self, cur: Any, t: ClosedTrade) -> None:
         cur.execute(
-            "INSERT INTO closed_trades (account_id, position_id, setup_id, strategy, symbol,"
+            "INSERT INTO closed_trades (account_id, position_id, setup_id, strategy, exchange, symbol,"
             " market_type, side, quantity, entry_price, exit_price, opened_at, closed_at, exit_reason,"
             " gross_pnl, fees, funding, net_pnl, risk_at_open)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (self._account_id, t.position_id, t.setup_id, t.strategy, t.symbol, t.market_type.value,
-             t.side.value, t.quantity, t.entry_price, t.exit_price, t.opened_at, t.closed_at,
-             t.exit_reason.value, t.gross_pnl, t.fees, t.funding, t.net_pnl, t.risk_at_open),
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (self._account_id, t.position_id, t.setup_id, t.strategy, t.instrument.exchange.value,
+             t.instrument.symbol, t.instrument.market_type.value, t.side.value, t.quantity, t.entry_price,
+             t.exit_price, t.opened_at, t.closed_at, t.exit_reason.value, t.gross_pnl, t.fees, t.funding,
+             t.net_pnl, t.risk_at_open),
         )
+
+
+def _instrument_from_row(r: Dict[str, Any]) -> InstrumentId:
+    return InstrumentId(Exchange(r["exchange"]), MarketType(r["market_type"]), r["symbol"])
 
 
 def _position_from_row(r: Dict[str, Any]) -> Position:
     return Position(
         position_id=r["position_id"], setup_id=r["setup_id"], strategy=r["strategy"],
-        symbol=r["symbol"], market_type=MarketType(r["market_type"]), side=Side(r["side"]),
+        instrument=_instrument_from_row(r), side=Side(r["side"]),
         quantity=r["quantity"], entry_price=r["entry_price"], stop_loss=r["stop_loss"],
         take_profit=r["take_profit"], leverage=r["leverage"], opened_at=r["opened_at"],
         margin=r["margin"], risk_at_open=r["risk_at_open"], entry_fee=r["entry_fee"],
@@ -343,7 +384,7 @@ def _position_from_row(r: Dict[str, Any]) -> Position:
 def _trade_from_row(r: Dict[str, Any]) -> ClosedTrade:
     return ClosedTrade(
         position_id=r["position_id"], setup_id=r["setup_id"], strategy=r["strategy"],
-        symbol=r["symbol"], market_type=MarketType(r["market_type"]), side=Side(r["side"]),
+        instrument=_instrument_from_row(r), side=Side(r["side"]),
         quantity=r["quantity"], entry_price=r["entry_price"], exit_price=r["exit_price"],
         opened_at=r["opened_at"], closed_at=r["closed_at"], exit_reason=ExitReason(r["exit_reason"]),
         gross_pnl=r["gross_pnl"], fees=r["fees"], funding=r["funding"], net_pnl=r["net_pnl"],

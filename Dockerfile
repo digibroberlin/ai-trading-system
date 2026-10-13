@@ -1,7 +1,11 @@
-FROM python:3.12-slim
+# Zwei Ziele aus einer Datei:
+#   runtime  schlankes Laufzeit-Image (ohne Tests und Entwicklerwerkzeuge) - fuer `app` und `migrate`
+#   test     zusaetzlich pytest, ruff, mypy und die Tests - nur fuer den Dienst `tests`
+FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    MIGRATIONS_DIR=/app/db/migrations
 
 WORKDIR /app
 
@@ -10,12 +14,17 @@ RUN useradd --create-home --uid 10001 trader
 
 COPY pyproject.toml README.md ./
 COPY src ./src
-COPY tests ./tests
-COPY db ./db
+COPY db/migrations ./db/migrations
 
-RUN pip install --no-cache-dir ".[dev,db]"
-
+FROM base AS runtime
+RUN pip install --no-cache-dir ".[db]"
 USER trader
-
-# Standard: Demo mit synthetischen Daten (PAPER). Tests: docker-compose --env-file <Passwortdatei> run --rm app pytest
+# Standard: Demo mit synthetischen Daten (PAPER, ohne Datenbank).
 CMD ["python", "-m", "trading.demo"]
+
+FROM base AS test
+COPY tests ./tests
+COPY scripts ./scripts
+RUN pip install --no-cache-dir ".[dev,db]"
+USER trader
+CMD ["pytest", "-q", "-rs"]

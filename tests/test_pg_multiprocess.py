@@ -62,7 +62,8 @@ def test_twelve_processes_never_exceed_the_two_percent_team_limit(pg, run):
                                 for i in range(12)])
     assert len(res) == 12 and len({r["pid"] for r in res}) == 12  # wirklich 12 verschiedene Prozesse
     assert len([r for r in res if r["status"] == "filled"]) == 4
-    assert len([r for r in res if r["status"] == "rejected"]) == 8
+    rejected = [r for r in res if r["status"] == "rejected"]
+    assert len(rejected) == 8 and all(r["reasons"] == ["PORTFOLIO_RISK_TOO_HIGH"] for r in rejected)
     f = db_facts(pg)
     assert f["open"] == 4 and f["orders"] == 12
     assert f["remaining_risk"] <= f["cap"] * f["equity"]
@@ -108,7 +109,9 @@ def test_full_pipelines_in_separate_processes_share_the_risk_budget_and_one_log(
     assert len(res) == 8
     executed = [r for r in res if r["executed"]]
     f = db_facts(pg)
-    assert 1 <= len(executed) <= 5 and f["open"] == len(executed)  # Positionslimit 5
+    # Jede Pipeline plant 0,4 % Risiko; fuenf passen unter ALLE Grenzen, dann greift das Positionslimit.
+    # (Frueher stand hier nur "zwischen 1 und 5" - das verdeckte, was wirklich geschah.)
+    assert len(executed) == 5 and f["open"] == 5
     assert f["remaining_risk"] <= f["cap"] * f["equity"]
     for r in res:
         assert r["executed"] or r["reasons"], "jede Blockade braucht einen Grund: %r" % (r,)
@@ -140,9 +143,9 @@ def test_process_killed_before_commit_leaves_no_trace_and_releases_the_lock(pg, 
     from helpers import make_setup, snapshot
     from trading.domain.models import MarketType, OrderIntent
     ex = make_executor(pg.app_url, "main")
-    setup = make_setup("crash-1", symbol="CRSH-USD", market_type=MarketType.FUTURES)
+    setup = make_setup("crash-1", symbol="CRSH-USD", market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
     t0 = time.time()
-    res = ex.submit(OrderIntent("crash-1", setup, D(40), D(2)),
+    res = ex.submit(OrderIntent("crash-1", setup, D(9), D(2)),
                     snapshot(symbol="CRSH-USD", ts=T0, market_type=MarketType.FUTURES, funding=D("0.0001")))
     assert res.status.value == "filled" and time.time() - t0 < 10
 
@@ -155,3 +158,57 @@ def test_committed_trade_survives_the_process_that_made_it(pg, tmp_path):
     f = db_facts(pg)
     assert f["open"] == 1 and f["orders"] == 1
     assert PostgresEventLog(pg.app_url).verify().ok
+
+
+# ------------------------------------------------------------------ Stufe 1: neue Operationen aus mehreren Prozessen
+
+
+def open_base_position(pg):
+    from helpers import FUT, make_setup, snapshot
+    from trading.domain.models import MarketType, OrderIntent
+
+    ex = make_executor(pg.app_url, "main")
+    setup = make_setup("base", market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
+    assert ex.submit(OrderIntent("base", setup, D(9), D(2)), snapshot(ts=T0, **FUT)).status.value == "filled"
+    ex.close()
+
+
+def run_operation(pg, op, n=8):
+    return [r["result"] for r in run_workers("operation", [dict(url=pg.app_url, account="main", op=op)
+                                                           for _ in range(n)])]
+
+
+@pytest.mark.parametrize("run", range(REPEATS))
+def test_same_funding_event_from_many_processes_is_charged_once(pg, run):
+    open_base_position(pg)
+    results = run_operation(pg, "funding")
+    assert sorted(D(r) for r in results) == [D(0)] * 7 + [D("0.09")]  # 9 x 100 x 0,01 %, genau einmal
+    with psycopg.connect(pg.admin_url) as c:
+        assert c.execute("SELECT funding_paid FROM positions").fetchone() == (D("0.09"),)
+        assert c.execute("SELECT balance FROM accounts").fetchone() == (D(10000) - D("0.54") - D("0.09"),)
+    assert len(PostgresEventLog(pg.app_url).of_type(EventType.FUNDING_APPLIED)) == 1
+
+
+@pytest.mark.parametrize("run", range(REPEATS))
+def test_same_candle_from_many_processes_stops_out_once(pg, run):
+    open_base_position(pg)
+    results = run_operation(pg, "candle")
+    assert sorted(results) == [0] * 7 + [1]
+    f = db_facts(pg)
+    assert f["open"] == 0
+    log = PostgresEventLog(pg.app_url)
+    assert len(log.of_type(EventType.POSITION_CLOSED)) == 1
+    assert [tuple(e.payload["reasons"]) for e in log.of_type(EventType.DATA_REJECTED)] == [("DUPLICATE_CANDLE",)] * 7
+    assert log.verify().ok
+
+
+@pytest.mark.parametrize("run", range(REPEATS))
+def test_close_requests_from_many_processes_close_once(pg, run):
+    open_base_position(pg)
+    results = run_operation(pg, "close")
+    assert sorted(r[0] for r in results) == [False] * 7 + [True]
+    assert all(r[1] == ["NO_POSITION"] for r in results if not r[0])
+    with psycopg.connect(pg.admin_url) as c:
+        assert c.execute("SELECT count(*) FROM closed_trades").fetchone() == (1,)
+        net = c.execute("SELECT net_pnl FROM closed_trades").fetchone()[0]
+        assert c.execute("SELECT balance FROM accounts").fetchone() == (D(10000) + net,)

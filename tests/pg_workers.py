@@ -14,16 +14,15 @@ import time
 from decimal import Decimal
 from typing import Any, Dict, List
 
-from helpers import NO_SLIP, T0, make_setup, snapshot
+from helpers import FUT, NO_SLIP, T0, inst, make_candle, make_setup, snapshot
 
 from trading.clock import FixedClock
-from trading.domain.models import MarketType, OrderIntent
+from trading.domain.models import ExitReason, FundingEvent, MarketType, OrderIntent
 from trading.persistence.pg_executor import PostgresPaperExecutor
 from trading.safety.limits import DEFAULT_LIMITS
 from trading.safety.risk_manager import RiskManager
 
 D = Decimal
-FUT = {"market_type": MarketType.FUTURES, "funding": D("0.0001")}
 
 
 def emit(obj: Dict[str, Any]) -> None:
@@ -50,12 +49,14 @@ def make_executor(url: str, account: str, delay: float = 0.0, fault_hook: Any = 
 
 
 def order_worker(a: Dict[str, Any]) -> None:
-    """a: url, account, specs=[(order_id, symbol)], start_at. Futures, 40 Stueck, 2x Hebel."""
+    """a: url, account, specs=[(order_id, symbol)], start_at.
+    Futures, 9 Stueck zu 100, Stop 95, 2x Hebel: Hoechstverlust 46,143 (0,46 %), Exposure 9 %, Stress 0,9 %.
+    Vier solche Positionen passen unter das 2-%-Gesamtrisiko, die fuenfte nicht."""
     ex = make_executor(a["url"], a["account"], 0.05)
     wait_until(a["start_at"])
     for oid, sym in a["specs"]:
-        setup = make_setup(oid, symbol=sym, market_type=MarketType.FUTURES)
-        res = ex.submit(OrderIntent(oid, setup, D(40), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
+        setup = make_setup(oid, symbol=sym, market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
+        res = ex.submit(OrderIntent(oid, setup, D(9), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
         emit({"order": oid, "status": res.status.value, "reasons": [r.value for r in res.reasons]})
     ex.close()
 
@@ -69,8 +70,8 @@ def crash_worker(a: Dict[str, Any]) -> None:
             time.sleep(120)
 
     ex = make_executor(a["url"], a["account"], 0.0, hook)
-    setup = make_setup("crash-1", symbol="CRSH-USD", market_type=MarketType.FUTURES)
-    ex.submit(OrderIntent("crash-1", setup, D(40), D(2)), snapshot(symbol="CRSH-USD", ts=T0, **FUT))
+    setup = make_setup("crash-1", symbol="CRSH-USD", market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
+    ex.submit(OrderIntent("crash-1", setup, D(9), D(2)), snapshot(symbol="CRSH-USD", ts=T0, **FUT))
     emit({"done": True})
     ex.close()
 
@@ -97,8 +98,9 @@ def pipeline_worker(a: Dict[str, Any]) -> None:
     log = PostgresEventLog(a["url"], clock)
     rin = RuleBasedRin(TradingUniverse.of(futures=[symbol]), clock, RinConfig(), NO_SLIP)
     sora = RuleBasedSora(SizingPolicy.from_limits(DEFAULT_LIMITS), NO_SLIP)
+    # Weiter Stop (5 %): SORA plant je 0,4 % Risiko; fuenf Positionen passen unter alle Grenzen.
     setup = make_setup("pipe-" + symbol, symbol=symbol, market_type=MarketType.FUTURES,
-                       entry=D(100), stop=D(99), tp=D(103))
+                       entry=D(100), stop=D(95), tp=D(115))
     pipe = TradingPipeline(StubMomo([setup]), rin, StubKibo(), StubYuzu(), sora, AkiAgent(log), ex)
     wait_until(a["start_at"])
     outcome = pipe.run_cycle([MarketContext(snapshot(symbol=symbol, ts=T0, **FUT))])[0]
@@ -121,7 +123,30 @@ def state_worker(a: Dict[str, Any]) -> None:
     ex.close()
 
 
-WORKERS = {"order": order_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker}
+def operation_worker(a: Dict[str, Any]) -> None:
+    """Dieselbe Operation aus vielen Prozessen: a["op"] in funding | candle | close (Instrument BTC-USD Futures)."""
+    from datetime import timedelta
+
+    clock = FixedClock(T0 + timedelta(hours=4))
+    risk = RiskManager(DEFAULT_LIMITS, NO_SLIP)
+    ex = PostgresPaperExecutor(a["url"], a["account"], D(10000), risk, clock)
+    instrument = inst("BTC-USD", MarketType.FUTURES)
+    wait_until(a["start_at"])
+    if a["op"] == "funding":
+        result: Any = str(ex.apply_funding(FundingEvent(instrument, clock.now(), D("0.0001"), D(100))))
+    elif a["op"] == "candle":
+        candle = make_candle(clock.now() - timedelta(minutes=1), D(100), D(100), D(94), D(95),
+                             market_type=MarketType.FUTURES)
+        result = len(ex.on_candle(candle))
+    else:
+        res = ex.close_position(instrument, snapshot(ts=clock.now(), **FUT), ExitReason.SIGNAL, "c%d" % os.getpid())
+        result = [res.closed, [r.value for r in res.reasons]]
+    emit({"op": a["op"], "result": result})
+    ex.close()
+
+
+WORKERS = {"order": order_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker,
+           "operation": operation_worker}
 
 if __name__ == "__main__":
     try:

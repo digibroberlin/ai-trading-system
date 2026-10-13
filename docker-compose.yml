@@ -1,3 +1,11 @@
+# Aufruf immer mit der Passwort-Datei von AUSSERHALB des Projektordners:
+#   docker-compose --env-file ~/trading-secrets.env up -d --build db      # Datenbank starten
+#   docker-compose --env-file ~/trading-secrets.env run --rm migrate      # Schema anlegen / aktualisieren
+#   docker-compose --env-file ~/trading-secrets.env run --rm tests        # alle Tests (Python 3.12 + PostgreSQL)
+#   docker-compose --env-file ~/trading-secrets.env run --rm app          # Demo
+#
+# Rechte-Trennung: Nur `migrate` und `tests` kennen den Datenbank-Administrator. Der Dienst `app`
+# erhaelt ausschliesslich die eingeschraenkte Rolle `trading_app`.
 services:
   db:
     build: ./db
@@ -19,19 +27,44 @@ services:
       timeout: 3s
       retries: 20
 
+  # Einmal-Dienst: wendet ausstehende Schema-Migrationen an (vorher Backup ziehen!).
+  migrate:
+    build:
+      context: .
+      target: runtime
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMIN_DATABASE_URL: postgresql://trading:${POSTGRES_PASSWORD}@db:5432/trading
+    command: ["python", "-m", "trading.persistence.migrate"]
+
   app:
-    build: .
+    build:
+      context: .
+      target: runtime
     depends_on:
       db:
         condition: service_healthy
     environment:
       TRADING_MODE: paper
-      # Die Anwendung nutzt die eingeschraenkte Rolle, nie den Datenbank-Administrator.
+      # Ausschliesslich die eingeschraenkte Rolle - kein Administrator, keine Boersen-Schluessel, keine Ports.
       DATABASE_URL: postgresql://trading_app:${APP_DB_PASSWORD}@db:5432/trading
-      # Nur fuer Tests: legt kurzlebige Test-Datenbanken an (Administratorzugang).
+
+  # Einmal-Dienst: alle Tests. Legt kurzlebige Test-Datenbanken an und entfernt sie wieder;
+  # die Datenbank `trading` wird dabei nicht angefasst.
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
       TEST_ADMIN_URL: postgresql://trading:${POSTGRES_PASSWORD}@db:5432/postgres
       TEST_APP_PASSWORD: ${APP_DB_PASSWORD}
-    # Keine Boersen-Schluessel, keine exponierten Ports in dieser Phase.
 
 volumes:
   pgdata:
