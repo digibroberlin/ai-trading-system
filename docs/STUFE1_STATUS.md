@@ -50,7 +50,31 @@ Tatsächlich ausgeführt: **520 Tests bestanden, 0 übersprungen** – im Docker
 Hinweis: Im Konto `restart-check` der echten Datenbank liegen zwei Alt-Positionen (je 40 Stück). Sie überschreiten die neue
 Stress-Grenze (8,05 % statt 5 %). Sie bleiben bestehen; neue Trades in DIESEM Konto wären blockiert, bis sie geschlossen sind.
 
+## Abschnitt D – Backtesting-Engine: **fertig**
+
+Tatsächlich ausgeführt (Python 3.12.14 auf dem Mac, PostgreSQL 16.15): **599 Tests bestanden, 0 übersprungen**;
+mypy `--strict` (55 Dateien) und ruff ohne Befund; Vorführung `python -m trading.backtest` läuft (2 Instrumente,
+60 Tage Stundenkerzen). Im Docker-Dienst `tests` wurde dieser Stand noch NICHT ausgeführt (folgt in Abschnitt E).
+
+- Paket `src/trading/backtest/`: `data.py` (geprüfter, unveränderlicher Datensatz mit Fingerabdruck; Schnittstelle
+  `HistoricalDataSource` nur lesend, für spätere Coinbase-/Bitget-Daten; synthetische Quelle mit festem Startwert),
+  `strategy.py` (Strategie sieht nur abgeschlossene Kerzen), `reference.py` (einfache Referenz-Strategie als Technik-Test),
+  `engine.py` (Ablauf je Zeitpunkt: Kerzenschluss → Funding → Kapitalpunkt → Entscheidung → Ausführung zum Eröffnungskurs
+  der nächsten Kerze, Ausstiege vor Einstiegen), `compare.py` (Vergleich nur bei gleichem Datensatz und gleichen Annahmen).
+- Die Engine benutzt dieselbe Pipeline, denselben Risikomanager und denselben Executor wie der Paper-Betrieb – es gibt
+  keine zweite, „vereinfachte“ Rechnung für Backtests.
+- Tests: `tests/test_backtest_data.py` (39), `tests/test_backtest_engine.py` (37, mit von Hand nachgerechneten Beträgen),
+  `tests/test_backtest_pg.py` (3: Backtest über PostgreSQL liefert bit-identische Trades, Kapitalkurve und Hash-Kette).
+- Gegenprobe: 28 absichtlich eingebaute Fehler (u. a. Blick in die Zukunft, falscher Ausführungskurs, vergessenes Funding,
+  hingenommenes defektes Protokoll) – **alle 28 von den Tests bemerkt**. Drei wurden zunächst NICHT bemerkt; dafür kamen
+  drei zusätzliche Tests hinzu.
+- Während der Arbeit korrigierte Test-Erwartungen (Fehler im Test, nicht im Programm): Handrechnung 7,817 × 5,117 =
+  39,999589 (ich hatte 39,999639 notiert); Erwartung zur Lücken-Erkennung bei vertauschten Kerzen; bei extrem hohen Kosten
+  blockiert RIN korrekt alle Trades („Stop zu eng“) – daraus wurde ein eigener Test.
+- Bekannte Eigenschaft: Die Datenbank führt je Instrument EINE Marktzeitleiste. Ein zweiter Backtest über denselben Zeitraum
+  in derselben Datenbank wird laut abgebrochen (getestet). Backtests laufen deshalb standardmäßig im Speicher.
+
 ## Noch offen
 
-- Abschnitt D: Backtesting-Engine (`src/trading/backtest/`)
-- Abschnitt E: Testlücken aus dem Audit (H9) + Gegenproben, Gesamtverifikation, Dokumentation (README, AGENTS, TESTBERICHT, AUDIT-Status)
+- Abschnitt E: Testlücken aus dem Audit (H9) + Gegenproben für Kern/Datenbank, Gesamtverifikation inkl. Docker-Dienst `tests`,
+  Dokumentation (README, AGENTS, TESTBERICHT, AUDIT-Status, BACKTESTING)
