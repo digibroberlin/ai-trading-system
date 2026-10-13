@@ -300,3 +300,27 @@ def test_neutral_placeholder_agents_approve_without_a_verdict_but_never_bypass_r
     pipe, _ = build(env, setups=[make_setup("s2")], kibo=NeutralKibo(), yuzu=NeutralYuzu(),
                     sora=StubSora(env.risk.costs, override_qty=D(100)))
     assert pipe.run_cycle(ctx(env))[0].stage == "EXECUTOR"
+
+
+def test_crashing_executor_blocks_the_trade_and_the_next_setup_is_still_processed():
+    """Faellt die Ausfuehrung aus (z. B. Datenbank nicht erreichbar), wird das Setup blockiert und protokolliert;
+    der Zyklus laeuft weiter - ein Fehler reisst nicht das ganze System ab."""
+    env = Env()
+    pipe, _ = build(env, setups=[make_setup("s1"), make_setup("s2")])
+    real, calls = env.executor.submit, []
+
+    def flaky(intent, snapshot):
+        calls.append(intent.client_order_id)
+        if len(calls) == 1:
+            raise ConnectionError("Verbindung zur Datenbank verloren")
+        return real(intent, snapshot)
+
+    env.executor.submit = flaky
+    first, second = pipe.run_cycle(ctx(env))
+    assert not first.executed and first.stage == "EXECUTOR" and first.reasons == (R.EXECUTION_ERROR,)
+    assert second.executed  # das naechste Setup wird ganz normal ausgefuehrt
+    assert [p.setup_id for p in env.executor.open_positions] == ["s2"]
+    assert calls == ["s1", "s2"]
+    assert env.log.of_type(EventType.SYSTEM_ERROR)
+    blocked = env.log.of_type(EventType.SETUP_BLOCKED)[0].payload
+    assert blocked["setup"]["setup_id"] == "s1" and blocked["reasons"] == ["EXECUTION_ERROR"]

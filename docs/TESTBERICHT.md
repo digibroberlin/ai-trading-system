@@ -1,152 +1,157 @@
-# Testbericht – Phasen 1 bis 3 (Grundgerüst, SORA/RIN, PostgreSQL & Mehrprozess-Sicherheit)
+# Testbericht – Stufe 1 (integriertes Paper-Trading-Grundsystem mit Backtesting)
 
-Stand: 2026-10-13 · Daten: ausschließlich synthetisch · Modus: ausschließlich PAPER · keine Börsenverbindung
+Stand: 2026-10-14 · Daten: ausschließlich synthetisch · Modus: ausschließlich PAPER · keine Börsenverbindung
+
+Alle Zahlen in diesem Bericht stammen aus tatsächlich ausgeführten Läufen am 2026-10-14. Was nicht geprüft wurde, steht in Abschnitt 6.
+Der Bericht der früheren Phasen liegt unverändert in [TESTBERICHT_PHASE1-3.md](TESTBERICHT_PHASE1-3.md).
 
 ## 1. Auf einen Blick
 
 | Prüfung | Ergebnis | Umgebung |
 |---|---|---|
-| **Alle Tests** | **354 von 354 bestanden**, 0 übersprungen | Mac, Python **3.12.14**, PostgreSQL **16.15** (Docker/Colima) |
-| **Alle Tests im Container** | **354 von 354 bestanden**, 0 übersprungen | Docker-Image `python:3.12-slim` (Python **3.12.15**, Linux/arm64) gegen PostgreSQL 16 |
-| Datenbank-Tests 3× wiederholt | 3 von 3 Läufen grün (je 58 Tests; der 59. kam danach hinzu) | Mac, Python 3.12 |
-| Tests ohne Datenbank (zum Vergleich) | 295 bestanden, **59 übersprungen** (sichtbar als „skipped“) | Python 3.9, keine DB konfiguriert |
-| Gegenproben: absichtlich eingebaute Fehler | **alle 27 entdeckt** (5 + 12 + 10) | siehe Abschnitt 4 |
-| mypy `--strict` (42 Dateien), ruff | keine Fehler | Python 3.12 |
-| Demo (`python -m trading.demo`) im Container | läuft, Protokoll-Kette intakt | Docker |
-| Neustart-Prüfungen (offene Paper-Positionen) | **alle bestanden** (12 Prüfungen, siehe Abschnitt 3.5) | Docker/Colima |
+| **Alle Tests** | **606 von 606 bestanden**, 0 übersprungen | Mac, Python **3.12.14**, PostgreSQL **16.15** (Docker/Colima) |
+| **Alle Tests im Container** | **606 von 606 bestanden**, 0 übersprungen | Docker-Dienst `tests`, Python **3.12.15** (Linux/arm64) gegen PostgreSQL 16.15 |
+| Tests ohne Datenbank | 512 bestanden, **94 übersprungen** (sichtbar als „skipped“) | Python 3.9.6 (zeigt zugleich: der Kern bleibt 3.9-kompatibel) |
+| Mehrprozess- und Gleichzeitigkeitstests, 3× wiederholt | 3 von 3 Läufen: je 60 von 60 | Mac, Python 3.12.14 |
+| **Gegenprobe** (absichtlich eingebaute Fehler) | **193 von 193 entdeckt** | `scripts/mutation_check.py`, siehe Abschnitt 4 |
+| mypy `--strict` (55 Quelldateien), ruff (`src`, `tests`, `scripts`) | keine Befunde | Python 3.12.14 |
+| Docker-Dienste `migrate`, `app` (Vorführung), Backtest im Container | laufen; beide Migrationen „angewandt“ | Docker/Colima |
+| Backtest auf dem Mac und im Linux-Container | **identische Ergebnis-Fingerabdrücke** | Python 3.12.14 / 3.12.15 |
+| Echte Datenbank `trading` nach allen Läufen | **unverändert** (`restart_check.py verify`: IDENTISCH) | 2 offene Positionen, 6 Protokolleinträge, Kettenende gleich |
+| Aufräumen | keine Test-Datenbank übrig, kein `__pycache__`, keine `.env` im Projekt | |
 
-Tests nach Datei (Summe 354): `test_rin` 62 · `test_sora` 40 · `test_paper_executor` 34 · `test_limits_and_config` 29 · `test_risk_manager` 28 ·
-`test_pg_schema` 27 · `test_concurrency` 22 · `test_pipeline_and_agents` 22 · `test_data_validator` 18 · `test_event_log` 14 · `test_pg_multiprocess` 13 ·
-`test_pg_executor` 11 · `test_rin_sora_pipeline` 10 · `test_stats_and_synthetic` 9 · `test_pg_restart` 8 · `test_no_real_trading` 7.
+Tests nach Datei (Summe 606): `test_paper_executor` 87 · `test_rin` 64 · `test_risk_manager` 51 · `test_sora` 48 · `test_pg_schema` 42 ·
+`test_backtest_data` 39 · `test_concurrency` 38 · `test_backtest_engine` 37 · `test_limits_and_config` 35 · `test_pipeline_and_agents` 31 ·
+`test_data_validator` 26 · `test_pg_multiprocess` 22 · `test_pg_executor` 17 · `test_performance` 16 · `test_event_log` 14 ·
+`test_rin_sora_pipeline` 10 · `test_pg_restart` 10 · `test_stats_and_synthetic` 9 · `test_no_real_trading` 7 · `test_backtest_pg` 3.
+Datenbank-Tests: 94 (die fünf `*_pg*`-Dateien). Vor Stufe 1 waren es insgesamt 354 Tests.
 
-## 2. Was in Phase 3 eingerichtet wurde (alles mit Ihrer Freigabe)
+## 2. Was geprüft wird
 
-**Installiert über Homebrew** (alles in `/opt/homebrew`, ohne Administrator-Rechte, kostenlos): Python **3.12.14** (+ `mpdecimal`), **Colima 0.10.3** (+ `lima` 2.2.0),
-**Docker CLI 29.8.1**, **docker-compose 5.5.1**. System-Python 3.9 und `python3` im Terminal sind **unverändert**.
+### 2.1 Instrument-Schlüssel (Audit H1)
+Börse + Markttyp + Symbol überall. Getestet u. a.: Eine Spot-Kerze schließt keine Futures-Position desselben Paares; Marktdaten eines
+anderen Instruments werden abgelehnt (Executor, RIN, SORA); dasselbe Paar an zwei Börsen hat getrennte Kurse und Positionen;
+in PostgreSQL getrennte Zeilen in `instrument_state` und höchstens eine offene Position je Instrument.
 
-**Außerhalb des Projektordners entstanden:** `/opt/homebrew/Cellar/…` (ca. 215 MB), `~/.colima` (2,8 GB, die Docker-VM), `~/.docker/config.json` (Colima setzt den Docker-Kontext
-„colima“; das Verzeichnis gab es vorher nicht). Docker-Images: `postgres:16` (663 MB), `python:3.12-slim` (205 MB) und die zwei gebauten Projekt-Images; ein Daten-Volume `ai-trading-system_pgdata`.
-Test-Umgebungen und die Passwort-Datei liegen im temporären Session-Ordner, **nicht** in OneDrive. Andere Projekte wurden nicht berührt; es entstanden keine Kosten.
+### 2.2 Marktdaten (Audit H3, M10, H2, M6)
+Jede Kerze wird vollständig geprüft (Zeitzone, Zeitraster, endliche positive Zahlen, Hoch/Tief passend zu Eröffnung/Schluss, Volumen ≥ 0).
+Der Executor verarbeitet nur abgeschlossene Kerzen in zeitlicher Reihenfolge; doppelte, ältere, laufende oder fehlerhafte Kerzen werden
+ohne Wirkung verworfen und protokolliert, Lücken und auffällige Kerzen werden protokolliert. Funding kommt nur aus ausdrücklichen
+Ereignissen und wirkt je Position höchstens einmal – auch wenn acht Prozesse dasselbe Ereignis gleichzeitig einreichen. Eine Kerze, die vor
+dem Einstieg begann, zählt nur für den Stop.
 
-**Rückgängig machen:** `colima delete` (löscht VM, Images, Daten) · `brew uninstall python@3.12 colima docker docker-compose` · `rm -rf ~/.docker ~/.colima`.
+### 2.3 Risikolimits (Ihre Festlegungen zu M4 und H5)
+Eine einzige Rechenfunktion (`safety/order_risk.py`) für Risikomanager und SORA. Geprüft wird der Zustand **nach** der Order gegen die
+Netto-Equity **nach** den dabei anfallenden Kosten; alle Grenzen gelten gleichzeitig: 0,5 % je Trade, 2 % Gesamtrisiko, 100 % Brutto-Exposure,
+5 % Verlust bei 10 % Kursschock (bei Futures mit Margin, Hebel und Liquidation), Margin, Liquidationsabstand, Positionszahl, Notbremsen.
+Getestet: jede Grenze einzeln an ihrem Grenzwert, jede Kombination in Zufallsläufen (keine Order, nach der eine Kennzahl über ihrer Grenze
+liegt), fehlende/nicht endliche Zahlen und veraltete Bewertungskurse führen zur Ablehnung, Limits lassen sich nur strenger einstellen.
+**Gleichzeitige Anfragen:** 12 echte Prozesse auf 12 Instrumenten – nie mehr als 2 % Gesamtrisiko; dieselbe Order-ID wird genau einmal
+ausgeführt; derselbe Markt erhält genau eine Position; ein mitten in der Transaktion beendeter Prozess hinterlässt keine Spur.
+Zweiter Gurt in der Datenbank (Gesamtrisiko und Exposure beim COMMIT), auch unter `REPEATABLE READ`/`SERIALIZABLE`.
 
-## 3. Ergebnisse der einzelnen Aufgaben
+### 2.4 Positionen schließen (Audit M11)
+Stop-Loss, Take-Profit, Liquidation, Ausstiegssignal, Eingriff. Kurslücke über den Stop: schlechterer Eröffnungskurs. Stop und Ziel in
+derselben Kerze: Stop. Ausstieg auf Signal zum Geld-/Briefkurs mit Slippage und Taker-Gebühr; ohne gültige aktuelle Marktdaten wird nicht
+geschlossen. Liquidation kostet die gesamte Margin. Von Hand nachgerechnete Beträge für Long und Short, Spot und Futures.
 
-### 3.1 Docker-Container und PostgreSQL gestartet
-PostgreSQL 16.15 läuft im Container, gebunden nur an `127.0.0.1:5432`. Beim ersten Start wurden `db/00_roles.sh` (Anwendungsrolle `trading_app`, Passwort aus der Umgebung) und `db/schema.sql`
-fehlerfrei ausgeführt: 7 Tabellen, 16 Trigger. Der App-Container verbindet sich als `trading_app` (kein Superuser).
+### 2.5 Kapitalkurve und Kennzahlen (Audit M13)
+Laufend bewertete Kapitalkurve, realisiertes und unrealisiertes Ergebnis, Gewinnrate, Profit-Faktor, durchschnittlicher Gewinn/Verlust,
+maximaler Drawdown, Sharpe/Sortino – alles netto. Der Bericht bricht ab, wenn Endkapital ≠ Start + realisiert + unrealisiert.
 
-### 3.2 Alle Tests mit Python 3.12
-354/354 auf dem Mac **und** im Container (siehe oben). Die bisherigen 293 Tests liefen vorab unter 3.12.14 ebenfalls ohne Änderung am Code.
+### 2.6 Backtesting-Engine
+Siehe [BACKTESTING.md](BACKTESTING.md). Getestet: kein Blick in die Zukunft (drei unabhängige Nachweise), Ausführung zum nächsten
+Eröffnungskurs, Kosten von Hand nachgerechnet, Funding, Limits bei jeder Ausführung, vollständiges Protokoll, Wiederholbarkeit (auch in
+getrennten Prozessen und über PostgreSQL bit-identisch zum Lauf im Speicher), Vergleich nur bei gleichen Voraussetzungen, abgestürzte Strategie
+oder beschädigtes Protokoll macht den Lauf ungültig.
 
-### 3.3 PostgreSQL-Trigger und AKI-Logging (`test_pg_schema.py`, 27 Tests)
-* **Unveränderlichkeit:** `UPDATE`, `DELETE`, `TRUNCATE` auf `event_log` werden auch vom **Administrator** abgelehnt (Trigger); die Anwendungsrolle darf zusätzlich weder `DROP` noch `ALTER … DISABLE TRIGGER`.
-* **Datenbank prüft jede neue Zeile selbst:** falsche Sequenznummer, falsche Verkettung, falscher Hash, abweichender Inhalt (`payload` ≠ `payload_json`) → abgelehnt. Die Datenbank berechnet den SHA-256-Hash mit demselben Ergebnis wie Python.
-* **Kettenende-Zeiger** (`event_log_head`) kann nicht direkt geändert werden (nur aus dem Insert-Trigger heraus).
-* **Manipulation durch einen Superuser** (Trigger abschalten, Inhalt ändern oder die letzten Einträge löschen) wird von `verify()` **erkannt**, auch das Entfernen der letzten Einträge (Zeiger-Abgleich).
-* **Gleichzeitiges Schreiben** aus 4 Verbindungen × 15 Einträge ergibt eine lückenlose Kette 1…60.
-* **Konto:** nur `mode='paper'`, `max_portfolio_risk ≤ 0,02` (entspricht der Python-Obergrenze), Modus/Limit/Startkapital nach dem Anlegen unveränderlich; die Anwendungsrolle darf diese Spalten nicht ändern.
-* **Positionen:** höchstens eine offene je Markt (Unique-Index), geschlossene Positionen/Orders/Handelsergebnisse unveränderlich, kein `DELETE`/`TRUNCATE`/DDL für die Anwendungsrolle.
-* **AKI-Protokollierung** (`test_pg_executor.py`, `test_pg_multiprocess.py`): Handel und Protokolleintrag werden **in derselben Transaktion** gespeichert; blockierte Orders stehen mit Gründen und Setup im Protokoll; Executor- und AKI-Einträge
-  aus verschiedenen Prozessen liegen in **einer** gültigen Kette.
+### 2.7 PostgreSQL, Migrationen, Neustart, Docker
+Migrationsläufer (Reihenfolge, Prüfsummen, eine Transaktion je Schritt, bestehende Datenbank nur mit ausdrücklicher Bestätigung übernehmen);
+Übergang von Schema 001 auf 002 mit Bestandsdaten; Trigger und Rechte einzeln; Neustart mit offenen Positionen, Funding-Fortschritt,
+Marktzustand, Handelstag und Notbremsen; Container `app` ohne Administrator-Zugang.
 
-### 3.4 2-%-Teamrisikolimit über mehrere Prozesse (`test_pg_multiprocess.py`, 13 Tests; `test_pg_executor.py`, 11 Tests)
-Absicherung in **drei unabhängigen Ebenen**: (1) Zeilensperre auf dem Konto (`SELECT … FOR UPDATE`) zu Beginn jeder Transaktion; (2) Constraint-Trigger, der beim COMMIT das Restrisiko aller offenen Positionen prüft;
-(3) Primärschlüssel/Unique-Index gegen doppelte Positions- und Order-Nummern. Ergebnisse mit **echten, getrennten Betriebssystem-Prozessen** (alle starten zur selben Uhrzeit, die Risikoprüfung wird künstlich verlangsamt, damit Wettläufe auftreten würden):
+## 3. Geänderte Tests – und warum
 
-| Szenario | Ergebnis |
-|---|---|
-| 12 Prozesse, 12 verschiedene Märkte, je 0,45 % Risiko (3 Wiederholungen) | **genau 4** gefüllt, 8 abgelehnt, Restrisiko ≤ 2 % |
-| 8 Prozesse, **gleiche Order-ID** (3 Wiederholungen) | genau 1 Ausführung, 7× `DUPLICATE_ORDER_ID` |
-| 8 Prozesse, **gleicher Markt**, verschiedene IDs (3 Wiederholungen) | genau 1 Position, 7× `DUPLICATE_POSITION` |
-| 4 Prozesse × 5 Orders | genau 4 gefüllt, 20 Orders erfasst, Kette gültig |
-| 8 komplette Pipelines (RIN + SORA + Executor + AKI) in 8 Prozessen | 1–5 Positionen (Limit 5), Restrisiko ≤ 2 %, jede Blockade mit Grund, 8 Vorschläge protokolliert, Kette gültig |
-| Prozess wird mit `SIGKILL` **mitten in der Transaktion** beendet | **keine** Spuren (keine Position, Order, Protokolleinträge; Konto unverändert); Sperre sofort frei; dieselbe Order-ID gelingt danach |
-| Prozess committet und endet | Position bleibt erhalten |
-| Zwei offene Transaktionen **ohne jede Client-Sperre** | die zweite scheitert beim COMMIT am Datenbank-Trigger |
-| Datenbankfehler bei der Ausführung innerhalb der Pipeline | Setup wird als `EXECUTION_ERROR` blockiert, nichts gespeichert |
+Kein Test wurde abgeschwächt, um einen Programmfehler zu verdecken. Geändert wurden Tests in zwei Fällen:
 
-Zusätzlich: Der DB-Executor liefert **dieselben Ergebnisse wie die Speicher-Engine** (Parität: Status, Gründe, Positionsnummern, Gewinne, Gebühren, Funding, Guthaben, Margin); Dezimalwerte bleiben beim Speichern exakt.
+**a) Die Anforderungen haben sich geändert** (Ihre Festlegungen zu M4/H5, neue Datenregeln):
+* Szenarien mit mehreren Positionen nutzen jetzt kleine Positionen mit weitem Stop (9 Stück zu 100, Stop 95). Mit den früheren Größen
+  hätte das neue Stress-Limit zuerst gegriffen, und die 2-%-Grenze wäre gar nicht mehr geprüft worden.
+* Funding-Tests verwenden `FundingEvent` statt der alten festen Uhrzeiten; Kerzen müssen abgeschlossen sein.
+* Ein Test („Spot wird vor dem 2-%-Limit durch das Guthaben begrenzt“) entfiel: Das Szenario ist unter den neuen Grenzen nicht mehr
+  erreichbar. Die Margin-Regel ist weiter direkt am Risikomanager getestet, einschließlich des Grenzfalls mit Gebühr.
 
-### 3.5 Neustart – bleiben offene Paper-Trades erhalten?  **Ja.**
-| Art des Neustarts | Beleg | Ergebnis |
-|---|---|---|
-| Neues Python-Objekt/neue Verbindung (Test) | Positionen, Guthaben, Margin, Hoechststand, offenes Risiko identisch | bestanden |
-| Neuer **Betriebssystem-Prozess** liest den Zustand | identisch | bestanden |
-| Lauf **mit** Neustart in der Mitte vs. ununterbrochener Lauf (Speicher-Kontrolle) | Gewinne, Gebühren, Funding, Ausstiegskurse, Guthaben identisch | bestanden |
-| Order-IDs nach Neustart | bleiben gesperrt (`DUPLICATE_ORDER_ID`) | bestanden |
-| Kurssprung-Filter nach Neustart | merkt sich den letzten gültigen Kurs | bestanden |
-| Neustart mit „falschem“ Startkapital | bestehendes Konto wird **nicht** überschrieben | bestanden |
-| Hash-Kette über Neustarts | `seq` und `prev_hash` setzen lückenlos fort | bestanden |
-| `docker-compose restart db` | PostgreSQL-Startzeit änderte sich (19:22 → 19:30) | Zustand identisch |
-| `stop` + `start` | Startzeit geändert, Status zwischendurch `exited` | identisch |
-| `down` + `up` (Container gelöscht, Volume bleibt) | **neue Container-ID** | identisch |
-| **Gesamte Docker-VM** (`colima stop` / `start`) | DB-Container kam durch `restart: unless-stopped` **von selbst** zurück | identisch |
-| **Harter Absturz** (`docker kill`, Exit 137) | PostgreSQL-Log: „not properly shut down; automatic recovery“ | identisch |
+**b) Die Erwartung im Test war falsch** (das Programm rechnete richtig):
+* Handrechnung 7,817 × 5,117 = 39,999589 (ich hatte 39,999639 notiert) – zwei Stellen.
+* Vertauschte Kerzen: Der Prüfer meldet „Lücke, falsche Reihenfolge“; ich hatte eine zweite Lücke erwartet, die es nicht gibt.
+* Bei extrem hohen Kosten blockiert RIN alle Trades („Stop zu eng im Verhältnis zu den Kosten“). Mein Test hatte trotzdem Trades erwartet;
+  daraus wurde ein eigener Test für genau dieses Verhalten.
+* Frühere Fälle in Stufe 1: Zahl aus Fließkommawert gebildet, Kerze nicht im Zeitraster, zu schnelle Test-Uhr (Bewertung galt als veraltet).
 
-*Nicht* getestet: Neustart des gesamten Macs, vollständiger Datenträger, `docker-compose down -v` (löscht die Daten absichtlich).
+## 4. Gegenprobe: Bemerken die Tests eingebaute Fehler?
 
-## 4. Gegenproben (absichtlich eingebaute Fehler – alle entdeckt)
+`scripts/mutation_check.py` baut je einen bekannten Fehler in eine Kopie des Projekts ein und lässt die Tests laufen.
 
-* **Phase 1 (5 Fehler):** 2-%-Prüfung entfernt (3 Tests schlugen fehl) · Veraltet-Prüfung aus (5) · Hash ignoriert Inhalt (3) · Take-Profit vor Stop geprüft (1) · Doppel-Order erlaubt (3).
-* **Phase 2 (12 Fehler):** Executor ohne Sperre (10) · Pipeline ohne Sperre (5) · SORA ignoriert bestehendes Risiko (6) · SORA rundet auf statt ab (20) · SORA ohne Liquidationsfilter (2) ·
-  SORA ohne Slippage im Einstiegskurs (2) · RIN erlaubt Spot-Short (4) · RIN ohne Setup-Alterprüfung (1) · RIN lässt alle Handelspaare zu (16) · RIN ohne Netto-Chance-Risiko (5) ·
-  Einstiegsgebühr doppelt als Risiko gezählt (3) · Validator ohne NaN-Schutz (3). Alle entdeckt.
-* **Phase 3 (10 Fehler, jeweils nur mit Datenbank-Tests geprüft):**
+| Gruppe | Einträge | Entdeckt | Beispiele |
+|---|---|---|---|
+| Kern | 135 | 135 | Limit abgeschaltet oder gelockert, Stress-Schock in die falsche Richtung, Funding doppelt buchbar, Stop zum besseren Kurs gefüllt, Drawdown-Bremse wirkungslos, RIN ohne Spread in den Kosten, abgestürzter Agent zählt als Zustimmung |
+| Backtest | 28 | 28 | Ausführung zum Schlusskurs der beginnenden Kerze, Strategie sieht die Zukunft, Funding vergessen, defektes Protokoll hingenommen |
+| Datenbank | 30 | 30 | Konto-Sperre entfernt, Datenbank-Gurt entfernt, kein Rollback, Handelstag nicht gespeichert, Protokoll löschbar, veränderte Migration unbemerkt |
 
-| Eingebauter Fehler | Entdeckt durch |
-|---|---|
-| A: keine Konto-Sperre im Python-Code | Mehrprozess-Tests (Datenbank-Trigger fängt den Wettlauf ab → Worker melden Fehler) |
-| B: Constraint-Trigger (2 %) entfernt | Schema-Test (Wettlauf zweier offener Transaktionen) |
-| C: **beides** entfernt | Mehrprozess-Tests – hier greift die dritte Ebene: der Primärschlüssel verhindert doppelte Positions-Nummern |
-| D: Änderungssperre auf `event_log` entfernt | Schema-Test |
-| E: Order-IDs nach Neustart vergessen | Neustart-/Executor-Tests |
-| F: Höchststand nicht gespeichert | Neustart-Test |
-| G: Protokoll ohne Advisory-Sperre | Schema-Test (gleichzeitiges Schreiben) |
-| H: kein Rollback (Autocommit) | Executor-Test (Absturz vor Commit) |
-| I: Hash-Prüfung der Datenbank entfernt | Schema-Test (gefälschter Hash) |
-| J: offene Positionen werden nach Neustart nicht geladen | Neustart-Test |
+**Alle 14 Fehler, die das Audit als „übersehen“ gemeldet hatte, werden jetzt bemerkt.**
 
-Hinweis zu C: Ohne Sperre **und** ohne Trigger würde das Limit rechnerisch überschritten, wird aber bereits vom Primärschlüssel verhindert (zwei Prozesse vergeben dieselbe Positions-Nummer). Eine Verletzung des 2-%-Limits *selbst* wurde in keiner Variante beobachtet.
+Ehrlich dazu: Im ersten Durchlauf der neuen, größeren Gegenprobe wurden **14 Einträge nicht bemerkt** (andere als die 14 aus dem Audit).
+Daraufhin entstanden zusätzliche Tests:
+* Backtest (3): Ergebnis-Fingerabdruck deckt die Ergebnisse selbst ab · beschädigtes Protokoll macht den Lauf ungültig · Reihenfolge der Eingabedaten egal.
+* Kern (6): Fehler nach der Ausführung hinterlässt keinen Protokolleintrag · Short-Stop mit Slippage zu Ungunsten · letzter bekannter Kurs nach dem
+  Schließen · SORA gibt nie frei, was die gemeinsame Risikorechnung ablehnt · Ausfall der Ausführung blockiert nur das eine Setup · Nullsummen-Trade
+  unterbricht eine Verlustserie.
+* Datenbank (4): Handelstag und Tagesstart-Kapital überstehen Neustarts (zwei Einträge; **sicherheitsrelevant**: sonst hätte ein Neustart die
+  Tagesverlust-Notbremse zurücksetzen können – das Programm war richtig, aber kein Test hätte einen Fehler dort bemerkt) · Datenbank lehnt in sich
+  stimmige, aber nicht anschließende Protokollzeilen ab (zwei Einträge).
+* Ein Eintrag (Überlappung von Kerzen) zielte auf Code, der nachweislich nie erreicht werden kann; dieser tote Code wurde entfernt.
 
-## 5. Bei der Arbeit gefundene Probleme
+Grenze der Methode: Die Gegenprobe zeigt nur, dass **diese 193** Fehler bemerkt würden – nicht, dass jeder denkbare Fehler bemerkt wird.
 
-**Echte Mängel (behoben, mit Tests):**
-1. **Wartekreis im Datenbank-Trigger.** Der Constraint-Trigger verlangte beim COMMIT `FOR UPDATE` auf der Konto-Zeile; das kollidiert mit der Fremdschlüssel-Sperre (`FOR KEY SHARE`) einer zweiten offenen Transaktion → beide hätten sich gegenseitig blockiert (ein Test hing). Behoben mit `FOR NO KEY UPDATE`; die Python-Transaktion nutzt weiterhin `FOR UPDATE` zu Beginn.
-2. **Verkürztes Protokoll nicht erkennbar** (Lücke aus Phase 1): In der Datenbank-Variante gleicht `verify()` jetzt das Kettenende mit dem Zeiger ab.
-3. `append_raw` ging von einem bestimmten Zeilenformat des Datenbank-Cursors aus (Fehler beim ersten Lauf); jetzt unabhängig davon.
-4. Die Pipeline fängt Fehler der Ausführung jetzt ab und blockiert fail-closed (`EXECUTION_ERROR`), statt abzustürzen.
+## 5. Bei der Arbeit gefundene Probleme im Programm
 
-**Fehler in meiner Test-/Prüftechnik (nicht im Produktcode) – offen berichtet:**
-* `multiprocessing.Barrier` ließ sich unter macOS nicht an neu gestartete Prozesse übergeben (Tests hingen 3 Minuten) → Umstellung auf echte `subprocess`-Prozesse mit gemeinsamer Startzeit.
-* **Eine erste Neustart-Prüfung war wertlos:** In zsh wurde `$DC stop db` nicht ausgeführt und die Fehlermeldung von mir unterdrückt; das „Ergebnis: identisch“ bewies daher nichts. Ich habe es **verworfen** und mit Belegen (PostgreSQL-Startzeit, Container-ID) neu gemacht – nur diese Fassung gilt.
-* Das erste Gegenprobe-Skript lief wegen desselben zsh-Problems ohne Tests; neu als Python-Skript geschrieben. Zwei Gegenproben waren zunächst ungültiges SQL (Entdeckung aus falschem Grund) und wurden korrigiert.
-* Ein Test erwartete einen Fehler an der falschen Stelle (Hook feuerte schon bei SORAs Portfolio-Abfrage – ebenfalls fail-closed).
+* **Schleifenvariable in der Backtest-Engine** (von der Stilprüfung gemeldet): Eine Hilfsfunktion griff auf die Variable des laufenden
+  Zeitpunkts zu. Kein Fehlverhalten, aber fehleranfällig – jetzt wird der Zeitpunkt ausdrücklich übergeben.
+* **Toter Code im Kerzen-Prüfer** (Überlappung) entfernt, siehe oben.
+* **Werkzeug-Problem, nicht im Programm:** Ein abgebrochener Lauf der Gegenprobe ließ einen temporären Ordner zurück; er wurde entfernt.
+  Das Werkzeug räumt im Normalfall selbst auf.
 
-## 6. Verbleibende Fehler, Grenzen und nicht Getestetes
+## 6. Nicht geprüft, Grenzen, offene Punkte
 
 | Punkt | Einordnung |
 |---|---|
-| **Hash-Kette/Trigger schützen nicht vor einem Datenbank-Superuser**, der Trigger abschaltet *und* Kette und Zeiger konsistent neu schreibt | Eingriffe werden nur in den getesteten Fällen sichtbar. Superuser-Passwort nur in der lokalen Datei; Anwendung nutzt ihn nie. Später: Kettenende extern ablegen. |
-| **Eine Sperre pro Konto** = alle Aktionen eines Kontos laufen nacheinander; auch `portfolio_state()` nimmt sie kurz | Bewusst (Sicherheit vor Tempo). Bei > 10 s Wartezeit wird abgebrochen → fail-closed. **Durchsatz nicht gemessen.** |
-| Bei Konkurrenz kann SORAs Vorschlag vom Risikomanager **abgelehnt** statt automatisch verkleinert werden | sicher, aber nicht optimal; Verbesserung später möglich |
-| Nur **ein Konto** und **eine** Datenbank getestet; `market_state` (Kurse) gilt für alle Konten gemeinsam | reicht für jetzt |
-| **Kein Backup, keine Replikation, kein TLS**; Port nur auf `127.0.0.1` | Pflicht vor dem VPS-Betrieb |
-| Docker nur mit **Colima auf Apple Silicon** getestet; nicht mit Docker Desktop, nicht auf Linux/amd64 (Hetzner) | vor dem VPS-Betrieb dort testen |
-| Python **3.13/3.14** und GIL-freies Python nicht getestet; Kern bleibt 3.9-kompatibel, `persistence` nur unter 3.12 geprüft | |
-| **Lasttest / Dauerbetrieb** (24/7, viele Tausend Einträge, Speicher, `VACUUM`) nicht durchgeführt | vor dem VPS-Betrieb |
-| Neustart des **gesamten Macs**, volle Festplatte, Netzwerkausfall, Datenbank-Failover nicht getestet | |
-| `docker compose` (ohne Bindestrich) ist nicht eingerichtet (würde `~/.docker/config.json` ändern); es gilt `docker-compose` | bewusst |
-| Echte Börsenregeln (Mindestmenge, Tick-/Lot-Größe, Gebührentarife) fehlen; **keine Strategie → keine Aussage über Profitabilität** | spätere Phasen |
+| **Echte Marktdaten** | Es gibt keinen Adapter. Alle Ergebnisse beruhen auf erfundenen Daten und sagen nichts über Gewinne. |
+| **Strategien** | Keine echte Handelslogik; KIBO und YUZU sind neutrale Platzhalter. |
+| **Stress-Limit ohne Datenbank-Gurt** | Nur in der Anwendung gerechnet (unter der Konto-Sperre). |
+| **Stress-Limit ist die engste Grenze** | Begrenzt die ungesicherte Gesamtgröße auf knapp 50 % des Kapitals. |
+| **Unter Konkurrenz Ablehnung statt Verkleinerung** (Audit M8) | Sicher, aber nicht optimal. |
+| **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | offen |
+| **PAPER-Schutz nicht an einem zentralen Startpunkt** (Audit M3) | offen; ein Live-Modus existiert im Code nicht |
+| **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | offen |
+| **Wiederverbindung zur Datenbank, hängende Transaktionen** (Audit H7) | offen |
+| **Kein regelmäßiges Backup, keine festgeschriebenen Paketversionen** (Audit M14, M12) | offen |
+| **Börsenregeln je Instrument** (Mindestgröße, Preis- und Mengenschritte) | fehlen |
+| Docker nur mit **Colima auf Apple Silicon**; nicht Docker Desktop, nicht Linux/amd64 (Hetzner) | vor dem Server-Betrieb testen |
+| Python **3.13/3.14** nicht getestet; `trading.persistence` nur unter 3.12 | |
+| **Lasttest / Dauerbetrieb**, Neustart des gesamten Macs, volle Festplatte, Netzwerkausfall | nicht durchgeführt |
+| Neustart-Arten des Containers (restart, stop/start, down/up, VM-Neustart, `docker kill`) | in Phase 3 geprüft, in Stufe 1 **nicht erneut**; die Neustart-Tests (neuer Prozess, neue Verbindung) liefen |
+| Alt-Positionen im Konto `restart-check` | überschreiten die neue Stress-Grenze (8,05 %); neue Trades dort blockiert |
 
-**Keine bekannten offenen Fehler im getesteten Umfang.** „Keine bekannten“ heißt nicht „keine“: Alles in der Tabelle oben ist ungeprüft oder bewusst vereinfacht.
+**Keine bekannten offenen Fehler im getesteten Umfang.** „Keine bekannten“ heißt nicht „keine“.
 
 ## 7. Reproduzieren
 
-Siehe [README.md](../README.md) („Projekt starten“). Kurzfassung:
-
 ```bash
 docker-compose --env-file ~/trading-secrets.env up -d --build db
-docker-compose --env-file ~/trading-secrets.env run --rm app pytest -q -rs       # alle Tests im Container (Python 3.12)
+docker-compose --env-file ~/trading-secrets.env run --rm tests                    # alle Tests im Container (Python 3.12)
+set -a; source ~/trading-secrets.env; set +a
+export TEST_ADMIN_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/postgres" TEST_APP_PASSWORD="$APP_DB_PASSWORD"
+~/venvs/trading312/bin/pytest -q -rs                                              # alle Tests auf dem Mac
 ~/venvs/trading312/bin/ruff check src tests scripts && ~/venvs/trading312/bin/mypy --strict src
+~/venvs/trading312/bin/python scripts/mutation_check.py                           # Gegenprobe (ca. 15 Minuten)
 ```

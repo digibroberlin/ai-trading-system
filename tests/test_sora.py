@@ -431,3 +431,16 @@ def test_spread_costs_shrink_the_position_and_are_checked_against_equity_after_c
     p = size(snap_kw={"half_spread": D("0.1")})  # Kauf zu 100,1 bei Mitte 100
     unit = NO_SLIP.worst_case_loss(Side.LONG, D(1), D("100.1"), D(99))
     assert p.quantity == floor4(D(40) / unit) and p.quantity < size().quantity
+
+
+def test_sora_never_approves_what_the_shared_risk_rules_reject(monkeypatch):
+    """Weicht die Endkontrolle von SORAs eigener Mengenformel ab (hier kuenstlich: strengeres Limit je Trade),
+    gibt es KEINEN Vorschlag - SORA rundet hoechstens ein paar Schritte nach unten und gibt dann auf."""
+    import trading.agents.sora_rules as module
+
+    real = module.evaluate_order
+    stricter = dataclasses.replace(POLICY, max_risk_per_trade=D("0.0039"))  # SORA zielt auf 0,4 %
+    monkeypatch.setattr(module, "evaluate_order", lambda limits, *args: real(stricter, *args))
+    p = size()
+    assert not p.approve and p.quantity == 0
+    assert R.TRADE_RISK_TOO_HIGH in p.reject_reasons

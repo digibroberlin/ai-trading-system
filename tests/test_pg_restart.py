@@ -208,3 +208,52 @@ def test_account_is_not_reset_when_the_system_starts_again_with_another_initial_
     assert b.balance == balance and len(b.open_positions) == 1
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT initial_equity FROM accounts").fetchone() == (D(10000),)
+
+
+def test_trading_day_its_starting_equity_and_the_daily_loss_brake_survive_restarts(pg):
+    """Die Tagesverlust-Notbremse haengt an zwei gespeicherten Werten: dem Handelstag und dem Kapital zu Tagesbeginn.
+    Gehen sie bei einem Neustart verloren, misst das System den Verlust gegen einen falschen Ausgangswert."""
+
+    def day_in_db():
+        with psycopg.connect(pg.admin_url) as c:
+            return c.execute("SELECT day, day_start_equity FROM accounts").fetchone()
+
+    def big(oid, symbol="BTC-USD"):  # 40 Stueck zu 100, Stop 99, Ziel 102
+        return OrderIntent(oid, make_setup(oid, symbol=symbol, stop=D(99), tp=D(102)), D(40), D(1))
+
+    # Tag 1: ein Gewinn (+76,784) - das Kapital weicht danach vom Startkapital ab.
+    clock = FixedClock(T0)
+    ex = new_executor(pg, clock)
+    assert ex.submit(big("win"), snapshot(ts=clock.now())).status is OrderStatus.FILLED
+    assert len(feed(ex, clock, make_candle(T0, D(100), D(103), D(100), D(102)))) == 1
+    equity_day1 = ex.portfolio_state().equity
+    assert equity_day1 == D("10076.784") and day_in_db() == (T0.date(), D(10000))
+
+    # Tag 2 beginnt: Der neue Tagesstart ist das Kapital von jetzt - und steht in der Datenbank.
+    clock.set(T0 + timedelta(days=1))
+    day2 = clock.now().date()
+    assert new_executor(pg, clock).portfolio_state().day_start_equity == equity_day1
+    assert day_in_db() == (day2, equity_day1)
+
+    # Verluste an Tag 2 bis ueber 3 % (7 x 44,776 = 313,432 = 3,11 % von 10 076,784).
+    ex = new_executor(pg, clock)
+    for i in range(7):
+        assert ex.submit(big("loss%d" % i), snapshot(ts=clock.now())).status is OrderStatus.FILLED
+        assert len(feed(ex, clock, make_candle(clock.now(), D(100), D(100), D(98), D("98.5")))) == 1
+        clock.advance(120)
+    assert ex.submit(big("blocked", "ETH-USD"), snapshot(symbol="ETH-USD", ts=clock.now())).reasons == (
+        R.DAILY_LOSS_LIMIT,)
+
+    # Neustart am selben Tag: Handelstag und Tagesstart sind unveraendert, die Bremse gilt weiter.
+    restarted = new_executor(pg, clock)
+    state = restarted.portfolio_state()
+    assert state.day_start_equity == equity_day1 and state.equity == equity_day1 - D("313.432")
+    assert day_in_db() == (day2, equity_day1)
+    assert restarted.submit(big("after-restart", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).reasons == (
+        R.DAILY_LOSS_LIMIT,)
+
+    # Tag 3: neuer Tagesstart beim (niedrigeren) Kapital - Handel ist wieder moeglich, auch nach einem Neustart.
+    clock.set(T0 + timedelta(days=2))
+    fresh = new_executor(pg, clock)
+    assert fresh.submit(big("day3", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).status is OrderStatus.FILLED
+    assert day_in_db() == (clock.now().date(), equity_day1 - D("313.432"))

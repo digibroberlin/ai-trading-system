@@ -108,6 +108,30 @@ def test_database_refuses_forged_rows(pg):
         assert c.execute("SELECT count(*) FROM event_log").fetchone() == (2,)
 
 
+def _consistent_hash(seq, prev, payload='{"a":1}'):
+    """Hash, der zum Inhalt der Zeile passt - so, wie ihn ein sorgfaeltiger Faelscher berechnen wuerde."""
+    import hashlib
+
+    text = "%d|2025-01-01T12:00:00+00:00|T|%s|%s" % (seq, prev, payload)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_database_refuses_rows_that_are_consistent_in_themselves_but_do_not_continue_the_chain(pg):
+    """Der Hash der gefaelschten Zeile stimmt - trotzdem muss die Datenbank sie ablehnen, wenn sie nicht
+    genau an das Kettenende anschliesst (falsche Nummer ODER falscher Vorgaenger)."""
+    log = fill_log(pg, 2)
+    last = log.events()[-1]
+    with admin(pg) as c:
+        with pytest.raises(E.CheckViolation, match="Sequenznummer"):  # Luecke: 9 statt 3
+            _insert(c, 9, last.hash, _consistent_hash(9, last.hash))
+        with pytest.raises(E.CheckViolation, match="Verkettung"):  # richtige Nummer, erfundener Vorgaenger
+            _insert(c, 3, "f" * 64, _consistent_hash(3, "f" * 64))
+        assert c.execute("SELECT count(*) FROM event_log").fetchone() == (2,)
+        _insert(c, 3, last.hash, _consistent_hash(3, last.hash))  # Gegenprobe: die korrekte Fortsetzung wird angenommen
+        assert c.execute("SELECT seq, hash FROM event_log_head").fetchone() == (3, _consistent_hash(3, last.hash))
+    assert PostgresEventLog(pg.app_url).verify().ok
+
+
 def test_verify_detects_tampering_by_a_superuser_who_disables_the_triggers(pg):
     log = fill_log(pg)
     with admin(pg) as c:  # nur ein Superuser kann das - die Hash-Kette entlarvt es trotzdem

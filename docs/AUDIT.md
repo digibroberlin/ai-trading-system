@@ -114,3 +114,59 @@ Kein Test wurde abgeschwächt, um einen Code-Fehler zu verdecken.
 **Stufe 2 (vor weiterem Mehrprozess-/Paper-Betrieb):** H4, H6, H8, M1, M2, M3, M5, M7, M8, H2, M6.
 
 **Stufe 3 (vor 24/7-Betrieb auf dem Server):** H7, M9, M12, M14, Überwachung, Lasttest.
+
+---
+
+# Stand nach Stufe 1 (2026-10-14)
+
+Dieser Abschnitt hält fest, was aus dem Audit inzwischen umgesetzt ist. Der Text oberhalb ist der unveränderte Befund vom 2026-10-13.
+Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
+
+## Hohe Befunde
+
+| Nr. | Stand | Was getan wurde / was fehlt |
+|---|---|---|
+| H1 | **behoben** | Instrument = Börse + Markttyp + Symbol in Kerze, Snapshot, Setup, Position, Trade, Bewertungskurs, Validator und Datenbank (`instrument_state`). Eine Spot-Kerze berührt die Futures-Position desselben Paares nicht mehr (getestet, auch in PostgreSQL). |
+| H2 | **behoben** (vorgezogen) | Eine Kerze, die vor dem Einstieg begann, zählt nur für den Stop (vorsichtig); das Ziel wird in ihr nicht gewertet. |
+| H3 | **behoben** | Vollständige Kerzenprüfung; nur abgeschlossene Kerzen in zeitlicher Reihenfolge; doppelte/ältere/fehlerhafte werden verworfen und protokolliert; Lücken und auffällige Kerzen werden protokolliert. |
+| H4 | **behoben** (vorgezogen) | Der Handelstag wechselt nur vorwärts; Tag und Tagesstart-Kapital liegen in der Datenbank und überstehen Neustarts (getestet mit falscher Uhr und über drei Tage). |
+| H5 | **behoben** | Zwei neue Grenzen: 100 % Brutto-Exposure und 5 % Verlust bei 10 % Kursschock – gleichzeitig mit allen anderen, auf den Zustand nach der Order. Exposure zusätzlich als Datenbank-Gurt. |
+| H6 | **behoben** (vorgezogen) | Der Container `app` kennt nur die eingeschränkte Rolle; eigene Einmal-Dienste `migrate` und `tests`; Laufzeit-Image ohne Tests und Werkzeuge. |
+| H7 | offen | Wiederverbindung zur Datenbank und Zeitlimit für hängende Transaktionen fehlen weiterhin (Stufe 3). |
+| H8 | **behoben** (vorgezogen) | Nummerierte Migrationen mit Versions-Tabelle und Prüfsummen. Die bestehende Datenbank wurde nach einem Backup übernommen; Zustand danach nachweislich identisch. |
+| H9 | **behoben** | Alle 14 damals übersehenen Fehler werden jetzt bemerkt. Die Gegenprobe ist ein dauerhaftes Werkzeug (`scripts/mutation_check.py`) mit 193 Einträgen – alle entdeckt. |
+
+## Mittlere Befunde
+
+| Nr. | Stand | Was getan wurde / was fehlt |
+|---|---|---|
+| M1 | **behoben** (vorgezogen) | Der Datenbank-Gurt schreibt die Konto-Zeile; unter `REPEATABLE READ`/`SERIALIZABLE` bricht die zweite Transaktion ab (getestet). |
+| M2 | teilweise | Offene Positionen: nur noch Schließen und Funding-Fortschritt änderbar. **Offen:** Die Anwendungsrolle darf weiterhin den Kontostand schreiben und Konten anlegen. |
+| M3 | offen | `load_settings()` wird von Vorführung und Backtest aufgerufen, nicht von einem zentralen Startpunkt; die Schlüssel-Erkennung ist nicht verbreitert. |
+| M4 | **behoben** (Ihre Festlegung) | Geplantes Gesamtrisiko ≤ 2 % der Netto-Equity nach bereits angefallenen Kosten; Zustand nach der Order; erwartete Gebühren, Slippage und Funding-Puffer eingerechnet; unter der Konto-Sperre atomar. |
+| M5 | **behoben** (vorgezogen) | Jede Operation des Speicher-Executors ist unteilbar; scheitert etwas (auch das Protokoll), wird alles zurückgesetzt. |
+| M6 | **behoben** (vorgezogen) | Der Referenzkurs des Sprung-Filters verfällt nach 15 Minuten; verarbeitete Kerzen schreiben ihn fort. |
+| M7 | offen | Eine wiederholte Order-ID liefert weiterhin „Duplikat“ statt des ursprünglichen Ergebnisses. |
+| M8 | offen | Unter Konkurrenz mehrerer Prozesse wird ein SORA-Vorschlag weiterhin abgelehnt statt neu berechnet (sicher, aber nicht optimal). |
+| M9 | offen | `verify()` lädt weiterhin das ganze Protokoll. |
+| M10 | **behoben** | Funding nur noch aus ausdrücklichen Ereignissen (Satz und Kurs aus den Daten), je Position höchstens einmal; ohne Funding-Satz kein Futures-Trade. |
+| M11 | weitgehend | Schließen auf Signal und per Eingriff (`close_position`), durchgängig bis in Pipeline, Backtest und Datenbank. **Offen:** Teilschließung und ein globaler Not-Aus. |
+| M12 | offen | Images und Pakete sind nicht festgeschrieben. |
+| M13 | **behoben** | Laufend bewertete Kapitalkurve, Drawdown daraus, Sharpe/Sortino, realisiert/unrealisiert, alles netto; exakte Abstimmung des Endkapitals. |
+| M14 | offen | Kein regelmäßiges Backup; kein Freigabe-Verfahren nach der Drawdown-Bremse. (Vor Stufe 1 wurden einmalige Sicherungen nach `backups/` gezogen.) |
+
+## Niedrige Befunde
+
+Behoben: Liquidation kostet jetzt die gesamte Margin · Beträge werden auf 8 Stellen gerundet (immer zu Ungunsten des Händlers) ·
+die Aussage „verweigert den Start“ im README ist richtiggestellt.
+Offen: erfundene, formal gültige Protokolleinträge durch einen Prozess mit App-Zugang · Datei-Protokoll ohne Sperre gegen zwei Schreiber ·
+Test-Hook `fault_hook` im Produktivcode · Passwort kurz in den Prozess-Argumenten · Limits im selben Prozess nur per Konvention geschützt ·
+Zeitsynchronisation · KI-Schnittstelle ohne Zeitlimit und Kostenbudget.
+
+## Neu aufgefallen während Stufe 1
+
+* **Das Stress-Limit ist die engste Grenze.** 5 % Verlust bei 10 % Schock begrenzt die ungesicherte Gesamtgröße auf knapp 50 % des Kapitals; die 100-%-Exposure-Grenze greift selten.
+* **Der Stress-Test hat keinen Datenbank-Gurt.** Er wird nur in der Anwendung gerechnet (unter der Konto-Sperre).
+* **Eine Marktzeitleiste je Datenbank.** Ein zweiter Backtest über denselben Zeitraum in derselben Datenbank wird abgebrochen (getestet, gewollt).
+* **Alt-Positionen** im Konto `restart-check` der lokalen Datenbank überschreiten die neue Stress-Grenze (8,05 %); neue Trades dort sind blockiert, bis sie geschlossen sind.
+* **Keine Börsenregeln je Instrument** (Mindestgröße, Preis- und Mengenschritte) – nötig, bevor Ergebnisse auf echten Daten belastbar sind.

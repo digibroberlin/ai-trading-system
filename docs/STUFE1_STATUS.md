@@ -74,7 +74,28 @@ mypy `--strict` (55 Dateien) und ruff ohne Befund; Vorführung `python -m tradin
 - Bekannte Eigenschaft: Die Datenbank führt je Instrument EINE Marktzeitleiste. Ein zweiter Backtest über denselben Zeitraum
   in derselben Datenbank wird laut abgebrochen (getestet). Backtests laufen deshalb standardmäßig im Speicher.
 
-## Noch offen
+## Abschnitt E – Testlücken, Gegenprobe, Gesamtverifikation, Dokumentation: **fertig**
 
-- Abschnitt E: Testlücken aus dem Audit (H9) + Gegenproben für Kern/Datenbank, Gesamtverifikation inkl. Docker-Dienst `tests`,
-  Dokumentation (README, AGENTS, TESTBERICHT, AUDIT-Status, BACKTESTING)
+Tatsächlich ausgeführt am 2026-10-14:
+- **606 von 606 Tests bestanden, 0 übersprungen** – auf dem Mac (Python 3.12.14) und im Docker-Dienst `tests` (Python 3.12.15),
+  jeweils gegen PostgreSQL 16.15. Ohne Datenbank unter Python 3.9.6: 512 bestanden, 94 übersprungen.
+- Mehrprozess- und Gleichzeitigkeitstests dreimal wiederholt: je 60 von 60.
+- mypy `--strict` (55 Dateien) und ruff (`src`, `tests`, `scripts`) ohne Befund.
+- **Gegenprobe `scripts/mutation_check.py`: 193 eingebaute Fehler, 193 entdeckt** (135 Kern, 28 Backtest, 30 Datenbank).
+  Im ersten Durchlauf blieben 14 unbemerkt → 13 Lücken mit Tests geschlossen, 1 Stelle war toter Code und wurde entfernt.
+- Docker: `migrate` (beide Migrationen angewandt), `app` (Vorführung), Backtest im Container – mit denselben Ergebnis-Fingerabdrücken wie auf dem Mac.
+- Echte Datenbank `trading` unverändert (`scripts/restart_check.py verify`: IDENTISCH); keine Test-Datenbank übrig; kein `__pycache__`, keine `.env` im Projekt.
+
+Dokumentation aktualisiert: `README.md`, `AGENTS.md`, `docs/TESTBERICHT.md` (neu; der alte Bericht liegt in `docs/TESTBERICHT_PHASE1-3.md`),
+`docs/AUDIT.md` (Abschnitt „Stand nach Stufe 1“), `docs/BACKTESTING.md` (neu).
+
+## Stufe 1 ist abgeschlossen
+
+Offen bleiben die im Audit als Stufe 2 und 3 eingeplanten Punkte (siehe `docs/AUDIT.md`, „Stand nach Stufe 1“):
+M3 (zentraler PAPER-Schutz), M7, M8, M2-Rest, H7, M9, M12, M14 sowie Börsenregeln je Instrument, echte historische Daten und echte Strategien.
+
+## Arbeitsumgebung (für eine spätere Fortsetzung)
+
+- Tests: siehe README „Tests ausführen“. Die Passwort-Datei liegt außerhalb des Projektordners (nie eine `.env` ins Projekt legen – OneDrive).
+- Compose wird als `docker-compose --env-file <Passwort-Datei>` aufgerufen; Dienste: `db`, `migrate`, `app`, `tests`.
+- Jeder Abschnitt endet mit einem Git-Commit (`git log --oneline`). Sicherungen vor Stufe 1 liegen in `backups/`.

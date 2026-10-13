@@ -65,7 +65,6 @@ class IssueKind(str, Enum):
     MIXED_SERIES = "mixed_series"  # anderes Instrument oder anderes Intervall in derselben Reihe
     DUPLICATE = "duplicate"
     OUT_OF_ORDER = "out_of_order"
-    OVERLAP = "overlap"
     GAP = "gap"  # fehlende Kerze(n)
     PRICE_JUMP = "price_jump"  # Warnung
     NO_VOLUME = "no_volume"  # Warnung
@@ -107,7 +106,7 @@ class SeriesReport:
 def validate_series(candles: Sequence[Candle], max_price_jump: Decimal) -> SeriesReport:
     """Prueft eine Kerzenreihe EINES Instruments und EINES Intervalls vollstaendig.
 
-    Fehler: formal ungueltig, gemischte Reihe, doppelt, falsche Reihenfolge, Ueberlappung, Luecke.
+    Fehler: formal ungueltig, gemischte Reihe (auch anderes Intervall), doppelt, falsche Reihenfolge, Luecke.
     Warnungen: Kurssprung ueber `max_price_jump` zur Vorkerze, Kerze ohne Volumen."""
     issues: List[SeriesIssue] = []
     prev: Optional[Candle] = None
@@ -132,9 +131,8 @@ def validate_series(candles: Sequence[Candle], max_price_jump: Decimal) -> Serie
             if c.open_time < prev.open_time:
                 issues.append(SeriesIssue(IssueKind.OUT_OF_ORDER, i, c.open_time, "aelter als die Vorkerze"))
                 continue
-            if c.open_time < prev.close_time:
-                issues.append(SeriesIssue(IssueKind.OVERLAP, i, c.open_time, "ueberlappt die Vorkerze"))
-                continue
+            # Eine teilweise Ueberlappung ist hier ausgeschlossen: Alle Kerzen haben dasselbe Intervall und
+            # liegen auf dessen Zeitraster (siehe candle_problems) - sie sind also gleich, aelter oder spaeter.
             if c.open_time > prev.close_time:
                 missing = (c.open_time - prev.close_time) // timedelta(seconds=c.interval_s)
                 issues.append(SeriesIssue(IssueKind.GAP, i, c.open_time, "%d fehlende Kerze(n)" % missing))

@@ -848,3 +848,54 @@ def test_executor_requires_positive_decimal_equity():
         Env(equity=D(0))
     with pytest.raises(ValueError):
         Env(equity=10000.0)
+
+
+# ------------------------------------------------------------------ Luecken aus der Gegenprobe (Stufe 1, Abschnitt E)
+
+
+def test_error_after_the_fill_leaves_neither_a_position_nor_a_log_entry():
+    """Scheitert eine Operation NACH dem Erzeugen des Ereignisses, darf auch im Protokoll nichts stehen bleiben."""
+    env = Env()
+    real, calls = env.executor.portfolio_state, []
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 2:  # 1. Aufruf: Risikopruefung; 2. Aufruf: nach der Ausfuehrung
+            raise RuntimeError("unerwarteter Fehler nach der Ausfuehrung")
+        return real()
+
+    env.executor.portfolio_state = flaky
+    with pytest.raises(RuntimeError):
+        env.order("x")
+    del env.executor.portfolio_state
+    assert env.executor.open_positions == () and env.executor.balance == D(10000)
+    assert env.log.events() == ()  # kein "ORDER_FILLED" fuer einen Trade, den es nicht gibt
+    assert env.order("x").status is OrderStatus.FILLED
+    assert [e.event_type for e in env.log.events()] == ["ORDER_FILLED"]
+
+
+def test_short_stop_is_filled_with_slippage_against_the_trader():
+    """Short, Stop 101, 5 bp Stop-Slippage: zurueckgekauft wird zu 101,0505 - nicht guenstiger."""
+    costs = CostModel()
+    assert costs.stop_exit_price(Side.SHORT, D(101)) == D("101.0505")
+    assert costs.stop_exit_price(Side.LONG, D(99)) == D("98.9505")
+    # geplanter Hoechstverlust je Stueck (Einstieg 100, Stop 101): 1,0505 + 0,06 + 0,0606303
+    assert costs.worst_case_loss(Side.SHORT, D(1), D(100), D(101)) == D("1.0505") + D("0.06") + D("0.0606303")
+
+    env = Env(costs=costs)
+    assert short_order(env).status is OrderStatus.FILLED  # verkauft zu 100 - 2 bp = 99,98
+    (t,) = env.feed(make_candle(T0, D(100), D("101.2"), D(100), D(101), **FUTM))
+    assert t.exit_reason is ExitReason.STOP_LOSS and t.entry_price == D("99.98") and t.exit_price == D("101.0505")
+    assert t.gross_pnl == D("-42.82")  # (99,98 - 101,0505) x 40
+    assert t.fees == D("2.39952") + D("2.425212")
+    assert t.net_pnl == D("-47.644732")
+    assert -t.net_pnl == t.risk_at_open - D("0.39992")  # geplant war zusaetzlich ein Funding-Puffer
+
+
+def test_closing_on_signal_updates_the_last_known_price():
+    env = Env()
+    env.order()
+    env.clock.advance(60)
+    assert close(env, mid=D(101), half_spread=D("0.05")).closed
+    mark = env.executor.export_state().marks[inst("BTC-USD", MarketType.SPOT)]
+    assert (mark.price, mark.time) == (D(101), env.clock.now())

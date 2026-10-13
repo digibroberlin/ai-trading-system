@@ -139,6 +139,9 @@ def test_trade_statistics_edge_cases():
     mixed = compute_performance([trade(D(-1), reason=ExitReason.STOP_LOSS), trade(D(-1), reason=ExitReason.SIGNAL),
                                  trade(D(-1), reason=ExitReason.STOP_LOSS), trade(D(5))], D(1000))
     assert mixed.max_consecutive_losses == 3
+    # Ein Nullsummen-Trade ist kein Verlust: er unterbricht die Verlustserie.
+    broken = compute_performance([trade(D(-1)), trade(D(0)), trade(D(-1))], D(1000))
+    assert broken.max_consecutive_losses == 1 and (broken.losses, broken.breakeven) == (2, 1)
     assert mixed.exits_by_reason == {"signal": 1, "stop_loss": 2, "take_profit": 1}
 
 
