@@ -8,7 +8,14 @@ from decimal import Decimal
 from enum import Enum
 from typing import FrozenSet, Optional, Tuple
 
+from trading.domain.instrument import Exchange, InstrumentId, MarketType
 from trading.domain.reasons import RejectReason
+
+__all__ = [
+    "Candle", "CloseResult", "ClosedTrade", "Exchange", "ExecutionResult", "ExitReason",
+    "FundingEvent", "Horizon", "InstrumentId", "Mark", "MarketSnapshot", "MarketType",
+    "OrderIntent", "OrderStatus", "PortfolioState", "Position", "RiskDecision", "Side", "TradeSetup",
+]
 
 
 class Side(str, Enum):
@@ -18,11 +25,6 @@ class Side(str, Enum):
     @property
     def sign(self) -> int:
         return 1 if self is Side.LONG else -1
-
-
-class MarketType(str, Enum):
-    SPOT = "spot"
-    FUTURES = "futures"
 
 
 class Horizon(str, Enum):
@@ -35,11 +37,31 @@ class ExitReason(str, Enum):
     STOP_LOSS = "stop_loss"
     TAKE_PROFIT = "take_profit"
     LIQUIDATION = "liquidation"
+    SIGNAL = "signal"  # gueltiges Ausstiegssignal einer Strategie
+    MANUAL = "manual"  # Eingriff von aussen (z. B. Not-Aus)
 
 
 class OrderStatus(str, Enum):
     FILLED = "filled"
     REJECTED = "rejected"
+
+
+class _HasInstrument:
+    """Bequemer Lesezugriff auf die Bestandteile des Instrument-Schluessels."""
+
+    instrument: InstrumentId
+
+    @property
+    def symbol(self) -> str:
+        return self.instrument.symbol
+
+    @property
+    def market_type(self) -> MarketType:
+        return self.instrument.market_type
+
+    @property
+    def exchange(self) -> Exchange:
+        return self.instrument.exchange
 
 
 # ----------------------------------------------------------------------------
@@ -48,8 +70,8 @@ class OrderStatus(str, Enum):
 
 
 @dataclass(frozen=True)
-class Candle:
-    symbol: str
+class Candle(_HasInstrument):
+    instrument: InstrumentId
     open_time: datetime
     interval_s: int
     open: Decimal
@@ -64,11 +86,10 @@ class Candle:
 
 
 @dataclass(frozen=True)
-class MarketSnapshot:
+class MarketSnapshot(_HasInstrument):
     """Momentaufnahme eines Marktes. `timestamp` ist der Zeitstempel der Boerse."""
 
-    symbol: str
-    market_type: MarketType
+    instrument: InstrumentId
     timestamp: datetime
     bid: Decimal
     ask: Decimal
@@ -88,18 +109,39 @@ class MarketSnapshot:
         return (self.ask - self.bid) / mid * 10000
 
 
+@dataclass(frozen=True)
+class FundingEvent(_HasInstrument):
+    """Eine Funding-Abrechnung eines Futures-Instruments (Satz und Kurs kommen von der Boerse).
+
+    Funding wird NIE aus einem fest verdrahteten Zeitplan abgeleitet: Jede Boerse rechnet zu eigenen
+    Zeiten ab (Bitget meist alle 8 h, Coinbase stuendlich). Fehlt der Datensatz, darf das nicht
+    stillschweigend als "kostenlos" gelten - Datensaetze ohne Funding werden abgelehnt."""
+
+    instrument: InstrumentId
+    time: datetime
+    rate: Decimal  # positiv: Long zahlt an Short
+    mark_price: Decimal
+
+
+@dataclass(frozen=True)
+class Mark:
+    """Letzter Bewertungskurs eines Instruments samt Zeitpunkt (fuer die Aktualitaetspruefung)."""
+
+    price: Decimal
+    time: datetime
+
+
 # ----------------------------------------------------------------------------
 # Setups, Orders, Positionen
 # ----------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class TradeSetup:
+class TradeSetup(_HasInstrument):
     """Ein von MOMO vorgeschlagener Trade. Stop-Loss und Take-Profit sind Pflicht."""
 
     setup_id: str
-    symbol: str
-    market_type: MarketType
+    instrument: InstrumentId
     side: Side
     entry: Decimal
     stop_loss: Decimal
@@ -120,13 +162,14 @@ class OrderIntent:
     leverage: Decimal = Decimal(1)
 
 
-@dataclass
-class Position:
+@dataclass(frozen=True)
+class Position(_HasInstrument):
+    """Offene Position. Unveraenderlich: Aenderungen (Funding) erzeugen ein neues Objekt."""
+
     position_id: str
     setup_id: str
     strategy: str
-    symbol: str
-    market_type: MarketType
+    instrument: InstrumentId
     side: Side
     quantity: Decimal
     entry_price: Decimal
@@ -135,20 +178,25 @@ class Position:
     leverage: Decimal
     opened_at: datetime
     margin: Decimal
-    risk_at_open: Decimal  # geplanter Hoechstverlust inkl. Kosten
+    risk_at_open: Decimal  # geplanter Hoechstverlust inkl. ALLER Kosten (auch Einstiegsgebuehr)
     entry_fee: Decimal
     liquidation_price: Optional[Decimal]
     last_funding_ts: datetime
     funding_paid: Decimal = Decimal(0)  # positiv = bezahlt, negativ = erhalten
 
+    @property
+    def remaining_risk(self) -> Decimal:
+        """Noch moeglicher geplanter Verlust AB JETZT: Die Einstiegsgebuehr ist bereits bezahlt und
+        steckt schon im Eigenkapital - sie zaehlt daher nicht ein zweites Mal."""
+        return self.risk_at_open - self.entry_fee
+
 
 @dataclass(frozen=True)
-class ClosedTrade:
+class ClosedTrade(_HasInstrument):
     position_id: str
     setup_id: str
     strategy: str
-    symbol: str
-    market_type: MarketType
+    instrument: InstrumentId
     side: Side
     quantity: Decimal
     entry_price: Decimal
@@ -171,15 +219,20 @@ class ClosedTrade:
 
 @dataclass(frozen=True)
 class PortfolioState:
-    """Kontostand, wie ihn der Risikomanager braucht."""
+    """Kontostand, wie ihn Risikomanager und SORA brauchen. Alles bezogen auf JETZT."""
 
-    equity: Decimal
+    balance: Decimal  # realisiertes Guthaben (nach allen bereits bezahlten Kosten)
+    unrealized_pnl: Decimal  # Kursgewinne/-verluste offener Positionen zum Bewertungskurs
+    equity: Decimal  # balance + unrealized_pnl = aktuelle Netto-Equity
     free_margin: Decimal
     day_start_equity: Decimal
     peak_equity: Decimal
-    open_risk: Decimal  # Summe des geplanten Risikos aller offenen Positionen
+    open_risk: Decimal  # Summe des noch moeglichen geplanten Verlusts aller offenen Positionen
     open_count: int
-    open_keys: FrozenSet[Tuple[str, MarketType]]
+    open_keys: FrozenSet[InstrumentId]
+    gross_exposure: Decimal  # Summe |Menge x Bewertungskurs| aller offenen Positionen
+    stress_loss: Decimal  # Equity-Verlust bei schlagartigem Kursschock gegen jede Position
+    valuation_complete: bool  # False, wenn ein Bewertungskurs fehlt oder veraltet ist
 
 
 @dataclass(frozen=True)
@@ -187,8 +240,11 @@ class RiskDecision:
     approved: bool
     reasons: Tuple[RejectReason, ...] = ()
     worst_case_loss: Decimal = Decimal(0)
-    risk_pct: Decimal = Decimal(0)  # Anteil am Eigenkapital
-    total_risk_pct_after: Decimal = Decimal(0)
+    entry_fee: Decimal = Decimal(0)
+    risk_pct: Decimal = Decimal(0)  # Hoechstverlust dieses Trades / aktuelle Equity
+    total_risk_pct_after: Decimal = Decimal(0)  # alle offenen Risiken nach dem Trade / Equity nach dem Trade
+    gross_exposure_pct_after: Decimal = Decimal(0)
+    stress_loss_pct_after: Decimal = Decimal(0)
     margin_required: Decimal = Decimal(0)
     liquidation_price: Optional[Decimal] = None
 
@@ -200,3 +256,13 @@ class ExecutionResult:
     reasons: Tuple[RejectReason, ...] = ()
     position: Optional[Position] = None
     risk: Optional[RiskDecision] = None
+
+
+@dataclass(frozen=True)
+class CloseResult:
+    """Ergebnis einer angeforderten Schliessung (Ausstiegssignal oder Eingriff)."""
+
+    closed: bool
+    request_id: str
+    reasons: Tuple[RejectReason, ...] = ()
+    trade: Optional[ClosedTrade] = None

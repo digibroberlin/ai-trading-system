@@ -20,6 +20,13 @@ class EventType(str, Enum):
     FUNDING_APPLIED = "FUNDING_APPLIED"
     POSITION_CLOSED = "POSITION_CLOSED"
     SYSTEM_ERROR = "SYSTEM_ERROR"
+    CLOSE_REJECTED = "CLOSE_REJECTED"
+    EXIT_SIGNAL = "EXIT_SIGNAL"
+    DATA_REJECTED = "DATA_REJECTED"  # fehlerhafte/doppelte/aeltere Marktdaten wurden verworfen
+    DATA_GAP = "DATA_GAP"  # fehlende Kerze(n) erkannt
+    DATA_ANOMALY = "DATA_ANOMALY"  # extreme, aber formal gueltige Kerze (verarbeitet)
+    BACKTEST_STARTED = "BACKTEST_STARTED"
+    BACKTEST_FINISHED = "BACKTEST_FINISHED"
 
 
 def to_jsonable(obj: Any) -> Any:
