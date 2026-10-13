@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-trading-system"
+version = "0.1.0"
+description = "Autonomer KI-Krypto-Trading-Bot (ausschliesslich PAPER-Modus)"
+readme = "README.md"
+# Zielversion ist Python 3.12 (Docker). Der Code bleibt bis 3.9 kompatibel,
+# damit er auch auf einem Standard-Mac ohne Zusatzinstallation getestet werden kann.
+requires-python = ">=3.9"
+# Der Kern (Domain, Risiko, Paper Executor, Ereignisprotokoll) braucht bewusst
+# KEINE externen Pakete. Weniger Abhaengigkeiten = weniger Angriffsflaeche.
+dependencies = []
+
+[project.optional-dependencies]
+# Dashboard-Backend und Datenbank (spaetere Phase)
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "psycopg[binary]>=3.1",
+]
+# PostgreSQL-Anbindung (Konto, Positionen, Ereignisprotokoll)
+db = [
+    "psycopg[binary]>=3.1",
+]
+# Live-Marktdaten per WebSocket (spaetere Phase, nur lesend)
+marketdata = [
+    "websockets>=12.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+# Kein Cache-Ordner im (OneDrive-synchronisierten) Projekt.
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E9", "F", "B", "DTZ"]  # Syntaxfehler, Pyflakes, Bugbear, naive Zeitstempel
+# F401: ruff erkennt Typ-Kommentare (# type: ...) nicht und meldet deren Importe faelschlich als unbenutzt.
+# B008: Test-Hilfsfunktionen nutzen Decimal-Konstanten als Standardwerte (unkritisch).
+ignore = ["F401", "B008"]
+
+[tool.mypy]
+# Neuere mypy-Versionen pruefen nur ab 3.10; wir pruefen gegen die Zielversion 3.12.
+python_version = "3.12"
+strict = true
+files = ["src"]

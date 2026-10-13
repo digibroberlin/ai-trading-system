@@ -1,0 +1,37 @@
+services:
+  db:
+    build: ./db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trading
+      POSTGRES_USER: trading
+      # Alle Passwoerter kommen aus einer lokalen env-Datei; ohne Werte startet nichts.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Bitte POSTGRES_PASSWORD setzen}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Bitte APP_DB_PASSWORD setzen}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Nur vom eigenen Rechner erreichbar, nie aus dem Netzwerk.
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TRADING_MODE: paper
+      # Die Anwendung nutzt die eingeschraenkte Rolle, nie den Datenbank-Administrator.
+      DATABASE_URL: postgresql://trading_app:${APP_DB_PASSWORD}@db:5432/trading
+      # Nur fuer Tests: legt kurzlebige Test-Datenbanken an (Administratorzugang).
+      TEST_ADMIN_URL: postgresql://trading:${POSTGRES_PASSWORD}@db:5432/postgres
+      TEST_APP_PASSWORD: ${APP_DB_PASSWORD}
+    # Keine Boersen-Schluessel, keine exponierten Ports in dieser Phase.
+
+volumes:
+  pgdata:

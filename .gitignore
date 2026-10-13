@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# Geheimnisse und lokale Konfiguration - NIEMALS einchecken
+.env
+.env.*
+!.env.example
+
+# Laufzeitdaten
+data/
+*.jsonl
+.DS_Store
+
+# Sicherungs-Archive (liegen als Dateien vor, gehoeren nicht in die Versionsgeschichte)
+backups/*.tar.gz
