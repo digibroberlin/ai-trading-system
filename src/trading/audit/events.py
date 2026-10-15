@@ -27,6 +27,8 @@ class EventType(str, Enum):
     DATA_ANOMALY = "DATA_ANOMALY"  # extreme, aber formal gueltige Kerze (verarbeitet)
     BACKTEST_STARTED = "BACKTEST_STARTED"
     BACKTEST_FINISHED = "BACKTEST_FINISHED"
+    HALT_ACTIVATED = "HALT_ACTIVATED"  # globaler Not-Aus ausgeloest (Grund, Zeitpunkt, Hinweis)
+    HALT_RELEASED = "HALT_RELEASED"  # Not-Aus bewusst aufgehoben (wer)
 
 
 def to_jsonable(obj: Any) -> Any:

@@ -31,13 +31,17 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
    3 % Tagesverlust · 10 % Drawdown. Fehlen Daten oder ist ein Risiko nicht bestimmbar, wird **keine** Position eröffnet.
    Limits dürfen im Betrieb nur **strenger**, nie lockerer werden. Strategien, Agenten und KI-Ausgaben haben **keinen** Zugriff darauf.
    Es gibt genau **eine** Risikorechnung (`safety/order_risk.py`); niemand baut eine zweite.
-5. **Der Risikomanager ist unabhängig und regelbasiert** (keine KI, kein Lernen). Er hat immer das letzte Wort.
+5. **Globaler Not-Aus** (`safety/kill_switch.py`, Tabelle `trading_halt`): Ist er ausgelöst, eröffnet niemand eine Position;
+   Schließen bleibt erlaubt. Er löst automatisch aus bei formal fehlerhaften Daten, Protokollfehlern und den Notbremsen und wird
+   **nur** von einem Administrator mit Namen und Bestätigungstext aufgehoben – nie von der Anwendung, nie automatisch.
+   Ist sein Zustand nicht lesbar, gilt der Handel als gestoppt.
+6. **Der Risikomanager ist unabhängig und regelbasiert** (keine KI, kein Lernen). Er hat immer das letzte Wort.
    Der Executor ruft ihn selbst auf und vertraut keiner vorgelagerten Prüfung.
-6. **Fail closed.** Fehlerhafte, fehlende oder veraltete Daten, abgestürzte Agenten, unlesbare Konfiguration,
+7. **Fail closed.** Fehlerhafte, fehlende oder veraltete Daten, abgestürzte Agenten, unlesbare Konfiguration,
    beschädigtes Protokoll → **nicht handeln**. Im Zweifel blockieren.
-7. **Alles wird protokolliert.** Jeder Trade **und jedes blockierte Setup** wird mit Stufe und Gründen im
+8. **Alles wird protokolliert.** Jeder Trade **und jedes blockierte Setup** wird mit Stufe und Gründen im
    unveränderlichen Ereignisprotokoll festgehalten. Das Protokoll hat nur `append` – keine Änderungs- oder Löschfunktion.
-8. **Keine Netzwerk-Bibliotheken** im Kern (`tests/test_no_real_trading.py` prüft das). Wer später Marktdaten-Adapter ergänzt,
+9. **Keine Netzwerk-Bibliotheken** im Kern (`tests/test_no_real_trading.py` prüft das). Wer später Marktdaten-Adapter ergänzt,
    passt diesen Test bewusst und sichtbar an.
 
 ## 3. Vorher fragen (Freigabe des Projekteigners einholen)
@@ -84,7 +88,8 @@ src/trading/
   demo.py                Synthetischer PAPER-Durchlauf (python -m trading.demo)
   domain/                instrument.py (Börse + Markttyp + Symbol), models.py (Datentypen), reasons.py (Ablehnungsgründe),
                          numeric.py (endliche Decimal-Prüfung), universe.py (erlaubte Instrumente)
-  safety/                limits.py (unveränderlich), order_risk.py (DIE Risikorechnung), risk_manager.py, data_validator.py
+  safety/                limits.py (unveränderlich), order_risk.py (DIE Risikorechnung), risk_manager.py, data_validator.py,
+                         kill_switch.py (globaler Not-Aus)
   execution/             costs.py (Gebühren, Slippage, Rundung), paper_executor.py, protocol.py (Executor-Schnittstelle)
   marketdata/            candles.py (Kerzen- und Reihenprüfung), synthetic.py (erfundene Daten), feed.py (Schnittstelle)
   agents/                base.py, contracts.py, momo/rin/sora/kibo/yuzu (abstrakt), aki (implementiert),
@@ -93,7 +98,8 @@ src/trading/
   audit/                 event_log.py (Hash-Kette), events.py, stats.py (Trade-Kennzahlen), performance.py (Kapitalkurve, Bericht)
   backtest/              data.py (geprüfter Datensatz, Datenquellen), strategy.py, engine.py, compare.py, reference.py
                          (Vorführung: python -m trading.backtest) – siehe docs/BACKTESTING.md
-  persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py
+  persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,
+                         kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release)
                          (einziges Paket, das `psycopg` importieren darf)
 tests/                   pytest; helpers.py, bt_helpers.py, stubs.py, pg_workers.py = Test-Hilfen (keine echte Strategie)
 db/                      migrations/ (nummerierte Schema-Schritte), 00_roles.sh (Anwendungsrolle), Dockerfile (PostgreSQL-Image)
@@ -138,6 +144,8 @@ backups/                 Sicherungen vor riskanten Änderungen (Archive werden n
 * Die Datenbank erzwingt zusätzlich: nur `mode='paper'`, `max_portfolio_risk <= 0.02`, `max_gross_exposure <= 1.0`, genau eine offene Position
   je Instrument, jede Order-ID höchstens einmal, lückenlose Hash-Kette, **Gesamtrisiko und Brutto-Exposure beim COMMIT**. Diese Ebenen bleiben
   **auch dann** bestehen, wenn der Python-Code dasselbe schon prüft. (Der Stress-Test wird nur in der Anwendung gerechnet – unter der Konto-Sperre.)
+* **Sperr-Reihenfolge:** erst Konto-Zeile, dann Not-Aus-Zeile (`trading_halt`, `FOR UPDATE`) – nie umgekehrt (sonst Verklemmung).
+  Wer den Not-Aus von außen auslöst, sperrt nur die Not-Aus-Zeile.
 * Die Datenbank führt je Instrument **eine** Marktzeitleiste (`instrument_state`). Der Container `app` kennt nur die eingeschränkte Rolle;
   Administrator-Zugang haben ausschließlich die Einmal-Dienste `migrate` und `tests`.
 * **Passwörter nie im Projektordner** (OneDrive synchronisiert in die Cloud): Passwort-Datei außerhalb, per `--env-file`.

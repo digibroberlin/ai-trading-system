@@ -63,6 +63,20 @@ class RiskLimits(Protocol):
     def maintenance_margin_rate(self) -> Decimal: ...
 
 
+def brake_reasons(portfolio: PortfolioState, limits: RiskLimits) -> List[RejectReason]:
+    """Notbremsen Tagesverlust und Drawdown - eine Definition fuer Risikopruefung UND Not-Aus."""
+    reasons: List[RejectReason] = []
+    if portfolio.day_start_equity > 0:
+        day_loss = (portfolio.day_start_equity - portfolio.equity) / portfolio.day_start_equity
+        if day_loss >= limits.max_daily_loss:
+            reasons.append(RejectReason.DAILY_LOSS_LIMIT)
+    if portfolio.peak_equity > 0:
+        drawdown = (portfolio.peak_equity - portfolio.equity) / portfolio.peak_equity
+        if drawdown >= limits.max_drawdown:
+            reasons.append(RejectReason.DRAWDOWN_LIMIT)
+    return reasons
+
+
 def liquidation_price(
     side: Side, entry: Decimal, leverage: Decimal, maintenance_margin_rate: Decimal
 ) -> Decimal:
@@ -202,14 +216,7 @@ def evaluate_order(
         reasons.append(RejectReason.LIQUIDATION_TOO_CLOSE)
 
     # --- 7. Notbremsen (Tagesverlust, Drawdown) ---
-    if portfolio.day_start_equity > 0:
-        day_loss = (portfolio.day_start_equity - portfolio.equity) / portfolio.day_start_equity
-        if day_loss >= limits.max_daily_loss:
-            reasons.append(RejectReason.DAILY_LOSS_LIMIT)
-    if portfolio.peak_equity > 0:
-        drawdown = (portfolio.peak_equity - portfolio.equity) / portfolio.peak_equity
-        if drawdown >= limits.max_drawdown:
-            reasons.append(RejectReason.DRAWDOWN_LIMIT)
+    reasons.extend(brake_reasons(portfolio, limits))
 
     return RiskDecision(
         approved=not reasons,

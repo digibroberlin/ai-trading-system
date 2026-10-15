@@ -56,8 +56,16 @@ def order_worker(a: Dict[str, Any]) -> None:
     wait_until(a["start_at"])
     for oid, sym in a["specs"]:
         setup = make_setup(oid, symbol=sym, market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
-        res = ex.submit(OrderIntent(oid, setup, D(9), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
+        res = ex.submit(OrderIntent(oid, setup, D(a.get("qty", 9)), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
         emit({"order": oid, "status": res.status.value, "reasons": [r.value for r in res.reasons]})
+    ex.close()
+
+
+def halt_worker(a: Dict[str, Any]) -> None:
+    """Loest nach `after` Sekunden den globalen Not-Aus aus (waehrend andere Prozesse handeln)."""
+    ex = make_executor(a["url"], a["account"])
+    wait_until(a["start_at"] + a["after"])
+    emit({"halt": ex.halt("Mehrprozess-Test")})
     ex.close()
 
 
@@ -145,7 +153,7 @@ def operation_worker(a: Dict[str, Any]) -> None:
     ex.close()
 
 
-WORKERS = {"order": order_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker,
+WORKERS = {"order": order_worker, "halt": halt_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker,
            "operation": operation_worker}
 
 if __name__ == "__main__":

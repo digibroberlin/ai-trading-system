@@ -12,6 +12,12 @@ Wie mehrere Prozesse sicher zusammenarbeiten ("Teamrisiko"):
      derselben Transaktion gespeichert. Stuerzt der Prozess vorher ab, passiert nichts
      (Rollback) - es bleiben keine halben Handel zurueck.
   5. Zweiter Gurt: Beim COMMIT prueft die Datenbank Gesamtrisiko und Brutto-Exposure erneut (Constraint-Trigger).
+  6. Globaler Not-Aus (Tabelle `trading_halt`): Nach der Konto-Sperre wird auch die Not-Aus-Zeile gesperrt und ihr
+     Zustand an die Engine gegeben. Loest die Engine ihn aus (Datenfehler, Notbremse, von Hand), wird das in DERSELBEN
+     Transaktion gespeichert. Scheitert das Schreiben des Protokolls, wird der Not-Aus in einer eigenen Transaktion
+     gesetzt. Aufheben kann ihn nur ein Administrator (persistence/kill_switch.py). Reihenfolge der Sperren immer:
+     Konto, dann Not-Aus - so koennen sich Prozesse nicht gegenseitig blockieren. Folge: Aktionen verschiedener
+     Konten laufen nacheinander statt gleichzeitig (Sicherheit vor Tempo).
 
 Ein Neustart ist daher trivial: Es gibt keinen Zustand im Prozess, der verloren gehen koennte. Auch der
 Stand der Kerzen-Verarbeitung je Instrument liegt in der Datenbank - wiederholt gelieferte Kerzen und
@@ -50,8 +56,10 @@ from trading.domain.models import (
 from trading.domain.numeric import is_positive_decimal
 from trading.execution.paper_executor import ExecutorState, PaperExecutor
 from trading.persistence.db import connect
+from trading.persistence.kill_switch import read_halt, trip_in_new_transaction, write_trip
 from trading.persistence.pg_event_log import append_raw
 from trading.safety.data_validator import SnapshotValidator
+from trading.safety.kill_switch import HaltReason, HaltStatus, InMemoryKillSwitch
 from trading.safety.risk_manager import RiskManager
 
 T = TypeVar("T")
@@ -60,6 +68,10 @@ FaultHook = Callable[[str], None]
 InstrumentRow = Tuple[Optional[Decimal], Optional[datetime], Optional[Decimal], Optional[datetime],
                       Optional[datetime]]
 _EMPTY_ROW: InstrumentRow = (None, None, None, None, None)
+
+
+class ProtocolWriteError(RuntimeError):
+    """Das Ereignisprotokoll konnte nicht geschrieben werden - die Operation wurde verworfen, der Not-Aus gesetzt."""
 
 
 class _CollectingLog(EventLog):
@@ -77,6 +89,8 @@ class _Loaded:
     validator: SnapshotValidator
     positions: Dict[str, Position]
     instruments: Dict[InstrumentId, InstrumentRow]
+    halt_before: HaltStatus
+    switch: InMemoryKillSwitch
 
 
 class PostgresPaperExecutor:
@@ -127,6 +141,30 @@ class PostgresPaperExecutor:
     def equity(self) -> Decimal:
         return self.portfolio_state().equity
 
+    def halt(self, note: str = "") -> bool:
+        """Not-Aus von Hand (gilt fuer ALLE Konten und Prozesse). Aufheben nur als Administrator."""
+        return self._run(None, lambda engine: engine.halt(note))
+
+    def halt_status(self) -> HaltStatus:
+        try:
+            with self._transaction() as cur:
+                return read_halt(cur)
+        except Exception as exc:  # nicht lesbar -> gestoppt (fail closed)
+            return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)
+
+    def verify_protocol(self, event_log: EventLog) -> bool:
+        """Prueft das Ereignisprotokoll (Hash-Kette und Kettenende). Ist es beschaedigt: Not-Aus. Rueckgabe: intakt?"""
+        try:
+            result = event_log.verify()
+            ok, detail = result.ok, result.message
+        except Exception as exc:  # noqa: BLE001 - auch ein unlesbares Protokoll ist ein Protokollfehler
+            ok, detail = False, type(exc).__name__
+        if not ok:
+            with self._conn_lock:
+                trip_in_new_transaction(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,
+                                        "Protokollpruefung: %s" % detail)
+        return ok
+
     @property
     def balance(self) -> Decimal:
         with self._transaction() as cur:
@@ -160,18 +198,25 @@ class PostgresPaperExecutor:
         order: Optional[OrderIntent] = None,
     ) -> T:
         """Sperren -> laden -> Engine entscheidet -> Differenz und Protokoll speichern -> COMMIT."""
-        with self._transaction() as cur:
-            account = self._lock_account(cur)
-            seen = order is not None and self._order_seen(cur, order.client_order_id)
-            loaded = self._load(cur, account, instrument,
-                                (order.client_order_id,) if order is not None and seen else ())
-            result = operation(loaded.engine)
-            new_order = None
-            if order is not None and not seen:
-                assert isinstance(result, ExecutionResult)
-                new_order = (order.client_order_id, result)
-            self._persist(cur, loaded, new_order)
-            return result
+        try:
+            with self._transaction() as cur:
+                account = self._lock_account(cur)
+                halt = read_halt(cur, lock=True)  # immer NACH der Konto-Sperre (feste Reihenfolge)
+                seen = order is not None and self._order_seen(cur, order.client_order_id)
+                loaded = self._load(cur, account, instrument,
+                                    (order.client_order_id,) if order is not None and seen else (), halt)
+                result = operation(loaded.engine)
+                new_order = None
+                if order is not None and not seen:
+                    assert isinstance(result, ExecutionResult)
+                    new_order = (order.client_order_id, result)
+                self._persist(cur, loaded, new_order)
+                return result
+        except ProtocolWriteError as exc:
+            with self._conn_lock:  # Transaktion ist zurueckgerollt; Not-Aus in eigener Transaktion
+                trip_in_new_transaction(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,
+                                        "Protokoll nicht schreibbar: %s" % type(exc.__cause__).__name__)
+            raise
 
     def _ensure_account(self, initial_equity: Decimal) -> None:
         if not is_positive_decimal(initial_equity):
@@ -217,7 +262,9 @@ class PostgresPaperExecutor:
         )
         return [_position_from_row(r) for r in cur.fetchall()]
 
-    def _load(self, cur: Any, account: Dict[str, Any], instrument: Any, seen: Tuple[str, ...]) -> _Loaded:
+    def _load(
+        self, cur: Any, account: Dict[str, Any], instrument: Any, seen: Tuple[str, ...], halt: HaltStatus
+    ) -> _Loaded:
         positions = self._load_positions(cur)
         wanted: Set[InstrumentId] = {p.instrument for p in positions}
         if is_instrument(instrument):
@@ -246,7 +293,8 @@ class PostgresPaperExecutor:
                 candle_state[inst] = last_close
 
         sink = _CollectingLog(self._clock)
-        engine = PaperExecutor(account["initial_equity"], self._risk, validator, sink, self._clock)
+        switch = InMemoryKillSwitch(self._clock, initial=halt)  # Abbild der Datenbank-Zeile fuer diese Transaktion
+        engine = PaperExecutor(account["initial_equity"], self._risk, validator, sink, self._clock, kill_switch=switch)
         engine.restore_state(
             ExecutorState(
                 balance=account["balance"],
@@ -260,7 +308,8 @@ class PostgresPaperExecutor:
             ),
             seen,
         )
-        return _Loaded(account, engine, sink, validator, {p.position_id: p for p in positions}, instruments)
+        return _Loaded(account, engine, sink, validator, {p.position_id: p for p in positions}, instruments,
+                       halt, switch)
 
     # ------------------------------------------------------------------ Speichern
 
@@ -327,8 +376,17 @@ class PostgresPaperExecutor:
                  ",".join(r.value for r in result.reasons), self._clock.now()),
             )
 
-        for ev in loaded.sink.events():  # Protokoll in DERSELBEN Transaktion wie der Handel
-            append_raw(cur, ev.ts, ev.event_type, ev.payload_json)
+        halt_after = loaded.switch.status()
+        if halt_after != loaded.halt_before:
+            if not halt_after.halted:  # die Anwendung hebt den Not-Aus nie auf (das darf nur ein Administrator)
+                raise RuntimeError("Not-Aus kann nur ein Administrator aufheben (persistence/kill_switch.py).")
+            write_trip(cur, halt_after)
+
+        try:
+            for ev in loaded.sink.events():  # Protokoll in DERSELBEN Transaktion wie der Handel
+                append_raw(cur, ev.ts, ev.event_type, ev.payload_json)
+        except Exception as exc:
+            raise ProtocolWriteError("Ereignisprotokoll nicht schreibbar") from exc
 
         if self._fault_hook is not None:
             self._fault_hook("before_commit")
@@ -392,4 +450,4 @@ def _trade_from_row(r: Dict[str, Any]) -> ClosedTrade:
     )
 
 
-__all__ = ["PostgresPaperExecutor"]
+__all__ = ["PostgresPaperExecutor", "ProtocolWriteError"]

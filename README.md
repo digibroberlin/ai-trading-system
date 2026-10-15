@@ -101,7 +101,9 @@ Sie stehen in `src/trading/safety/limits.py` und `src/trading/execution/costs.py
   praktisch auf **knapp 50 % des Kapitals** – die 100-%-Grenze wird selten erreicht.
 * **Beträge auf 8 Nachkommastellen**, Kosten aufgerundet, Gewinne abgerundet; bei Liquidation gilt die gesamte Margin als verloren
 * **Maximal 5× Hebel**, höchstens 5 offene Positionen
-* **Notbremsen:** keine neuen Trades ab 3 % Tagesverlust oder 10 % Drawdown vom Höchststand
+* **Notbremsen:** ab 3 % Tagesverlust oder 10 % Drawdown vom Höchststand löst der **globale Not-Aus** aus (seit AP-07). Er gilt
+  auch am nächsten Tag und nach Neustarts weiter, bis ein Mensch ihn bewusst aufhebt (früher löste sich die Tagesbremse um
+  Mitternacht von selbst).
 * **Gebühren:** 0,06 % Taker / 0,02 % Maker, Slippage 2 bp (Einstieg) bzw. 5 bp (Stop) – *Schätzwerte, keine echten Tarife*
 * **Daten gelten als veraltet** nach 15 Sekunden
 * **Spot-Short ist verboten** (nur Futures dürfen short gehen); Spot nur ohne Hebel
@@ -172,6 +174,22 @@ PYTHONPATH=src python3.12 -m trading.demo         # ein Paper-Durchlauf; oder: d
 PYTHONPATH=src python3.12 -m trading.backtest     # Backtest: zwei Varianten einer Referenz-Strategie im Vergleich
 ```
 
+### Globaler Not-Aus (Kill Switch)
+
+Ist er ausgelöst, eröffnet **kein** Prozess und **kein** Konto eine neue Position; Stop-Loss, Take-Profit, Ausstiegssignale und
+Funding laufen weiter. Er löst von selbst aus bei formal kaputten Marktdaten (z. B. NaN, negative Kurse, Zeitstempel aus der
+Zukunft), bei einem Fehler im Ereignisprotokoll und bei den Notbremsen. Aufheben kann ihn nur ein Administrator – mit Namen
+und dem Bestätigungstext `HANDEL FREIGEBEN`:
+
+```bash
+export DATABASE_URL="postgresql://trading_app:${APP_DB_PASSWORD}@127.0.0.1:5432/trading" PYTHONPATH=src
+python3.12 -m trading.persistence.kill_switch status                 # Zustand anzeigen
+python3.12 -m trading.persistence.kill_switch halt "Grund"           # von Hand auslösen
+export ADMIN_DATABASE_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/trading"
+python3.12 -m trading.persistence.kill_switch release "Ihr Name" "HANDEL FREIGEBEN"   # bewusst aufheben
+```
+Vor dem Aufheben die Ursache klären (Ereignisprotokoll: `HALT_ACTIVATED` nennt Grund und Hinweis).
+
 ### Neustart-Prüfung von Hand
 
 ```bash
@@ -211,6 +229,11 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **Abhängigkeiten:** fest mit Prüfsummen in `requirements/*.lock` (D-010). Noch offen: Basis-Image `python:3.12-slim` nicht per Digest
   festgeschrieben, Container mit freiem Internetzugang. Der Python-3.9-Job nutzt bewusst pytest 8.4.2 mit einer bekannten, dort nicht
   ausnutzbaren Lücke (D-010).
+* **Not-Aus reiht alle Konten hintereinander:** Jede Aktion sperrt nach ihrem Konto auch die Not-Aus-Zeile. Damit kann kein
+  Prozess zwischen „Not-Aus gelesen“ und „Position gespeichert“ überholt werden – aber Aktionen verschiedener Konten laufen nicht
+  mehr gleichzeitig. Für den geplanten Betrieb (ein Konto) ohne Folgen.
+* **Not-Aus erkennt nur formal kaputte Daten**, keine plausibel aussehenden falschen Kurse. Ausbleibende Daten (veralteter Feed)
+  lösen ihn noch nicht aus – das kommt mit der Marktüberwachung (AP-15).
 * **Python 3.13/3.14 und das neue GIL-freie Python** wurden nicht getestet (Ziel ist 3.12).
 * **Ein Konto = ein Flaschenhals:** Die Konto-Sperre reiht alle Aktionen eines Kontos hintereinander ein (bewusst, Sicherheit vor Tempo). Dauert eine Aktion länger als 10 Sekunden
   auf die Sperre, wird sie abgebrochen und gilt als blockiert (`EXECUTION_ERROR`). Auch `portfolio_state()` nimmt kurz die Sperre.

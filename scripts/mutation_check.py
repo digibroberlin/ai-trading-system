@@ -45,6 +45,8 @@ LI = "src/trading/safety/limits.py"
 EL = "src/trading/audit/event_log.py"
 CF = "src/trading/config.py"
 IN = "src/trading/__init__.py"
+KS = "src/trading/safety/kill_switch.py"
+PK = "src/trading/persistence/kill_switch.py"
 EN = "src/trading/backtest/engine.py"
 DA = "src/trading/backtest/data.py"
 CM = "src/trading/backtest/compare.py"
@@ -53,12 +55,13 @@ PL = "src/trading/persistence/pg_event_log.py"
 MG = "src/trading/persistence/migrate.py"
 S1 = "db/migrations/001_initial.sql"
 S2 = "db/migrations/002_instruments_and_exposure.sql"
+S3 = "db/migrations/003_kill_switch.sql"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 BT_PG = BT + ["tests/test_backtest_pg.py"]
 PG = ["tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
-      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py"]
+      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py", "tests/test_pg_kill_switch.py"]
 
 KERN: List[Mutant] = []
 
@@ -219,6 +222,19 @@ m("E07","Allgemeine Namen (API_KEY ...) nicht erkannt",CF," or norm in _GENERIC_
 m("E08","Schluessel-Inhalte unter fremdem Namen nicht erkannt",CF,"if _is_credential_name(name) or _CREDENTIAL_VALUE.search(value):","if _is_credential_name(name):")
 m("E09","TRADING_MODE in Kleinschreibung ignoriert",CF,'if _normalized(k) == "TRADING_MODE"]','if k == "TRADING_MODE"]')
 m("E10","Passphrase unter beliebigem Namen nicht erkannt",CF,' or "PASSPHRASE" in norm:',':')
+# ---- Globaler Not-Aus (AP-07)
+m("N01","Not-Aus vor der Datenpruefung nicht beachtet",PE,"        halted = self._halted_reasons()\n        if halted is not None:\n            return self._reject(intent, halted, None)\n\n        # 2. Marktdaten","        # 2. Marktdaten")
+m("N02","Not-Aus nach der Bewertung nicht beachtet",PE,"        halted = self._halted_reasons()\n        if halted is not None:\n            return self._reject(intent, halted, None)\n        decision","        decision")
+m("N03","Ausgeloester Not-Aus wird ignoriert",PE,"        if not status.halted:\n            return None","        if True:\n            return None")
+m("N04","Datenfehler loesen keinen Not-Aus aus",PE,"        if bad:\n            self._trip(HaltReason.DATA_ERROR","        if False:\n            self._trip(HaltReason.DATA_ERROR")
+m("N05","Wiederholte Kerzen loesen den Not-Aus aus",PE,"    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED,","    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED, RejectReason.DUPLICATE_CANDLE,")
+m("N06","Notbremsen loesen keinen Not-Aus aus",PE,"        for brake in brake_reasons(state, self._limits):","        for brake in ():")
+m("N07","Protokollfehler loest keinen Not-Aus aus",PE,'                    self._trip_silently(HaltReason.PROTOCOL_ERROR, "Protokoll nicht schreibbar: %s" % type(exc).__name__)',"                    pass")
+m("N08","Freigabe ohne Bestaetigungstext",KS,"    if confirmation != RELEASE_CONFIRMATION:","    if False:")
+m("N09","Freigabe ohne Namen",KS,"    if not name:\n","    if False:\n")
+m("N10","Unlesbarer Not-Aus gilt als frei",PE,'            return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)',"            return HaltStatus(False)")
+m("N11","Zweiter Ausloeser ueberschreibt den ersten Grund",KS,"            if self._state.halted:\n                return False\n","")
+m("N12","Tagesverlust-Bremse loest den Not-Aus nicht mehr aus (eine Definition fuer beide)",OR,"        if day_loss >= limits.max_daily_loss:","        if day_loss > limits.max_daily_loss * 2:")
 
 
 BACKTEST: List[Mutant] = [
@@ -290,6 +306,16 @@ DATENBANK: List[Mutant] = [
  ("G28","Order-Vermerk wird nicht gespeichert",[(EX,"        if order is not None:\n            oid, result = order","        if False:\n            oid, result = order")], PG),
  ("G29","Geschlossene Position bleibt in der DB offen",[(EX,"                    \"UPDATE positions SET status = 'CLOSED', closed_at = %s\"","                    \"UPDATE positions SET status = status, closed_at = %s\"")], PG),
  ("G30","Guthaben wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(),",'new_vals = (account["balance"], engine.equity(),')], PG),
+ ("G31","Anwendung darf den Not-Aus aufheben",[(S3,"        IF current_user = 'trading_app' THEN\n            RAISE EXCEPTION 'Not-Aus darf nur","        IF false THEN\n            RAISE EXCEPTION 'Not-Aus darf nur")], PG),
+ ("G32","DB-Gurt: neue Position trotz Not-Aus",[(S3,"    IF COALESCE((SELECT halted FROM trading_halt WHERE id = 1), true) THEN","    IF false THEN")], PG),
+ ("G33","Erster Grund des Not-Aus ueberschreibbar",[(S3,"IF NEW.reason IS DISTINCT FROM OLD.reason OR NEW.since IS DISTINCT FROM OLD.since\n           OR NEW.note IS DISTINCT FROM OLD.note THEN","IF false THEN")], PG),
+ ("G34","Vom Programm ausgeloester Not-Aus wird nicht gespeichert",[(EX,"            write_trip(cur, halt_after)\n","            pass\n")], PG),
+ ("G35","Protokoll-Schreibfehler setzt keinen Not-Aus",[(EX,"                trip_in_new_transaction(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,\n                                        \"Protokoll nicht schreibbar","                (lambda *a: None)(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,\n                                        \"Protokoll nicht schreibbar")], PG),
+ ("G36","Executor liest den Not-Aus nicht aus der Datenbank",[(EX,"halt = read_halt(cur, lock=True)","halt = HaltStatus(False)")], PG),
+ ("G37","Fehlende Not-Aus-Zeile gilt als frei",[(PK,'return HaltStatus(True, None, None, "Not-Aus-Zeile fehlt")',"return RUNNING")], PG),
+ ("G38","Beschaedigtes Protokoll bei der Pruefung setzt keinen Not-Aus",[(EX,"        if not ok:\n            with self._conn_lock:","        if False:\n            with self._conn_lock:")], PG),
+ ("G39","Not-Aus wird ohne Sicherungspunkt protokolliert (kaputtes Protokoll verhindert ihn)",[(PK,"                with conn.transaction():\n                    log_event(","                if True:\n                    log_event(")], PG),
+ ("G40","Not-Aus-Zeile ohne Sperre gelesen (Wettlauf mit Ausloesern)",[(EX,"halt = read_halt(cur, lock=True)","halt = read_halt(cur)")], PG),
 ]
 
 

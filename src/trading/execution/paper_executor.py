@@ -21,6 +21,9 @@ Modellannahmen - im Zweifel immer zu Ungunsten des Haendlers:
   jedes Ereignis je Position hoechstens einmal.
 * Jede Operation ist unteilbar: Schlaegt unterwegs etwas fehl (auch das Protokoll), wird der Zustand
   vollstaendig zurueckgesetzt. Es gibt keinen Handel ohne Protokolleintrag.
+* Globaler Not-Aus (safety/kill_switch.py): Ist er ausgeloest, wird keine Position eroeffnet; Schliessen bleibt moeglich.
+  Der Executor loest ihn selbst aus bei formal fehlerhaften Marktdaten, bei einem Protokollfehler und bei den
+  Notbremsen Tagesverlust/Drawdown. Ist sein Zustand nicht lesbar, gilt der Handel als gestoppt.
 """
 
 from __future__ import annotations
@@ -58,12 +61,22 @@ from trading.domain.reasons import RejectReason
 from trading.execution.costs import cost_up, gain_down
 from trading.marketdata.candles import candle_problems, is_aware
 from trading.safety.data_validator import FUTURE_TOLERANCE_S, SnapshotValidator
-from trading.safety.order_risk import is_beyond, position_stress_loss
+from trading.safety.kill_switch import HaltReason, HaltStatus, InMemoryKillSwitch, KillSwitch, check_release
+from trading.safety.order_risk import brake_reasons, is_beyond, position_stress_loss
 from trading.safety.risk_manager import RiskManager
 
 ZERO = Decimal(0)
 F = TypeVar("F", bound=Callable[..., Any])
 _REQUESTED_EXITS = (ExitReason.SIGNAL, ExitReason.MANUAL)
+# Formal kaputte Daten deuten auf eine gestoerte Quelle oder Uhr -> Not-Aus. Doppelte/aeltere Kerzen dagegen sind bei
+# Wiederholungen (z. B. nach einem Neustart) normal; zu weite Spreads, Spruenge, veraltete Kurse sind Marktlagen - sie
+# blockieren nur die einzelne Order.
+FORMAL_DATA_ERRORS = frozenset({
+    RejectReason.NAIVE_TIMESTAMP, RejectReason.FUTURE_TIMESTAMP, RejectReason.MISSING_DATA,
+    RejectReason.NON_FINITE_VALUE, RejectReason.NON_POSITIVE_PRICE, RejectReason.CROSSED_BOOK,
+    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED, RejectReason.BAD_FUNDING,
+})
+_HALT_REJECT = {HaltReason.DAILY_LOSS: RejectReason.DAILY_LOSS_LIMIT, HaltReason.DRAWDOWN: RejectReason.DRAWDOWN_LIMIT}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -106,15 +119,23 @@ def _atomic(fn: F) -> F:
             backup = self._backup()
             self._pending = []
             self._new_order_ids = []
+            self._in_atomic = True
             try:
                 result = fn(self, *args, **kwargs)
-                for event_type, payload in self._pending:
-                    self._log.append(event_type, payload)
+                try:
+                    for event_type, payload in self._pending:
+                        self._log.append(event_type, payload)
+                except Exception as exc:
+                    # Protokoll nicht schreibbar: Operation verwerfen UND Not-Aus (ohne Protokolleintrag - es ist ja kaputt).
+                    self._restore(backup)
+                    self._trip_silently(HaltReason.PROTOCOL_ERROR, "Protokoll nicht schreibbar: %s" % type(exc).__name__)
+                    raise
                 return result
             except BaseException:
                 self._restore(backup)
                 raise
             finally:
+                self._in_atomic = False
                 self._pending = []
                 self._new_order_ids = []
 
@@ -131,6 +152,7 @@ class PaperExecutor:
         validator: SnapshotValidator,
         event_log: EventLog,
         clock: Clock,
+        kill_switch: Optional[KillSwitch] = None,
     ) -> None:
         if not is_positive_decimal(initial_equity):
             raise ValueError("Startkapital muss eine positive Decimal-Zahl sein.")
@@ -143,6 +165,10 @@ class PaperExecutor:
         self._lock = threading.RLock()
         self._pending: List[Tuple[EventType, Any]] = []
         self._new_order_ids: List[str] = []  # in der laufenden Operation neu vermerkte Order-IDs
+        self._in_atomic = False
+        # Ohne geteilten Not-Aus gilt ein eigener (nur fuer diesen Executor). Mehrere Executoren eines Prozesses
+        # teilen sich EIN Objekt; mehrere Prozesse teilen ihn ueber die Datenbank (persistence/pg_executor.py).
+        self._halt: KillSwitch = kill_switch if kill_switch is not None else InMemoryKillSwitch(clock)
 
         self._balance = initial_equity
         self._positions: Dict[InstrumentId, Position] = {}
@@ -246,7 +272,7 @@ class PaperExecutor:
         equity = self._balance + unrealized
         self._roll_day(now.date(), equity)
         self._peak_equity = max(self._peak_equity, equity)
-        return PortfolioState(
+        state = PortfolioState(
             balance=self._balance,
             unrealized_pnl=unrealized,
             equity=equity,
@@ -261,6 +287,63 @@ class PaperExecutor:
             stress_loss=stress,
             valuation_complete=complete,
         )
+        for brake in brake_reasons(state, self._limits):  # Notbremse -> Not-Aus (bleibt bis zur bewussten Freigabe)
+            self._trip(HaltReason.DAILY_LOSS if brake is RejectReason.DAILY_LOSS_LIMIT else HaltReason.DRAWDOWN,
+                       "Equity %s, Tagesbeginn %s, Hoechststand %s" % (equity, self._day_start_equity, self._peak_equity))
+        return state
+
+    # ------------------------------------------------------------------ Not-Aus
+
+    def halt_status(self) -> HaltStatus:
+        """Zustand des Not-Aus. Nicht lesbar = gestoppt (fail closed)."""
+        try:
+            status = self._halt.status()
+        except Exception as exc:  # z. B. Datenbank nicht erreichbar
+            return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)
+        return status if isinstance(status, HaltStatus) else HaltStatus(True, None, None, "Not-Aus ungueltig")
+
+    @_atomic
+    def halt(self, note: str = "") -> bool:
+        """Not-Aus von Hand. Rueckgabe: True, wenn er dadurch neu ausgeloest wurde."""
+        return self._trip(HaltReason.MANUAL, note)
+
+    @_atomic
+    def release_halt(self, operator: str, confirmation: str) -> None:
+        """Hebt den Not-Aus bewusst auf (Name + Bestaetigungstext, siehe kill_switch.RELEASE_CONFIRMATION)."""
+        name = check_release(operator, confirmation)
+        before = self.halt_status()
+        self._halt.release(name, confirmation)
+        self._emit(EventType.HALT_RELEASED, {"operator": name, "previous_reason": before.reason,
+                                             "previous_since": before.since})
+
+    def _trip(self, reason: HaltReason, note: str) -> bool:
+        """Loest den Not-Aus aus und protokolliert das (nur beim ersten Ausloesen)."""
+        if not self._halt.trip(reason, note):
+            return False
+        payload = {"reason": reason, "note": note}
+        if self._in_atomic:
+            self._emit(EventType.HALT_ACTIVATED, payload)
+        else:
+            self._log.append(EventType.HALT_ACTIVATED, payload)
+        return True
+
+    def _trip_silently(self, reason: HaltReason, note: str) -> None:
+        try:
+            self._halt.trip(reason, note)
+        except Exception:  # noqa: BLE001 - der urspruengliche Fehler wird ohnehin weitergereicht
+            pass
+
+    def _halted_reasons(self) -> Optional[Tuple[RejectReason, ...]]:
+        status = self.halt_status()
+        if not status.halted:
+            return None
+        extra = _HALT_REJECT.get(status.reason) if status.reason is not None else None
+        return (RejectReason.TRADING_HALTED,) + ((extra,) if extra is not None else ())
+
+    def _check_data(self, reasons: Any) -> None:
+        bad = sorted(r.value for r in reasons if r in FORMAL_DATA_ERRORS)
+        if bad:
+            self._trip(HaltReason.DATA_ERROR, "fehlerhafte Marktdaten: %s" % ", ".join(bad))
 
     # ------------------------------------------------------------------ Orders
 
@@ -276,6 +359,11 @@ class PaperExecutor:
         self._seen_order_ids.add(intent.client_order_id)
         self._new_order_ids.append(intent.client_order_id)
 
+        # 1b. Globaler Not-Aus: keine neue Position, egal was die Pruefungen danach sagen wuerden.
+        halted = self._halted_reasons()
+        if halted is not None:
+            return self._reject(intent, halted, None)
+
         # 2. Marktdaten muessen zu genau diesem Instrument gehoeren und gueltig sein.
         if not is_instrument(setup.instrument) or not isinstance(setup.side, Side):
             return self._reject(intent, (RejectReason.INVALID_SYMBOL,), None)
@@ -283,14 +371,17 @@ class PaperExecutor:
             return self._reject(intent, (RejectReason.SYMBOL_MISMATCH,), None)
         validation = self._validator.validate(snapshot)
         if not validation.ok:
+            self._check_data(validation.reasons)
             return self._reject(intent, validation.reasons, None)
         self._marks[snapshot.instrument] = Mark(snapshot.mid, snapshot.timestamp)
 
         # 3. Unabhaengige Risikopruefung auf Basis des realistischen Einstiegskurses.
         quote = self._costs.quote(setup.side, snapshot)
-        decision = self._risk.evaluate(
-            setup, intent.quantity, intent.leverage, quote, self.portfolio_state()
-        )
+        state = self.portfolio_state()  # kann eine Notbremse und damit den Not-Aus ausloesen
+        halted = self._halted_reasons()
+        if halted is not None:
+            return self._reject(intent, halted, None)
+        decision = self._risk.evaluate(setup, intent.quantity, intent.leverage, quote, state)
         if not decision.approved:
             return self._reject(intent, decision.reasons, decision)
 
@@ -361,6 +452,7 @@ class PaperExecutor:
             return refuse(RejectReason.SYMBOL_MISMATCH)
         validation = self._validator.validate(snapshot)
         if not validation.ok:
+            self._check_data(validation.reasons)
             return refuse(*validation.reasons)
         self._marks[instrument] = Mark(snapshot.mid, snapshot.timestamp)
         price = self._costs.market_exit_price(position.side, snapshot)
@@ -389,6 +481,7 @@ class PaperExecutor:
                 )
         if problems:
             self._emit(EventType.DATA_REJECTED, _describe_rejected("candle", candle, problems))
+            self._check_data(problems)
             return []
 
         instrument = candle.instrument
@@ -431,6 +524,7 @@ class PaperExecutor:
             problems.append(RejectReason.FUTURE_TIMESTAMP)
         if problems:
             self._emit(EventType.DATA_REJECTED, _describe_rejected("funding", event, problems))
+            self._check_data(problems)
             return ZERO
         position = self._positions.get(event.instrument)
         if position is None or event.time <= position.last_funding_ts:
