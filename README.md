@@ -199,8 +199,10 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **Das Stress-Limit wirkt strenger als die Exposure-Grenze** (siehe „Annahmen“): praktisch knapp 50 % Gesamtgröße.
 * **Der Stress-Test wird nur in der Anwendung gerechnet** (unter der Konto-Sperre). Die Datenbank prüft beim Commit zusätzlich
   Gesamtrisiko und Exposure, den Stress-Test nicht.
-* **PAPER-Schutz beim Start** (`load_settings`) wird von den beiden Vorführprogrammen aufgerufen, noch nicht von einem zentralen
-  Startpunkt für jeden Prozess (Audit M3). Einen Live-Modus gibt es im Code trotzdem nirgends.
+* **PAPER-Schutz** läuft zentral beim ersten `import trading` in jedem Prozess (AP-06). Er erkennt Börsen-Schlüssel an typischen
+  Namen und an zwei Inhalts-Mustern (Coinbase-CDP), nicht an jedem denkbaren Namen: Ein Schlüssel unter einem frei erfundenen Namen
+  (z. B. `MEIN_WERT`) bliebe unbemerkt. Zugänge der Cloud-Umgebung wie `AWS_SECRET_ACCESS_KEY` oder `GH_TOKEN` sind bewusst erlaubt.
+  Einen Live-Modus und eine Order-Funktion an eine Börse gibt es im Code nirgends.
 * **Die Anwendungsrolle darf noch Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) – nötig für den Betrieb, aber
   ein zweites Konto hätte ein eigenes Risikobudget.
 * **Alt-Positionen in der lokalen Datenbank:** Im Konto `restart-check` liegen zwei Test-Positionen aus Phase 3, die die neue

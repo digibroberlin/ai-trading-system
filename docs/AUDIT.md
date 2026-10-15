@@ -142,7 +142,7 @@ Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
 |---|---|---|
 | M1 | **behoben** (vorgezogen) | Der Datenbank-Gurt schreibt die Konto-Zeile; unter `REPEATABLE READ`/`SERIALIZABLE` bricht die zweite Transaktion ab (getestet). |
 | M2 | teilweise | Offene Positionen: nur noch Schließen und Funding-Fortschritt änderbar. **Offen:** Die Anwendungsrolle darf weiterhin den Kontostand schreiben und Konten anlegen. |
-| M3 | offen | `load_settings()` wird von Vorführung und Backtest aufgerufen, nicht von einem zentralen Startpunkt; die Schlüssel-Erkennung ist nicht verbreitert. |
+| M3 | **behoben** (AP-06) | Prüfung beim ersten `import trading` in jedem Prozess; Erkennung in jeder Schreibweise, `CDP_*`, weitere Börsen, CCXT, `API_KEY` u. a., zwei Inhalts-Muster; jede Schreibweise von `TRADING_MODE`. Tests starten jedes Programm als eigenen Prozess; Gegenprobe E04–E10. |
 | M4 | **behoben** (Ihre Festlegung) | Geplantes Gesamtrisiko ≤ 2 % der Netto-Equity nach bereits angefallenen Kosten; Zustand nach der Order; erwartete Gebühren, Slippage und Funding-Puffer eingerechnet; unter der Konto-Sperre atomar. |
 | M5 | **behoben** (vorgezogen) | Jede Operation des Speicher-Executors ist unteilbar; scheitert etwas (auch das Protokoll), wird alles zurückgesetzt. |
 | M6 | **behoben** (vorgezogen) | Der Referenzkurs des Sprung-Filters verfällt nach 15 Minuten; verarbeitete Kerzen schreiben ihn fort. |

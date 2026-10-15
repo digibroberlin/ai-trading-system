@@ -20,7 +20,9 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
    `TradingMode` kennt nur `PAPER`; jeder andere Wert bricht den Start ab.
 2. **Keine Zugangsdaten im Code, in Tests, Logs oder Doku.** Keine API-Schlüssel, keine Passwörter, keine Tokens.
    Geheimnisse kommen ausschließlich aus Umgebungsvariablen (`.env`, nie eingecheckt).
-   Börsen-Schlüssel (Coinbase/Bitget) dürfen in dieser Phase nicht einmal gesetzt sein – `load_settings()` verweigert dann den Start.
+   Börsen-Schlüssel (Coinbase/Bitget/CDP, andere Börsen, CCXT, allgemeine Namen wie `API_KEY`, jede Schreibweise) dürfen in dieser
+   Phase nicht einmal gesetzt sein – schon `import trading` bricht dann mit `ConfigError` ab (zentraler Schutz für **jeden** Prozess,
+   `trading/__init__.py` → `config.enforce_paper_process`). Neue Programme brauchen dafür nichts zu tun; sie dürfen den Schutz nie umgehen.
 3. **Keine Handelsberechtigungen.** Spätere Börsenanbindungen sind zunächst **nur lesend** (öffentliche Marktdaten).
 4. **Sicherheitslimits sind unveränderlich** (`src/trading/safety/limits.py`). Alle gelten **gleichzeitig**, gemessen am Zustand
    **nach** der Order und an der aktuellen Netto-Equity nach bereits angefallenen Kosten:
