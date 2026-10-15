@@ -11,7 +11,8 @@ Keine. (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP
 
 * **Letzter stabiler Stand:** `stable/003-autonomy-baseline` (633 Tests, Gegenprobe 193/193, Preflight STABIL).
 * **Zweige:** `main` (stabil), `develop` (Integration).
-* **GitHub:** noch nicht verbunden (Blocker B-001). Alles liegt lokal; zusätzlich Git-Bündel in `backups/`.
+* **GitHub:** Repository `digibroberlin/ai-trading-system` (privat), Verbindung vom Mac vorbereitet; wartet auf den Deploy Key (B-001).
+* **Arbeitsort:** künftig die Cloud (D-008); der Mac-Ordner bleibt danach nur Sicherung.
 * **Handel:** keiner. Es läuft kein Bot, kein Paper- oder Demo-Betrieb.
 
 ## Zuletzt erledigt
