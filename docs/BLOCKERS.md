@@ -4,19 +4,17 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Offen
 
-### B-001 GitHub-Konto, privates Repository und Verbindung (seit 2026-10-15)
-* **Warum nötig:** Sicherung außerhalb dieses Rechners, automatische Tests (GitHub Actions), Voraussetzung für Cloud-Routinen.
-* **Was der Eigner tut:** Konto anlegen, leeres privates Repository `ai-trading-system` anlegen, Zugriffsschlüssel hinterlegen
-  (Anleitung im Chat vom 2026-10-15 und unten). Danach den Nutzernamen mitteilen.
-* **Was Claude danach tut:** Verbindung testen, alle Zweige und `stable/*`-Tags hochladen, GitHub Actions prüfen.
-* **Bis dahin:** Arbeit lokal auf Zweigen, Tags lokal, Sicherung zusätzlich als Git-Bündel in `backups/`.
+### B-001 Zugriffsschlüssel auf GitHub hinterlegen (seit 2026-10-15)
+* Konto `digibroberlin` und Repository angelegt (laut Eigner). Schlüssel `~/.ssh/ai_trading_deploy` auf dem Mac erzeugt,
+  Verbindungsname `github-ai-trading` in `~/.ssh/config` (alte Datei gesichert als `~/.ssh/config.vor-ai-trading-2026-10-15`).
+* **Was der Eigner tut:** öffentlichen Schlüssel als Deploy Key mit Schreibrecht im Repository hinterlegen; Claude-GitHub-App in
+  claude.ai Zugriff auf dieses Repository geben.
+* **Danach:** Hochladen aller Zweige und Tags, Prüfung GitHub Actions, Einrichtung der Routine (B-002 ist zugestimmt).
 
-### B-002 Einmalige Zustimmung zur stündlichen Cloud-Routine (seit 2026-10-15)
-* **Voraussetzung:** B-001 erledigt und GitHub in claude.ai verbunden (Claude-GitHub-App nur für dieses Repository).
-* **Was die Routine tut:** stündlich den GitHub-Stand laden, nächstes Arbeitspaket bearbeiten, Tests, sichern – mit denselben Regeln.
-* **Kosten:** keine zusätzlichen; sie verbraucht das normale Nutzungskontingent des Abos (konkurriert mit eigenen Sitzungen).
-* **Grenze:** Im Cloud-Container steht vermutlich kein Docker/PostgreSQL zur Verfügung → Datenbank-Tests dort evtl. nur über
-  GitHub Actions. Wird nach Einrichtung geprüft und dokumentiert.
+### B-002 Cloud-Routine einrichten – Zustimmung liegt vor (2026-10-15)
+* Wartet nur auf B-001 (Repository muss auf GitHub liegen und für Claude in der Cloud erreichbar sein).
+* Noch zu prüfen: ob die Cloud-Umgebung PostgreSQL bereitstellen kann (sonst Datenbank-Tests über GitHub Actions) und
+  auf welche Zweige eine Cloud-Sitzung schreiben darf.
 
 ## Später (noch nicht nötig)
 
