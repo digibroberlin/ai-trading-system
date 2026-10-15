@@ -155,3 +155,23 @@ export TEST_ADMIN_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/
 ~/venvs/trading312/bin/ruff check src tests scripts && ~/venvs/trading312/bin/mypy --strict src
 ~/venvs/trading312/bin/python scripts/mutation_check.py                           # Gegenprobe (ca. 15 Minuten)
 ```
+
+## Nachtrag 2026-10-15 – AP-05 Abhängigkeiten (erste Prüfung in der Cloud)
+
+Umgebung: Cloud-Sitzung (Linux/amd64), Python **3.12.3**, PostgreSQL **16** (Wegwerf-Datenbank über `scripts/cloud_test_db.sh`).
+
+| Prüfung | Ergebnis |
+|---|---|
+| Preflight vor der Änderung (Stand `develop`, pytest 8.4.2) | STABIL – 633/633 Tests, 0 übersprungen |
+| Preflight nach der Änderung (Werkzeuge aus `requirements/dev.lock`, pytest 9.0.3) | STABIL – **646/646** Tests, 0 übersprungen (+13 in `test_dependency_locks.py`) |
+| Installation aus allen vier Sperrdateien mit `--require-hashes` in frischen Umgebungen | erfolgreich (dev, runtime, audit unter 3.12.3; py39 unter 3.9.25) |
+| Laufzeit-Umgebung wie im Image (nur `runtime.lock`, `PYTHONPATH=src`) | Vorführung `trading.demo` läuft, Migrationsordner wird gefunden |
+| Kern-Tests unter Python 3.9.25 ohne psycopg | 552 bestanden, 5 Datenbank-Dateien **sichtbar übersprungen** (vorher: Abbruch beim Einsammeln, siehe unten) |
+| `scripts/dependency_audit.py` (pip-audit 2.10.1) | keine unbegründeten Lücken; eine begründete Ausnahme in `py39.lock` (D-010) |
+
+**Behobener Fehler:** Die fünf Datenbank-Testdateien importierten `psycopg` direkt. Ohne psycopg (Python 3.9, GitHub-Job
+„Kern ohne Datenbank“) brach pytest deshalb mit 5 Fehlern ab, statt diese Tests als „skipped“ zu melden. Jetzt
+`pytest.importorskip("psycopg")`. Unter 3.12 mit Datenbank ändert sich nichts (0 übersprungen).
+
+**Nicht geprüft:** Docker-Image-Bau in der Cloud (Docker Hub antwortete „429 Too Many Requests“); Gegenprobe nicht erneut
+ausgeführt (keine Sicherheitslogik geändert); GitHub-Actions-Ergebnis (aus der Cloud-Sitzung nicht einsehbar).

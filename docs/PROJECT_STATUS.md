@@ -39,6 +39,6 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:20 UT
 
 **Mac (nur Sicherung, seit 2026-10-15 nicht mehr bearbeitet):**
 
-* Python 3.12 in einer Umgebung außerhalb des Projekts; Werkzeuge laut `requirements-dev.txt`.
+* Python 3.12 in einer Umgebung außerhalb des Projekts; Werkzeuge laut `requirements/dev.lock` (vor AP-05: `requirements-dev.txt`).
 * PostgreSQL 16 in Docker über Colima; Passwort-Datei außerhalb des Projektordners.
 * Echte lokale Datenbank `trading`: enthält nur das Prüfkonto `restart-check` (2 Alt-Positionen). Nie löschen.

@@ -1,0 +1,3 @@
+# Nur fuer den GitHub-Actions-Lauf "Kern ohne Datenbank (Python 3.9)".
+# pytest 9 laeuft nicht mehr auf 3.9, daher bleibt hier 8.4.2 (Begruendung: docs/DECISIONS.md, D-010).
+pytest==8.4.2

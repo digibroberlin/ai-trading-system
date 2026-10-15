@@ -1,0 +1,3 @@
+# Laufzeit-Abhaengigkeiten des Images `runtime` (Dienste `app` und `migrate`).
+# Der Kern braucht keine Pakete; nur die Datenbank-Anbindung. Version gleich wie in dev.txt.
+psycopg[binary]==3.3.6

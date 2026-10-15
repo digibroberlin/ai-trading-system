@@ -1,7 +1,8 @@
 """PostgreSQL-Trigger, Rechte und Constraints (gegen eine echte Datenbank)."""
 
-import psycopg
 import pytest
+# Ohne psycopg (z. B. Python 3.9, Kern-Pruefung) sichtbar ueberspringen statt beim Einsammeln abzubrechen.
+psycopg = pytest.importorskip("psycopg", reason="psycopg nicht installiert - Datenbank-Tests uebersprungen")
 from conftest import requires_db
 from helpers import D, T0
 

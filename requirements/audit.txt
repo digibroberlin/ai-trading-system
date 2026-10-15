@@ -1,0 +1,2 @@
+# Werkzeug fuer die Sicherheitspruefung der Abhaengigkeiten (bekannte Luecken, Datenbank OSV/PyPI).
+pip-audit==2.10.1

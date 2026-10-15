@@ -131,7 +131,7 @@ APP_DB_PASSWORD=...
 ### Tests ausführen
 
 ```bash
-python3.12 -m venv ~/venvs/trading312 && ~/venvs/trading312/bin/pip install pytest "psycopg[binary]" ruff mypy
+python3.12 -m venv ~/venvs/trading312 && ~/venvs/trading312/bin/pip install --require-hashes -r requirements/dev.lock
 ~/venvs/trading312/bin/pytest                      # ohne Datenbank: DB-Tests werden als "skipped" gemeldet
 ```
 
@@ -206,6 +206,9 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **Alt-Positionen in der lokalen Datenbank:** Im Konto `restart-check` liegen zwei Test-Positionen aus Phase 3, die die neue
   Stress-Grenze überschreiten (8,05 % statt 5 %). Sie bleiben bestehen; neue Trades in diesem Konto sind blockiert, bis sie geschlossen sind.
 * **Docker nur lokal getestet:** Colima auf macOS (Apple Silicon). Nicht getestet: Docker Desktop, Linux-Server (Hetzner), `amd64`-Architektur.
+* **Abhängigkeiten:** fest mit Prüfsummen in `requirements/*.lock` (D-010). Noch offen: Basis-Image `python:3.12-slim` nicht per Digest
+  festgeschrieben, Container mit freiem Internetzugang. Der Python-3.9-Job nutzt bewusst pytest 8.4.2 mit einer bekannten, dort nicht
+  ausnutzbaren Lücke (D-010).
 * **Python 3.13/3.14 und das neue GIL-freie Python** wurden nicht getestet (Ziel ist 3.12).
 * **Ein Konto = ein Flaschenhals:** Die Konto-Sperre reiht alle Aktionen eines Kontos hintereinander ein (bewusst, Sicherheit vor Tempo). Dauert eine Aktion länger als 10 Sekunden
   auf die Sperre, wird sie abgebrochen und gilt als blockiert (`EXECUTION_ERROR`). Auch `portfolio_state()` nimmt kurz die Sperre.

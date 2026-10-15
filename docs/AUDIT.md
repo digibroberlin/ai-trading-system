@@ -151,7 +151,7 @@ Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
 | M9 | offen | `verify()` lädt weiterhin das ganze Protokoll. |
 | M10 | **behoben** | Funding nur noch aus ausdrücklichen Ereignissen (Satz und Kurs aus den Daten), je Position höchstens einmal; ohne Funding-Satz kein Futures-Trade. |
 | M11 | weitgehend | Schließen auf Signal und per Eingriff (`close_position`), durchgängig bis in Pipeline, Backtest und Datenbank. **Offen:** Teilschließung und ein globaler Not-Aus. |
-| M12 | offen | Images und Pakete sind nicht festgeschrieben. |
+| M12 | **teilweise behoben** (AP-05, D-010) | Alle Python-Pakete fest mit Prüfsummen (`requirements/*.lock`), Prüfung auf bekannte Lücken in GitHub Actions. Offen: Basis-Image per Digest, Container ohne Internetzugang (AP-27). |
 | M13 | **behoben** | Laufend bewertete Kapitalkurve, Drawdown daraus, Sharpe/Sortino, realisiert/unrealisiert, alles netto; exakte Abstimmung des Endkapitals. |
 | M14 | offen | Kein regelmäßiges Backup; kein Freigabe-Verfahren nach der Drawdown-Bremse. (Vor Stufe 1 wurden einmalige Sicherungen nach `backups/` gezogen.) |
 

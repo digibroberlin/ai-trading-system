@@ -44,8 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Werkzeuge installieren (feste Versionen)
-        run: pip install -r requirements-dev.txt
+      - name: Werkzeuge installieren (feste Versionen mit Pruefsummen)
+        run: pip install --require-hashes -r requirements/dev.lock
       - name: Anwendungsrolle anlegen (wie db/00_roles.sh im eigenen Datenbank-Image)
         run: >-
           python -c "import os, psycopg;
@@ -60,6 +60,20 @@ jobs:
       - name: Alle Tests
         run: python -m pytest -q -rs -p no:cacheprovider
 
+  abhaengigkeiten:
+    name: Bekannte Sicherheitsluecken in Abhaengigkeiten (pip-audit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pip-audit installieren (feste Versionen mit Pruefsummen)
+        run: pip install --require-hashes -r requirements/audit.lock
+      - name: Alle Sperrdateien pruefen
+        run: python scripts/dependency_audit.py
+
   kern-py39:
     name: Kern ohne Datenbank (Python 3.9)
     runs-on: ubuntu-24.04
@@ -69,6 +83,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.9"
-      - run: pip install pytest==8.4.2
+      - run: pip install --require-hashes -r requirements/py39.lock
       - name: Tests ohne Datenbank (Datenbank-Tests werden sichtbar uebersprungen)
         run: python -m pytest -q -rs -p no:cacheprovider
