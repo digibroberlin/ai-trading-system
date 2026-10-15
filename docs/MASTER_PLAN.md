@@ -36,8 +36,8 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
 | AP-01 | Lokale Sicherung: Branch-Modell, `stable/*`-Tags, Geheimnis-Scan, Prüfskript, GitHub-Actions-Datei, Wiederherstellungsanleitung, Steuerdokumente | Preflight STABIL, Scan der ganzen Geschichte sauber | ✅ (lokal) |
-| AP-02 | GitHub verbinden, alles hochladen, Actions grün | Actions-Lauf grün auf `develop` und `main` | ⛔ B-001 |
-| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren | Probelauf erfolgreich, Sperr-Mechanismus wirkt | ⛔ B-002 |
+| AP-02 | GitHub verbinden, alles hochladen, Actions grün | Actions-Lauf grün auf `develop` und `main` | 🔄 hochgeladen 2026-10-15; Actions-Ergebnis noch zu prüfen |
+| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren; Cloud-Umgebung prüfen (PostgreSQL über `scripts/cloud_test_db.sh`, Push-Rechte auf `develop`/Tags) | Probelauf erfolgreich, Sperr-Mechanismus wirkt | 🔄 Routine angelegt |
 
 ### Phase B – Architekturentscheidung
 | AP | Inhalt | Abnahme | Status |

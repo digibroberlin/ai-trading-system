@@ -4,15 +4,8 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Offen
 
-### B-001 Zugriffsschlüssel auf GitHub hinterlegen (seit 2026-10-15)
-* Konto `digibroberlin` und Repository angelegt (laut Eigner). Schlüssel `~/.ssh/ai_trading_deploy` auf dem Mac erzeugt,
-  Verbindungsname `github-ai-trading` in `~/.ssh/config` (alte Datei gesichert als `~/.ssh/config.vor-ai-trading-2026-10-15`).
-* **Was der Eigner tut:** öffentlichen Schlüssel als Deploy Key mit Schreibrecht im Repository hinterlegen; Claude-GitHub-App in
-  claude.ai Zugriff auf dieses Repository geben.
-* **Danach:** Hochladen aller Zweige und Tags, Prüfung GitHub Actions, Einrichtung der Routine (B-002 ist zugestimmt).
-
-### B-002 Cloud-Routine einrichten – Zustimmung liegt vor (2026-10-15)
-* Wartet nur auf B-001 (Repository muss auf GitHub liegen und für Claude in der Cloud erreichbar sein).
+### B-002 Cloud-Routine – eingerichtet 2026-10-15, Funktionsprüfung offen
+* Stündliche Routine angelegt (Opus 5.5). Der erste Lauf prüft und dokumentiert die Cloud-Umgebung.
 * Noch zu prüfen: ob die Cloud-Umgebung PostgreSQL bereitstellen kann (sonst Datenbank-Tests über GitHub Actions) und
   auf welche Zweige eine Cloud-Sitzung schreiben darf.
 
@@ -26,4 +19,5 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Erledigt
 
-(noch keine)
+* **B-001 (2026-10-15):** GitHub-Konto `digibroberlin`, privates Repository, Deploy Key nur für dieses Repository,
+  Claude-GitHub-App freigegeben. `main`, `develop` und `stable/001`–`stable/003` hochgeladen.

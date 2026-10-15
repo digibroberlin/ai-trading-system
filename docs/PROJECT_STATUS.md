@@ -11,7 +11,7 @@ Keine. (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP
 
 * **Letzter stabiler Stand:** `stable/003-autonomy-baseline` (633 Tests, Gegenprobe 193/193, Preflight STABIL).
 * **Zweige:** `main` (stabil), `develop` (Integration).
-* **GitHub:** Repository `digibroberlin/ai-trading-system` (privat), Verbindung vom Mac vorbereitet; wartet auf den Deploy Key (B-001).
+* **GitHub:** Repository `digibroberlin/ai-trading-system` (privat). `main`, `develop`, `stable/001`–`003` hochgeladen (2026-10-15).
 * **Arbeitsort:** künftig die Cloud (D-008); der Mac-Ordner bleibt danach nur Sicherung.
 * **Handel:** keiner. Es läuft kein Bot, kein Paper- oder Demo-Betrieb.
 
@@ -24,10 +24,17 @@ Keine. (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP
 
 ## Nächste Schritte
 
-1. Nach B-001: AP-02 (hochladen, Actions prüfen), dann B-002/AP-03 (Cloud-Routine).
-2. Unabhängig davon: AP-05 (Abhängigkeiten, CCXT-Prüfung), dann Phase C (AP-06 …). AP-04 erledigt (D-006).
+1. **AP-03 abschließen (erste Cloud-Sitzung/-Routine):** Python-Umgebung und `scripts/cloud_test_db.sh` in der Cloud ausprobieren
+   (Skript ist auf dem Mac nicht ausführbar gewesen → **ungetestet**), `scripts/preflight.py` laufen lassen, prüfen ob Push auf
+   `develop` und das Setzen von Tags aus der Cloud funktionieren, Ergebnis des ersten GitHub-Actions-Laufs prüfen (falls von der
+   Cloud aus einsehbar). Alles in `docs/BLOCKERS.md`/`docs/TEST_RESULTS.md` festhalten.
+2. AP-05 (Abhängigkeiten, CCXT-Sicherheitsprüfung), dann Phase C (AP-06 …).
 
-## Arbeitsumgebung (lokal, Mac)
+## Arbeitsumgebung
+
+**Cloud (maßgeblich):** siehe `CLAUDE.md`, Abschnitt „Arbeitsort: Cloud“.
+
+**Mac (nur Sicherung, seit 2026-10-15 nicht mehr bearbeitet):**
 
 * Python 3.12 in einer Umgebung außerhalb des Projekts; Werkzeuge laut `requirements-dev.txt`.
 * PostgreSQL 16 in Docker über Colima; Passwort-Datei außerhalb des Projektordners.
