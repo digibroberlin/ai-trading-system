@@ -175,3 +175,16 @@ Umgebung: Cloud-Sitzung (Linux/amd64), Python **3.12.3**, PostgreSQL **16** (Weg
 
 **Nicht geprüft:** Docker-Image-Bau in der Cloud (Docker Hub antwortete „429 Too Many Requests“); Gegenprobe nicht erneut
 ausgeführt (keine Sicherheitslogik geändert); GitHub-Actions-Ergebnis (aus der Cloud-Sitzung nicht einsehbar).
+
+## Nachtrag 2026-10-15 – AP-06 Zentraler PAPER-Schutz (Audit M3)
+
+* **Was neu ist:** Schon `import trading` prüft Modus und Umgebung (jeder Prozess, auch Migration, Prüfskripte, Test-Worker).
+  Erkannt werden Börsen-Schlüssel in jeder Schreibweise, `CDP_*` (Coinbase Developer Platform), weitere Börsen und CCXT,
+  allgemeine Namen wie `API_KEY`/`PASSPHRASE`, sowie zwei typische Inhalte (CDP-Schlüsselname, EC-Privatschlüssel) unter jedem Namen.
+* **Tests:** `tests/test_paper_guard.py` (neu) – u. a. startet jedes Programm mit `if __name__ == "__main__"` unter `src/trading`
+  sowie `scripts/restart_check.py` und `tests/pg_workers.py` als **eigenen Prozess** mit verbotener Umgebung und erwartet den Abbruch.
+  Ein Gegentest stellt sicher, dass Zugänge der Cloud-Umgebung (`AWS_SECRET_ACCESS_KEY`, `GH_TOKEN` …) den Start nicht verhindern.
+* **Gegenprobe:** neue Einträge E04–E10 – **9 von 9** (mit E02/E03) entdeckt, jeweils vom passenden Test.
+* **Gefundener Fehler in der Gegenprobe selbst:** Die Arbeitskopie enthielt seit AP-05 den Ordner `requirements/` nicht; der neue
+  Sperrdatei-Test schlug dort immer fehl, und **jeder** eingebaute Fehler hätte als „entdeckt“ gegolten. Behoben (Kopie vollständig)
+  und abgesichert: Die Gegenprobe läuft jetzt zuerst eine **Grundprobe** ohne eingebauten Fehler und bricht ab, wenn die schon scheitert.

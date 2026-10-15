@@ -48,7 +48,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 ### Phase C – Sicherheit und Robustheit (Audit Stufe 2)
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-06 | Zentraler Startpunkt mit PAPER-Schutz für jeden Prozess, breitere Schlüssel-Erkennung (M3) | jeder Einstieg prüft; Tests | ⏳ |
+| AP-06 | Zentraler Startpunkt mit PAPER-Schutz für jeden Prozess, breitere Schlüssel-Erkennung (M3) | jeder Einstieg prüft; Tests | ✅ (Gegenprobe E04–E10) |
 | AP-07 | Globaler Kill Switch: dauerhaft in der DB, manuell und automatisch (Datenfehler, Protokollfehler, Notbremsen), Freigabe nur bewusst | Tests inkl. Mehrprozess, Gegenprobe | ⏳ |
 | AP-08 | Order-Wiederholung liefert ursprüngliches Ergebnis (M7) | Tests, auch nach Neustart | ⏳ |
 | AP-09 | Größe unter Konkurrenz innerhalb der Sperre neu berechnen (M8) | exakte Mehrprozess-Erwartung | ⏳ |

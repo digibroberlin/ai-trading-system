@@ -44,6 +44,7 @@ PF = "src/trading/audit/performance.py"
 LI = "src/trading/safety/limits.py"
 EL = "src/trading/audit/event_log.py"
 CF = "src/trading/config.py"
+IN = "src/trading/__init__.py"
 EN = "src/trading/backtest/engine.py"
 DA = "src/trading/backtest/data.py"
 CM = "src/trading/backtest/compare.py"
@@ -210,6 +211,14 @@ m("L06","Bewertungsalter-Obergrenze nicht geprueft",LI,'            ("max_mark_a
 m("E01","Beschaedigte Protokolldatei wird beim Start akzeptiert",EL,"            if not result.ok:\n                raise EventLogCorruptedError(","            if False:\n                raise EventLogCorruptedError(")
 m("E02","Erkennung von Boersen-Schluesseln abgeschaltet",CF,"    if offending:\n","    if False:\n")
 m("E03","Anderer Modus als PAPER erlaubt",CF,"    if raw_mode != TradingMode.PAPER.value:","    if False:")
+# ---- Zentraler PAPER-Schutz (AP-06, Audit M3)
+m("E04","PAPER-Schutz beim Import abgeschaltet",IN,"\n_enforce_paper_process()\n","\n")
+m("E05","Schluessel-Namen nur in Grossschrift erkannt",CF,'return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")','return re.sub(r"[^A-Z0-9]+", "_", name).strip("_")')
+m("E06","Boersen-Praefixe (CDP, Binance, CCXT ...) nicht erkannt",CF,"    return parts[0] in _EXCHANGE_PREFIXES and any(p in norm for p in _SECRET_PARTS)","    return False")
+m("E07","Allgemeine Namen (API_KEY ...) nicht erkannt",CF," or norm in _GENERIC_NAMES"," ")
+m("E08","Schluessel-Inhalte unter fremdem Namen nicht erkannt",CF,"if _is_credential_name(name) or _CREDENTIAL_VALUE.search(value):","if _is_credential_name(name):")
+m("E09","TRADING_MODE in Kleinschreibung ignoriert",CF,'if _normalized(k) == "TRADING_MODE"]','if k == "TRADING_MODE"]')
+m("E10","Passphrase unter beliebigem Namen nicht erkannt",CF,' or "PASSPHRASE" in norm:',':')
 
 
 BACKTEST: List[Mutant] = [
@@ -296,9 +305,12 @@ def copy_project(workdir: Path) -> Path:
     """Legt EINMAL eine Arbeitskopie an; jeder eingebaute Fehler wird danach wieder zurueckgenommen."""
     copy = workdir / "projekt"
     copy.mkdir()
-    for folder in ("src", "tests", "db", "scripts"):
+    # Alles, was die Tests lesen (auch Sperrdateien, Dockerfile, CI-Datei) - sonst schlagen Tests in der Kopie schon ohne
+    # eingebauten Fehler fehl, und jeder Eintrag gaelte faelschlich als "entdeckt".
+    for folder in ("src", "tests", "db", "scripts", "requirements", ".github"):
         shutil.copytree(ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copy(ROOT / "pyproject.toml", copy)
+    for name in ("pyproject.toml", "Dockerfile"):
+        shutil.copy(ROOT / name, copy)
     return copy
 
 
@@ -348,6 +360,13 @@ def main(argv: Sequence[str]) -> int:
     workdir = Path(tempfile.mkdtemp(prefix="mutation-check-"))
     try:
         copy = copy_project(workdir)
+        # Grundprobe: OHNE eingebauten Fehler muessen alle Tests in der Kopie bestehen. Sonst waere jedes "ENTDECKT"
+        # wertlos, weil die Tests ohnehin fehlschlagen.
+        broken, detail = check(("BASIS", "Kopie ohne Fehler", [], ALL_TESTS), copy, HAVE_DB)
+        if broken:
+            raise SystemExit("Grundprobe fehlgeschlagen: Die Tests scheitern in der Kopie schon ohne eingebauten Fehler "
+                             "(%s). Erst das beheben." % detail)
+        print("[BASIS] Kopie ohne eingebauten Fehler: alle Tests bestanden", flush=True)
         for group in wanted:
             for mutant in GROUPS[group]:
                 key, name, _, tests = mutant
