@@ -5,7 +5,6 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Routine (Lauf 2026-10-15 19:08 UTC) seit 2026-10-15 19:08 UTC für AP-03
 gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:37 UTC für AP-07
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
@@ -26,6 +25,13 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:37 UT
 
 ## Zuletzt erledigt
 
+* AP-03 (Cloud-Routine, erster Lauf 2026-10-15 19:08–20:00 UTC): Cloud-Umgebung geprüft. Python 3.12.3 (Achtung: `python3` ist
+  dort 3.11) und 3.9.25 über `uv`; Wegwerf-PostgreSQL 16 über `scripts/cloud_test_db.sh` läuft als root ohne Rückfrage;
+  Preflight STABIL inkl. Datenbank (633/633 auf Stand `ae639e5`); Gegenprobe 193/193 (ca. 41 min, rund viermal langsamer als
+  auf dem Mac); Push auf Arbeitszweige und `develop` funktioniert; GitHub-Actions-Ergebnisse sind lesbar. Sperre wirkte: Die
+  parallele interaktive Sitzung hat AP-03 nicht angefasst. Die rote Python-3.9-Prüfung (Importfehler in 5 Datenbank-Testmodulen)
+  hatte die Routine ebenfalls gefunden und behoben; da AP-05 dieselbe Korrektur schon auf `develop` gebracht hatte, wurde nur die
+  Doku übernommen (Routine-Stand gesichert im lokalen Zweig, nicht hochgeladen). Noch nicht ausprobiert: Tags aus der Cloud setzen.
 * AP-06 (Cloud-Sitzung, 2026-10-15): zentraler PAPER-Schutz beim `import trading` für jeden Prozess, breitere Schlüssel-Erkennung
   (Audit M3 behoben). Gegenprobe E04–E10 entdeckt. Gegenprobe-Skript repariert (Kopie vollständig, Grundprobe). 716/716 Tests.
 * AP-05 (Cloud-Sitzung, 2026-10-15): Abhängigkeiten fest mit Prüfsummen in `requirements/*.lock`, pytest 9.0.3 (Lücke
@@ -40,10 +46,9 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:37 UT
 
 ## Nächste Schritte
 
-1. **AP-03 abschließen (erste Cloud-Sitzung/-Routine):** Python-Umgebung und `scripts/cloud_test_db.sh` in der Cloud ausprobieren
-   (Skript ist auf dem Mac nicht ausführbar gewesen → **ungetestet**), `scripts/preflight.py` laufen lassen, prüfen ob Push auf
-   `develop` und das Setzen von Tags aus der Cloud funktionieren, Ergebnis des ersten GitHub-Actions-Laufs prüfen (falls von der
-   Cloud aus einsehbar). Alles in `docs/BLOCKERS.md`/`docs/TEST_RESULTS.md` festhalten.
+1. AP-02: GitHub Actions ist auf `develop` grün (seit Lauf 8, 19:26 UTC); `main` ist noch rot (Stand `stable/003`, Python-3.9-
+   Importfehler) und wird mit dem nächsten stabilen Stand grün → dann AP-02 auf ✅. Hinweis aus Actions: `actions/checkout@v4`
+   und `actions/setup-python@v5` nutzen das veraltete Node 20 – bei Gelegenheit anheben.
 2. Phase C ab AP-07 (Kill Switch). AP-05 und AP-06 sind erledigt.
 
 ## Arbeitsumgebung
