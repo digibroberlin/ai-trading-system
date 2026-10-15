@@ -61,3 +61,15 @@ def test_findings_never_print_the_secret_value():
 
 def test_the_repository_itself_is_clean():
     assert scan.scan_working_tree() == []
+
+
+def test_without_git_all_files_are_scanned(monkeypatch):
+    """Im Test-Container gibt es weder Git noch .git: Dann werden alle Dateien des Ordners geprueft."""
+    def no_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(scan.subprocess, "run", no_git)
+    files = scan.tracked_files()
+    assert "scripts/secret_scan.py" in files and "src/trading/config.py" in files
+    assert not [f for f in files if f.startswith(".git/") or "__pycache__" in f]
+    assert scan.scan_working_tree() == [] or all("backups/" in f for f in scan.scan_working_tree())

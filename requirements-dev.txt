@@ -1,0 +1,6 @@
+# Feste Versionen der Entwicklungswerkzeuge (lokal, im Container und in GitHub Actions gleich).
+# Aktualisierung nur bewusst: neue Version eintragen, alle Pruefungen laufen lassen, Ergebnis dokumentieren.
+pytest==8.4.2
+ruff==0.17.0
+mypy==2.4.0
+psycopg[binary]==3.3.6

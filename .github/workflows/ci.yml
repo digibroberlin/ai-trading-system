@@ -1,0 +1,74 @@
+# Automatische Pruefung bei jeder Aenderung auf GitHub.
+# Laeuft auf GitHubs Servern mit einer frischen, leeren PostgreSQL-Datenbank. Keine Boersenverbindung, keine Geheimnisse:
+# Die Passwoerter unten gelten nur fuer diese Wegwerf-Datenbank und sind absichtlich als Testwerte erkennbar.
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["stable/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pruefung:
+    name: Alle Tests (Python 3.12 + PostgreSQL 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: trading
+          POSTGRES_PASSWORD: test-ci-admin
+          POSTGRES_DB: trading
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U trading -d trading"
+          --health-interval 3s --health-timeout 3s --health-retries 30
+    env:
+      TEST_ADMIN_URL: postgresql://trading:test-ci-admin@127.0.0.1:5432/postgres
+      TEST_APP_PASSWORD: test-ci-app
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gesamte Geschichte fuer den Geheimnis-Scan
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Werkzeuge installieren (feste Versionen)
+        run: pip install -r requirements-dev.txt
+      - name: Anwendungsrolle anlegen (wie db/00_roles.sh im eigenen Datenbank-Image)
+        run: >-
+          python -c "import os, psycopg;
+          c = psycopg.connect(os.environ['TEST_ADMIN_URL'], autocommit=True);
+          c.execute(\"CREATE ROLE trading_app LOGIN PASSWORD 'test-ci-app'\")"
+      - name: Geheimnis-Scan (Arbeitsstand und gesamte Geschichte)
+        run: python scripts/secret_scan.py --history
+      - name: Codequalitaet (ruff)
+        run: ruff check --no-cache src tests scripts
+      - name: Typpruefung (mypy --strict)
+        run: mypy --strict src
+      - name: Alle Tests
+        run: python -m pytest -q -rs -p no:cacheprovider
+
+  kern-py39:
+    name: Kern ohne Datenbank (Python 3.9)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - run: pip install pytest==8.4.2
+      - name: Tests ohne Datenbank (Datenbank-Tests werden sichtbar uebersprungen)
+        run: python -m pytest -q -rs -p no:cacheprovider

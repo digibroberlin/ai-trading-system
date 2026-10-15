@@ -75,6 +75,9 @@ def is_placeholder(value: str) -> bool:
     return bool(PLACEHOLDER.match(value) or CONSTANT_NAME.match(value))
 
 
+SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+
+
 def tracked_files() -> List[str]:
     """Alle Dateien, die Git verwaltet. Ohne Git (z. B. im Test-Container) werden alle Dateien geprueft."""
     try:
