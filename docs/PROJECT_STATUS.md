@@ -6,7 +6,7 @@ Informationsverlust weitermachen kann.
 ## Sperre
 
 gesperrt von Cloud-Routine (Lauf 2026-10-15 19:08 UTC) seit 2026-10-15 19:08 UTC für AP-03
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:40 UTC für AP-06
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:37 UTC für AP-07
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
@@ -20,6 +20,8 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:40 UT
 
 ## Zuletzt erledigt
 
+* AP-06 (Cloud-Sitzung, 2026-10-15): zentraler PAPER-Schutz beim `import trading` für jeden Prozess, breitere Schlüssel-Erkennung
+  (Audit M3 behoben). Gegenprobe E04–E10 entdeckt. Gegenprobe-Skript repariert (Kopie vollständig, Grundprobe). 716/716 Tests.
 * AP-05 (Cloud-Sitzung, 2026-10-15): Abhängigkeiten fest mit Prüfsummen in `requirements/*.lock`, pytest 9.0.3 (Lücke
   CVE-2025-71176), Lückenprüfung `scripts/dependency_audit.py` + eigener GitHub-Job, Python-3.9-Job repariert (D-010).
   Preflight STABIL in der Cloud: 646/646 Tests, 0 übersprungen (Python 3.12.3, PostgreSQL 16 über `scripts/cloud_test_db.sh`).
@@ -36,7 +38,7 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:40 UT
    (Skript ist auf dem Mac nicht ausführbar gewesen → **ungetestet**), `scripts/preflight.py` laufen lassen, prüfen ob Push auf
    `develop` und das Setzen von Tags aus der Cloud funktionieren, Ergebnis des ersten GitHub-Actions-Laufs prüfen (falls von der
    Cloud aus einsehbar). Alles in `docs/BLOCKERS.md`/`docs/TEST_RESULTS.md` festhalten.
-2. Phase C (AP-06 …). AP-05 ist erledigt (D-010).
+2. Phase C ab AP-07 (Kill Switch). AP-05 und AP-06 sind erledigt.
 
 ## Arbeitsumgebung
 
