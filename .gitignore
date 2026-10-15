@@ -20,5 +20,9 @@ data/
 *.jsonl
 .DS_Store
 
-# Sicherungs-Archive (liegen als Dateien vor, gehoeren nicht in die Versionsgeschichte)
-backups/*.tar.gz
+# Sicherungen (Projekt-Archive, Datenbank-Abzuege, Git-Buendel) bleiben lokal - nie in die Versionsgeschichte
+backups/*
+!backups/README.md
+
+# Lokal geladene Marktdaten (koennen gross sein, jederzeit neu ladbar)
+data/
