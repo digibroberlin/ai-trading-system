@@ -52,6 +52,21 @@ Vor längeren Schritten und spätestens bei Anzeichen eines Limits: PROJECT_STAT
 aktualisieren (was erledigt, was halb, nächster konkreter Schritt), WIP-Commit auf dem Arbeitszweig, pushen.
 Limits nie umgehen, keine kostenpflichtige Mehrnutzung aktivieren.
 
+## Arbeitsort: Cloud (seit 2026-10-15, Entscheidung D-008)
+
+Maßgeblich ist GitHub (`digibroberlin/ai-trading-system`). Gearbeitet wird in Cloud-Sitzungen und der stündlichen
+Cloud-Routine (D-009). Der Mac-Ordner ist nur noch Sicherung. In einer Cloud-Sitzung zu Beginn:
+
+```bash
+python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q -r requirements-dev.txt
+bash scripts/cloud_test_db.sh && set -a && source /tmp/ai-trading-test-db.env && set +a   # Wegwerf-PostgreSQL
+/tmp/venv/bin/python scripts/preflight.py
+```
+Lässt sich in der Cloud keine Datenbank einrichten, meldet `preflight.py` ehrlich NICHT STABIL (Datenbank-Tests übersprungen):
+dann nur nach `develop` zusammenführen, **keine** `stable/*`-Tags setzen und den Umstand in `docs/BLOCKERS.md` festhalten.
+GitHub Actions prüft `main`, `develop` und `stable/*` zusätzlich mit PostgreSQL. Lässt sich ein Push auf `develop` nicht
+ausführen (Rechte der Cloud-Sitzung), die Arbeit auf dem Arbeitszweig pushen und in `docs/BLOCKERS.md` vermerken.
+
 ## Wichtige Befehle
 
 ```bash
