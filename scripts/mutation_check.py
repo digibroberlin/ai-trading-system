@@ -47,6 +47,7 @@ CF = "src/trading/config.py"
 IN = "src/trading/__init__.py"
 KS = "src/trading/safety/kill_switch.py"
 PK = "src/trading/persistence/kill_switch.py"
+DB = "src/trading/persistence/db.py"
 EN = "src/trading/backtest/engine.py"
 DA = "src/trading/backtest/data.py"
 CM = "src/trading/backtest/compare.py"
@@ -217,7 +218,9 @@ m("E03","Anderer Modus als PAPER erlaubt",CF,"    if raw_mode != TradingMode.PAP
 # ---- Zentraler PAPER-Schutz (AP-06, Audit M3)
 m("E04","PAPER-Schutz beim Import abgeschaltet",IN,"\n_enforce_paper_process()\n","\n")
 m("E05","Schluessel-Namen nur in Grossschrift erkannt",CF,'return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")','return re.sub(r"[^A-Z0-9]+", "_", name).strip("_")')
-m("E06","Boersen-Praefixe (CDP, Binance, CCXT ...) nicht erkannt",CF,"    return parts[0] in _EXCHANGE_PREFIXES and any(p in norm for p in _SECRET_PARTS)","    return False")
+m("E06","Boersen-Praefixe (CDP, Binance, CCXT ...) nicht erkannt",CF,"    return _mentions_exchange(norm.split(\"_\")) and any(p in norm for p in _SECRET_PARTS)","    return False")
+m("E11","Boersenname nur am Anfang des Namens erkannt",CF,"    return any(p in _EXCHANGE_PREFIXES or p.startswith(_LONG_EXCHANGE_PREFIXES) for p in parts)","    return parts[0] in _EXCHANGE_PREFIXES")
+m("E12","camelCase-Namen nicht zerlegt",CF,'    split = re.sub(r"([a-z0-9])([A-Z])", r"\\1_\\2", name)',"    split = name")
 m("E07","Allgemeine Namen (API_KEY ...) nicht erkannt",CF," or norm in _GENERIC_NAMES"," ")
 m("E08","Schluessel-Inhalte unter fremdem Namen nicht erkannt",CF,"if _is_credential_name(name) or _CREDENTIAL_VALUE.search(value):","if _is_credential_name(name):")
 m("E09","TRADING_MODE in Kleinschreibung ignoriert",CF,'if _normalized(k) == "TRADING_MODE"]','if k == "TRADING_MODE"]')
@@ -235,6 +238,11 @@ m("N09","Freigabe ohne Namen",KS,"    if not name:\n","    if False:\n")
 m("N10","Unlesbarer Not-Aus gilt als frei",PE,'            return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)',"            return HaltStatus(False)")
 m("N11","Zweiter Ausloeser ueberschreibt den ersten Grund",KS,"            if self._state.halted:\n                return False\n","")
 m("N12","Tagesverlust-Bremse loest den Not-Aus nicht mehr aus (eine Definition fuer beide)",OR,"        if day_loss >= limits.max_daily_loss:","        if day_loss > limits.max_daily_loss * 2:")
+m("N13","Verlust der Mitternachts-Kerze zaehlt fuer keinen Tag",PE,"        if now.date() > self._day:\n            # Tageswechsel","        if False:\n            # Tageswechsel")
+m("N14","Notbremsen vor statt nach der Order gemessen",OR,"    reasons.extend(brake_reasons_for(equity_after, portfolio.day_start_equity","    reasons.extend(brake_reasons_for(portfolio.equity, portfolio.day_start_equity")
+m("N15","Geteilter Not-Aus wird waehrend der Order nicht festgehalten",KS,"    def hold(self) -> ContextManager[object]:\n        return self._lock\n","")
+m("N16","Fehler beim Ausloesen bricht Stop-Loss ab",PE,"        except Exception as exc:  # gemeinsamer Not-Aus nicht schreibbar: wenigstens hier stoppen, Schliessen nicht abbrechen\n","        except ZeroDivisionError as exc:  # eingebauter Fehler\n")
+m("N17","Freigabe setzt die Bezugswerte der Notbremsen nicht neu",PE,"        self._day, self._day_start_equity, self._peak_equity = now.date(), equity, equity\n","")
 
 
 BACKTEST: List[Mutant] = [
@@ -316,6 +324,13 @@ DATENBANK: List[Mutant] = [
  ("G38","Beschaedigtes Protokoll bei der Pruefung setzt keinen Not-Aus",[(EX,"        if not ok:\n            with self._conn_lock:","        if False:\n            with self._conn_lock:")], PG),
  ("G39","Not-Aus wird ohne Sicherungspunkt protokolliert (kaputtes Protokoll verhindert ihn)",[(PK,"                with conn.transaction():\n                    log_event(","                if True:\n                    log_event(")], PG),
  ("G40","Not-Aus-Zeile ohne Sperre gelesen (Wettlauf mit Ausloesern)",[(EX,"halt = read_halt(cur, lock=True)","halt = read_halt(cur)")], PG),
+ ("G41","Not-Aus-Zeile loesch-/neu anlegbar (Freigabe ohne Namen)",[(S3,"CREATE TRIGGER trading_halt_no_insert_delete BEFORE INSERT OR DELETE ON trading_halt","CREATE TRIGGER trading_halt_no_insert_delete BEFORE UPDATE OF id ON trading_halt")], PG),
+ ("G42","Not-Aus-Tabelle leerbar (TRUNCATE)",[(S3,"CREATE TRIGGER trading_halt_no_truncate BEFORE TRUNCATE ON trading_halt","CREATE TRIGGER trading_halt_no_truncate AFTER INSERT ON trading_halt")], PG),
+ ("G43","Freigabe erbt Name und Zeitpunkt einer frueheren Freigabe",[(S3,"           OR NEW.released_at IS NOT DISTINCT FROM OLD.released_at OR NEW.released_at < OLD.since THEN","           THEN")], PG),
+ ("G44","Haengende Transaktionen ohne Zeitlimit",[(DB,'            " -c idle_in_transaction_session_timeout=15000"\n',"")], PG),
+ ("G45","Freigabe setzt die Notbremsen der Konten nicht neu",[(PK,'"UPDATE accounts SET day = %s, day_start_equity = equity, peak_equity = equity,"\n                " version = version + 1, updated_at = now()",','"SELECT %s::date",')], PG),
+ ("G46","Freigabe ohne Not-Aus-Zeile meldet Erfolg",[(PK,"            if cur.rowcount != 1:  # Zeile fehlt","            if False:  # Zeile fehlt")], PG),
+ ("G47","Ausloesen von aussen ohne Wiederholung bei belegter Sperre",[(PK,"            except psycopg.errors.LockNotAvailable:\n","            except ZeroDivisionError:\n")], PG),
 ]
 
 

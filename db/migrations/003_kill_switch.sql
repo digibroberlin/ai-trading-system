@@ -29,7 +29,9 @@ BEGIN
         IF current_user = 'trading_app' THEN
             RAISE EXCEPTION 'Not-Aus darf nur ein Administrator aufheben' USING ERRCODE = 'insufficient_privilege';
         END IF;
-        IF NEW.released_by IS NULL OR btrim(NEW.released_by) = '' OR NEW.released_at IS NULL THEN
+        -- Name und Zeitpunkt muessen zu DIESER Freigabe gehoeren: neuer Zeitpunkt, nicht vor dem Ausloesen.
+        IF NEW.released_by IS NULL OR btrim(NEW.released_by) = '' OR NEW.released_at IS NULL
+           OR NEW.released_at IS NOT DISTINCT FROM OLD.released_at OR NEW.released_at < OLD.since THEN
             RAISE EXCEPTION 'Aufheben des Not-Aus nur mit Namen und Zeitpunkt' USING ERRCODE = 'check_violation';
         END IF;
         NEW.reason := NULL;  -- Grund/Zeitpunkt/Hinweis stehen weiter im Ereignisprotokoll

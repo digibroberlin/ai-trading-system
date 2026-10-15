@@ -62,9 +62,19 @@ def order_worker(a: Dict[str, Any]) -> None:
 
 
 def halt_worker(a: Dict[str, Any]) -> None:
-    """Loest nach `after` Sekunden den globalen Not-Aus aus (waehrend andere Prozesse handeln)."""
+    """Loest den globalen Not-Aus aus, sobald mindestens `after_fills` Positionen eroeffnet sind - also sicher MITTEN im
+    Handel der anderen Prozesse (nicht vorher, nicht nachher; unabhaengig davon, wie schnell die Prozesse starten)."""
+    import psycopg
+
     ex = make_executor(a["url"], a["account"])
-    wait_until(a["start_at"] + a["after"])
+    wait_until(a["start_at"])
+    with psycopg.connect(a["url"], autocommit=True) as conn:
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            row = conn.execute("SELECT count(*) FROM positions").fetchone()
+            if row is not None and row[0] >= a["after_fills"]:
+                break
+            time.sleep(0.005)
     emit({"halt": ex.halt("Mehrprozess-Test")})
     ex.close()
 

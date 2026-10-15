@@ -221,3 +221,90 @@ def test_unknown_halt_reason_still_stops():
     switch = InMemoryKillSwitch(Env().clock)
     assert switch.trip("Unsinn", "x") is True  # type: ignore[arg-type]
     assert switch.status().halted and switch.status().reason is HaltReason.MANUAL
+
+
+# ------------------------------------------------------------------ Befunde der unabhaengigen Pruefung (AP-07)
+
+
+def test_loss_of_the_candle_closing_at_midnight_still_counts_for_the_old_day():
+    """Der Tageswechsel darf einen Verlust nicht 'verschlucken': Die Kerze 23:59-00:00 gehoert zum alten Tag."""
+    env = Env()
+    assert env.order("a").status is OrderStatus.FILLED  # 40 @ 100, Stop 99
+    midnight = T0.replace(hour=0, minute=0) + timedelta(days=1)
+    env.clock.set(midnight - minutes(1))
+    env.executor.portfolio_state()
+    gap = make_candle(midnight - minutes(1), D(92), D(92), D(91), D(92))  # Luecke ueber den Stop: -3,25 %
+    closed = env.feed(gap)
+    assert closed and closed[0].net_pnl < D(-300)
+    assert env.executor.halt_status().reason is HaltReason.DAILY_LOSS
+    assert env.order("b", symbol="ETH-USD", snap_kw={"symbol": "ETH-USD"}).reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
+
+
+def test_release_rearms_the_brakes_at_the_current_equity():
+    """Nach bewusster Freigabe wird ab dem jetzigen Stand gemessen - sonst loeste dieselbe Bremse sofort wieder aus."""
+    env = Env()
+    env.executor.restore_state(dataclasses.replace(env.executor.export_state(), peak_equity=D(11200)))
+    env.executor.portfolio_state()
+    assert env.executor.halt_status().reason is HaltReason.DRAWDOWN
+    env.executor.release_halt("Eigner", RELEASE_CONFIRMATION)
+    state = env.executor.portfolio_state()
+    assert state.peak_equity == D(10000) and state.day_start_equity == D(10000)
+    assert not env.executor.halt_status().halted
+    assert env.order("x").status is OrderStatus.FILLED
+    assert env.log.of_type(EventType.HALT_RELEASED)[0].payload["rearmed_at_equity"] == "10000"
+
+
+def test_shared_switch_cannot_be_tripped_between_check_and_fill():
+    """Zwei Executoren, ein Schalter, echte Threads: Der Not-Aus des einen wartet, bis die laufende Order des anderen
+    fertig ist - es gibt keinen Fill, der NACH dem Ausloesen beginnt und trotzdem ausgefuehrt wird."""
+    import threading
+    import time
+
+    a, b = Env(), Env()
+    shared = InMemoryKillSwitch(a.clock)
+    a.executor = PaperExecutor(D(10000), a.risk, a.validator, a.log, a.clock, kill_switch=shared)
+    b.executor = PaperExecutor(D(10000), b.risk, b.validator, b.log, b.clock, kill_switch=shared)
+    entered = threading.Event()
+    original = a.risk.evaluate
+
+    def slow(*args, **kw):
+        entered.set()
+        time.sleep(0.3)
+        return original(*args, **kw)
+
+    a.risk.evaluate = slow
+    result = {}
+
+    def run_a():
+        result["a"] = a.order("x")
+        result["a_done"] = time.monotonic()
+
+    t = threading.Thread(target=run_a)
+    t.start()
+    assert entered.wait(5)
+    b.executor.halt("waehrend A rechnet")  # muss warten, bis A fertig ist
+    halted_at = time.monotonic()
+    t.join(5)
+    assert result["a"].status is OrderStatus.FILLED  # A hatte vor dem Not-Aus geprueft ...
+    assert result["a_done"] <= halted_at  # ... und war fertig, BEVOR der Not-Aus wirksam wurde
+    assert a.order("y", symbol="ETH-USD", snap_kw={"symbol": "ETH-USD"}).reasons == (R.TRADING_HALTED,)
+
+
+class WriteBrokenSwitch(InMemoryKillSwitch):
+    """Lesbar, aber Ausloesen scheitert (z. B. gemeinsamer Speicher nicht erreichbar)."""
+
+    def trip(self, reason, note=""):
+        raise OSError("nicht schreibbar")
+
+
+def test_failing_trip_still_stops_this_executor_and_never_blocks_a_stop_loss():
+    env = Env()
+    env.executor = PaperExecutor(D(10000), env.risk, env.validator, env.log, env.clock,
+                                 kill_switch=WriteBrokenSwitch(env.clock))
+    assert env.order("a").status is OrderStatus.FILLED
+    env.executor.restore_state(dataclasses.replace(env.executor.export_state(), peak_equity=D(11200)))
+    closed = env.feed(make_candle(T0, D(100), D(100), D(98), D(99)))  # Stop UND Drawdown-Bremse in einem Schritt
+    assert [t.exit_reason for t in closed] == [ExitReason.STOP_LOSS]  # Schliessen klappt trotz Fehler beim Ausloesen
+    status = env.executor.halt_status()
+    assert status.halted and status.reason is HaltReason.DRAWDOWN and "nicht schreibbar" in status.note
+    assert env.order("b", symbol="ETH-USD", snap_kw={"symbol": "ETH-USD"}).reasons[0] is R.TRADING_HALTED

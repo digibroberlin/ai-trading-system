@@ -18,12 +18,13 @@ Der erste Grund bleibt stehen: Ein weiterer Ausloeser aendert Grund und Zeitpunk
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import ContextManager, Optional
 
 from trading.clock import Clock
 
@@ -81,6 +82,10 @@ class KillSwitch(ABC):
     def release(self, operator: str, confirmation: str) -> None:
         """Hebt den Not-Aus auf - nur mit Name und Bestaetigungstext."""
 
+    def hold(self) -> ContextManager[object]:
+        """Haelt den Zustand fuer die Dauer einer Executor-Operation fest (Ausloesen anderer wartet so lange)."""
+        return contextlib.nullcontext()
+
     @property
     def halted(self) -> bool:
         return self.status().halted
@@ -92,7 +97,10 @@ class InMemoryKillSwitch(KillSwitch):
     def __init__(self, clock: Clock, initial: HaltStatus = RUNNING) -> None:
         self._clock = clock
         self._state = initial
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # wiederbetretbar: ein Executor loest waehrend hold() selbst aus
+
+    def hold(self) -> ContextManager[object]:
+        return self._lock
 
     def status(self) -> HaltStatus:
         with self._lock:

@@ -132,7 +132,7 @@ Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
 | H4 | **behoben** (vorgezogen) | Der Handelstag wechselt nur vorwärts; Tag und Tagesstart-Kapital liegen in der Datenbank und überstehen Neustarts (getestet mit falscher Uhr und über drei Tage). |
 | H5 | **behoben** | Zwei neue Grenzen: 100 % Brutto-Exposure und 5 % Verlust bei 10 % Kursschock – gleichzeitig mit allen anderen, auf den Zustand nach der Order. Exposure zusätzlich als Datenbank-Gurt. |
 | H6 | **behoben** (vorgezogen) | Der Container `app` kennt nur die eingeschränkte Rolle; eigene Einmal-Dienste `migrate` und `tests`; Laufzeit-Image ohne Tests und Werkzeuge. |
-| H7 | offen | Wiederverbindung zur Datenbank und Zeitlimit für hängende Transaktionen fehlen weiterhin (Stufe 3). |
+| H7 | teilweise (AP-07) | Zeitlimit für hängende Transaktionen gesetzt (`idle_in_transaction_session_timeout` 15 s, TCP-Keepalive): Ein eingefrorener Prozess blockiert Konto- und Not-Aus-Sperre höchstens ~15 s. Offen: Wiederverbindung nach Verbindungsabbruch, Überwachung/Alarm (AP-11). |
 | H8 | **behoben** (vorgezogen) | Nummerierte Migrationen mit Versions-Tabelle und Prüfsummen. Die bestehende Datenbank wurde nach einem Backup übernommen; Zustand danach nachweislich identisch. |
 | H9 | **behoben** | Alle 14 damals übersehenen Fehler werden jetzt bemerkt. Die Gegenprobe ist ein dauerhaftes Werkzeug (`scripts/mutation_check.py`) mit 193 Einträgen – alle entdeckt. |
 

@@ -35,6 +35,10 @@ FAKE = "erfunden-" + "x7Q2"
     "COINBASE_API_KEY", "BITGET_SECRET", "CB_ACCESS_KEY", "BG_TOKEN",
     # Passphrase in jeder Form
     "MY_TRADING_PASSPHRASE",
+    # Befunde der unabhaengigen Pruefung: camelCase, Boersenname nicht am Anfang, ccxt-IDs, Freqtrade, ohne Trenner
+    "binanceApiSecret", "cdpApiKeySecret", "krakenPrivateKey", "MY_BINANCE_API_KEY", "PROD_COINBASE_API_SECRET",
+    "FREQTRADE__EXCHANGE__KEY", "FREQTRADE__EXCHANGE__SECRET", "BINANCEUS_API_SECRET", "KRAKENFUTURES_API_KEY",
+    "BINANCEAPIKEY", "COINBASE_CREDENTIALS",
 ])
 def test_exchange_like_credentials_block_startup(name):
     with pytest.raises(ConfigError) as err:

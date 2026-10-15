@@ -739,9 +739,14 @@ def test_peak_equity_never_falls_and_drawdown_limit_blocks():
     dd.executor.restore_state(state)
     assert dd.order("x").reasons == (R.TRADING_HALTED, R.DRAWDOWN_LIMIT)
     assert dd.executor.halt_status().reason is HaltReason.DRAWDOWN
+    # Gemessen wird am Zustand NACH der Order (Gebuehr 2,40): 9 997,60 gegen den Hoechststand.
     ok = Env()
-    ok.executor.restore_state(dataclasses.replace(state, peak_equity=D("11111")))  # 9,99 %
+    ok.executor.restore_state(dataclasses.replace(state, peak_equity=D("11108")))  # 9,996 % nach der Order
     assert ok.order("x").status is OrderStatus.FILLED
+    edge = Env()
+    edge.executor.restore_state(dataclasses.replace(state, peak_equity=D("11109")))  # 9,98 % vorher, 10,0004 % danach
+    assert edge.order("x").reasons == (R.DRAWDOWN_LIMIT,)  # die Order selbst wuerde die Grenze reissen: abgelehnt
+    assert not edge.executor.halt_status().halted  # ... aber kein Not-Aus, denn ausgefuehrt wurde nichts
 
 
 # ------------------------------------------------------------------ M5: keine halben Zustaende, kein Handel ohne Protokoll

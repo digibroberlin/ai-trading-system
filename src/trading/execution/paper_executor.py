@@ -61,8 +61,8 @@ from trading.domain.reasons import RejectReason
 from trading.execution.costs import cost_up, gain_down
 from trading.marketdata.candles import candle_problems, is_aware
 from trading.safety.data_validator import FUTURE_TOLERANCE_S, SnapshotValidator
-from trading.safety.kill_switch import HaltReason, HaltStatus, InMemoryKillSwitch, KillSwitch, check_release
-from trading.safety.order_risk import brake_reasons, is_beyond, position_stress_loss
+from trading.safety.kill_switch import HaltReason, HaltStatus, InMemoryKillSwitch, KillSwitch, check_release, clean_note
+from trading.safety.order_risk import brake_reasons_for, is_beyond, position_stress_loss
 from trading.safety.risk_manager import RiskManager
 
 ZERO = Decimal(0)
@@ -115,7 +115,9 @@ def _atomic(fn: F) -> F:
 
     @functools.wraps(fn)
     def wrapper(self: "PaperExecutor", *args: Any, **kwargs: Any) -> Any:
-        with self._lock:
+        # Auch den (evtl. geteilten) Not-Aus fuer die ganze Operation halten: Sonst koennte ein anderer Executor ihn
+        # zwischen "Not-Aus geprueft" und "Position eingetragen" ausloesen. Reihenfolge immer: Executor, dann Not-Aus.
+        with self._lock, self._halt.hold():
             backup = self._backup()
             self._pending = []
             self._new_order_ids = []
@@ -169,6 +171,9 @@ class PaperExecutor:
         # Ohne geteilten Not-Aus gilt ein eigener (nur fuer diesen Executor). Mehrere Executoren eines Prozesses
         # teilen sich EIN Objekt; mehrere Prozesse teilen ihn ueber die Datenbank (persistence/pg_executor.py).
         self._halt: KillSwitch = kill_switch if kill_switch is not None else InMemoryKillSwitch(clock)
+        # Ist der gemeinsame Not-Aus nicht schreibbar, stoppt wenigstens dieser Executor (fail closed) - ohne dass
+        # deswegen ein Stop-Loss oder eine Schliessung scheitert.
+        self._local_halt: Optional[HaltStatus] = None
 
         self._balance = initial_equity
         self._positions: Dict[InstrumentId, Position] = {}
@@ -254,22 +259,12 @@ class PaperExecutor:
     @_locked
     def portfolio_state(self) -> PortfolioState:
         now = self._clock.now()
-        unrealized = exposure = stress = margin_used = open_risk = ZERO
-        complete = True
-        for p in self._positions.values():
-            mark = self._marks.get(p.instrument)
-            if mark is None or (now - mark.time).total_seconds() > self._limits.max_mark_age_s:
-                complete = False  # Equity nicht sicher bestimmbar -> keine neuen Positionen
-            price = mark.price if mark is not None else p.entry_price
-            unrealized += p.side.sign * (price - p.entry_price) * p.quantity
-            exposure += p.quantity * price
-            stress += position_stress_loss(
-                p.side, p.quantity, price, p.entry_price, p.margin, p.liquidation_price,
-                self._limits.stress_shock, self._costs,
-            )
-            margin_used += p.margin
-            open_risk += p.remaining_risk
+        unrealized, exposure, stress, margin_used, open_risk, complete = self._valuate(now)
         equity = self._balance + unrealized
+        if now.date() > self._day:
+            # Tageswechsel: Was seit der letzten Bewertung verloren ging, zaehlt noch zum ALTEN Tag (konservativ) -
+            # sonst fiele z. B. der Verlust der Kerze, die um Mitternacht schliesst, aus der Tagesbremse heraus.
+            self._check_brakes(equity, self._day_start_equity, max(self._peak_equity, equity))
         self._roll_day(now.date(), equity)
         self._peak_equity = max(self._peak_equity, equity)
         state = PortfolioState(
@@ -287,15 +282,40 @@ class PaperExecutor:
             stress_loss=stress,
             valuation_complete=complete,
         )
-        for brake in brake_reasons(state, self._limits):  # Notbremse -> Not-Aus (bleibt bis zur bewussten Freigabe)
-            self._trip(HaltReason.DAILY_LOSS if brake is RejectReason.DAILY_LOSS_LIMIT else HaltReason.DRAWDOWN,
-                       "Equity %s, Tagesbeginn %s, Hoechststand %s" % (equity, self._day_start_equity, self._peak_equity))
+        self._check_brakes(equity, self._day_start_equity, self._peak_equity)
         return state
+
+    def _valuate(self, now: datetime) -> Tuple[Decimal, Decimal, Decimal, Decimal, Decimal, bool]:
+        """(unrealisiert, Exposure, Stress-Verlust, gebundene Margin, offenes Risiko, Bewertung vollstaendig)."""
+        unrealized = exposure = stress = margin_used = open_risk = ZERO
+        complete = True
+        for p in self._positions.values():
+            mark = self._marks.get(p.instrument)
+            if mark is None or (now - mark.time).total_seconds() > self._limits.max_mark_age_s:
+                complete = False  # Equity nicht sicher bestimmbar -> keine neuen Positionen
+            price = mark.price if mark is not None else p.entry_price
+            unrealized += p.side.sign * (price - p.entry_price) * p.quantity
+            exposure += p.quantity * price
+            stress += position_stress_loss(
+                p.side, p.quantity, price, p.entry_price, p.margin, p.liquidation_price,
+                self._limits.stress_shock, self._costs,
+            )
+            margin_used += p.margin
+            open_risk += p.remaining_risk
+        return unrealized, exposure, stress, margin_used, open_risk, complete
+
+    def _check_brakes(self, equity: Decimal, day_start: Decimal, peak: Decimal) -> None:
+        """Notbremse -> Not-Aus (bleibt bis zur bewussten Freigabe). Gleiche Definition wie in der Risikopruefung."""
+        for brake in brake_reasons_for(equity, day_start, peak, self._limits):
+            self._trip(HaltReason.DAILY_LOSS if brake is RejectReason.DAILY_LOSS_LIMIT else HaltReason.DRAWDOWN,
+                       "Equity %s, Tagesbeginn %s, Hoechststand %s" % (equity, day_start, peak))
 
     # ------------------------------------------------------------------ Not-Aus
 
     def halt_status(self) -> HaltStatus:
         """Zustand des Not-Aus. Nicht lesbar = gestoppt (fail closed)."""
+        if self._local_halt is not None:
+            return self._local_halt
         try:
             status = self._halt.status()
         except Exception as exc:  # z. B. Datenbank nicht erreichbar
@@ -309,16 +329,33 @@ class PaperExecutor:
 
     @_atomic
     def release_halt(self, operator: str, confirmation: str) -> None:
-        """Hebt den Not-Aus bewusst auf (Name + Bestaetigungstext, siehe kill_switch.RELEASE_CONFIRMATION)."""
+        """Hebt den Not-Aus bewusst auf (Name + Bestaetigungstext, siehe kill_switch.RELEASE_CONFIRMATION).
+
+        Die Freigabe nimmt den bisherigen Verlust bewusst hin: Tagesbeginn und Hoechststand der Notbremsen werden auf
+        die aktuelle Equity gesetzt. Sonst loeste dieselbe Bremse sofort wieder aus, und nach einem Drawdown waere eine
+        Freigabe nie moeglich (Audit M14). Gemessen wird ab jetzt neu - mit denselben Grenzen.
+        (Teilen sich mehrere Executoren einen Schalter, gilt das nur fuer diesen; die anderen loesen bei eigener
+        Grenzverletzung wieder aus.)"""
         name = check_release(operator, confirmation)
         before = self.halt_status()
         self._halt.release(name, confirmation)
+        self._local_halt = None
+        now = self._clock.now()
+        equity = self._balance + self._valuate(now)[0]
+        self._day, self._day_start_equity, self._peak_equity = now.date(), equity, equity
         self._emit(EventType.HALT_RELEASED, {"operator": name, "previous_reason": before.reason,
-                                             "previous_since": before.since})
+                                             "previous_since": before.since, "rearmed_at_equity": equity})
 
     def _trip(self, reason: HaltReason, note: str) -> bool:
         """Loest den Not-Aus aus und protokolliert das (nur beim ersten Ausloesen)."""
-        if not self._halt.trip(reason, note):
+        try:
+            newly = self._halt.trip(reason, note)
+        except Exception as exc:  # gemeinsamer Not-Aus nicht schreibbar: wenigstens hier stoppen, Schliessen nicht abbrechen
+            newly = self._local_halt is None
+            if newly:
+                note = "%s (gemeinsamer Not-Aus nicht schreibbar: %s)" % (note, type(exc).__name__)
+                self._local_halt = HaltStatus(True, reason, self._clock.now(), clean_note(note))
+        if not newly:
             return False
         payload = {"reason": reason, "note": note}
         if self._in_atomic:
@@ -331,7 +368,8 @@ class PaperExecutor:
         try:
             self._halt.trip(reason, note)
         except Exception:  # noqa: BLE001 - der urspruengliche Fehler wird ohnehin weitergereicht
-            pass
+            if self._local_halt is None:
+                self._local_halt = HaltStatus(True, reason, self._clock.now(), clean_note(note))
 
     def _halted_reasons(self) -> Optional[Tuple[RejectReason, ...]]:
         status = self.halt_status()

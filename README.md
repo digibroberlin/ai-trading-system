@@ -188,7 +188,9 @@ python3.12 -m trading.persistence.kill_switch halt "Grund"           # von Hand 
 export ADMIN_DATABASE_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/trading"
 python3.12 -m trading.persistence.kill_switch release "Ihr Name" "HANDEL FREIGEBEN"   # bewusst aufheben
 ```
-Vor dem Aufheben die Ursache klären (Ereignisprotokoll: `HALT_ACTIVATED` nennt Grund und Hinweis).
+Vor dem Aufheben die Ursache klären (Ereignisprotokoll: `HALT_ACTIVATED` nennt Grund und Hinweis). Das Aufheben nimmt den
+bisherigen Verlust bewusst hin: Tagesbeginn und Höchststand der Notbremsen werden auf das aktuelle Kapital gesetzt.
+Rückgabecodes: `status` 0 = frei, 1 = gestoppt; `halt`/`release` 0 = erledigt, 2 = nicht möglich (Meldung „FEHLER: …“).
 
 ### Neustart-Prüfung von Hand
 
@@ -226,12 +228,15 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **Alt-Positionen in der lokalen Datenbank:** Im Konto `restart-check` liegen zwei Test-Positionen aus Phase 3, die die neue
   Stress-Grenze überschreiten (8,05 % statt 5 %). Sie bleiben bestehen; neue Trades in diesem Konto sind blockiert, bis sie geschlossen sind.
 * **Docker nur lokal getestet:** Colima auf macOS (Apple Silicon). Nicht getestet: Docker Desktop, Linux-Server (Hetzner), `amd64`-Architektur.
+  Seit AP-05 (Dockerfile ohne `pip install .`, nur Sperrdateien) wurde das Image **noch nicht gebaut** (Cloud: Docker Hub
+  „429 Too Many Requests“); geprüft sind nur die Installationsschritte in frischen Python-Umgebungen.
 * **Abhängigkeiten:** fest mit Prüfsummen in `requirements/*.lock` (D-010). Noch offen: Basis-Image `python:3.12-slim` nicht per Digest
   festgeschrieben, Container mit freiem Internetzugang. Der Python-3.9-Job nutzt bewusst pytest 8.4.2 mit einer bekannten, dort nicht
   ausnutzbaren Lücke (D-010).
 * **Not-Aus reiht alle Konten hintereinander:** Jede Aktion sperrt nach ihrem Konto auch die Not-Aus-Zeile. Damit kann kein
   Prozess zwischen „Not-Aus gelesen“ und „Position gespeichert“ überholt werden – aber Aktionen verschiedener Konten laufen nicht
-  mehr gleichzeitig. Für den geplanten Betrieb (ein Konto) ohne Folgen.
+  mehr gleichzeitig. Für den geplanten Betrieb (ein Konto) ohne Folgen. Hängt ein Prozess mitten in einer Transaktion, blockiert
+  er alle Konten und das Auslösen von außen, bis die Datenbank seine Sitzung beendet (spätestens nach rund 15 Sekunden).
 * **Not-Aus erkennt nur formal kaputte Daten**, keine plausibel aussehenden falschen Kurse. Ausbleibende Daten (veralteter Feed)
   lösen ihn noch nicht aus – das kommt mit der Marktüberwachung (AP-15).
 * **Python 3.13/3.14 und das neue GIL-freie Python** wurden nicht getestet (Ziel ist 3.12).

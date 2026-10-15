@@ -74,6 +74,33 @@ def test_application_role_can_halt_but_never_release(pg):
     assert halt_row(pg) == (True, "MANUAL", "x", None)
 
 
+@pytest.mark.parametrize("stmt", ["DELETE FROM trading_halt", "INSERT INTO trading_halt (id, halted) VALUES (2, false)",
+                                  "TRUNCATE trading_halt"])
+def test_even_the_administrator_cannot_delete_insert_or_truncate_the_halt_row(pg, stmt):
+    """Die Trigger (nicht nur fehlende Rechte) verhindern das Loeschen/Neuanlegen - sonst liesse sich der Not-Aus
+    ohne Namen 'aufheben', indem man die Zeile loescht und mit halted=false neu einfuegt."""
+    with app(pg) as c:
+        c.execute("UPDATE trading_halt SET halted = true, reason = 'MANUAL', since = now()")
+    with admin(pg) as c, pytest.raises(E.InsufficientPrivilege, match="nicht erlaubt"):
+        c.execute(stmt)
+    assert halt_row(pg)[0] is True
+
+
+def test_second_release_needs_its_own_name_and_time(pg):
+    """Nach einer ersten Freigabe stehen Name und Zeitpunkt in der Zeile - eine spaetere Freigabe darf sie nicht erben."""
+    ex, clock = pg_exec(pg)
+    ex.halt("eins")
+    release(pg)
+    ex.halt("zwei")
+    with admin(pg) as c, pytest.raises(E.CheckViolation):
+        c.execute("UPDATE trading_halt SET halted = false")  # alte released_by/released_at wuerden sonst gelten
+    with admin(pg) as c, pytest.raises(E.CheckViolation):  # Zeitpunkt vor dem Ausloesen
+        c.execute("UPDATE trading_halt SET halted = false, released_by = 'X', released_at = since - interval '1 s'")
+    assert halt_row(pg)[0] is True
+    release(pg, "Zweite Person")
+    assert halt_row(pg) == (False, None, "", "Zweite Person")
+
+
 def test_halt_needs_reason_and_time(pg):
     with app(pg) as c, pytest.raises(E.CheckViolation):
         c.execute("UPDATE trading_halt SET halted = true")
@@ -216,13 +243,18 @@ def test_command_line_tool(pg):
 
     assert cli("status").returncode == 0
     halted = cli("halt", "Test", "von", "Hand")
-    assert halted.returncode == 1 and "GESTOPPT" in halted.stdout and "Test von Hand" in halted.stdout
-    assert cli("release", "Eigner", "ja").returncode != 0
-    assert cli("release", "Eigner", RELEASE_CONFIRMATION, ADMIN_DATABASE_URL=pg.app_url).returncode != 0
+    assert halted.returncode == 0 and "GESTOPPT" in halted.stdout and "Test von Hand" in halted.stdout
+    assert cli("status").returncode == 1
+    refused = cli("release", "Eigner", "ja")
+    assert refused.returncode == 2 and "FEHLER" in refused.stderr and "Traceback" not in refused.stderr
+    assert cli("release", "Eigner", RELEASE_CONFIRMATION, ADMIN_DATABASE_URL=pg.app_url).returncode == 2
+    assert cli("release", "Eigner").returncode == 2
     assert halt_row(pg)[0] is True
     done = cli("release", "Eigner", RELEASE_CONFIRMATION)
     assert done.returncode == 0 and "frei" in done.stdout
     assert halt_row(pg)[0] is False
+    broken = cli("halt", "x", DATABASE_URL="postgresql://trading_app@127.0.0.1:1/nirgends")
+    assert broken.returncode == 2 and "Traceback" not in broken.stderr
 
 
 # ------------------------------------------------------------------ mehrere Prozesse
@@ -230,24 +262,28 @@ def test_command_line_tool(pg):
 
 @pytest.mark.parametrize("run", range(3))
 def test_no_process_opens_a_position_after_the_halt_is_committed(pg, run):
-    """Sechs Prozesse handeln auf zwei Konten, zwei weitere loesen gleichzeitig den Not-Aus aus.
-    Die Protokoll-Reihenfolge ist die Commit-Reihenfolge: nach dem Not-Aus darf es keinen ORDER_FILLED mehr geben."""
-    for account in ("main", "second"):
+    """Sechs Prozesse handeln auf sechs Konten (je 4 Orders - jede haette Platz), zwei weitere loesen gleichzeitig den
+    Not-Aus aus, sobald 3 Positionen offen sind. Die Protokoll-Reihenfolge ist die Commit-Reihenfolge: Vor dem Not-Aus
+    gab es Fills, danach darf es keinen ORDER_FILLED mehr geben, und jede spaetere Ablehnung nennt nur TRADING_HALTED."""
+    accounts = ["k%d" % i for i in range(6)]
+    for account in accounts:
         pg_exec(pg, account=account)[0].close()
-    orders = [dict(url=pg.app_url, account=acc, qty=1, specs=[["%s-%d-%d" % (acc, p, i), "H%d%d-USD" % (p, i)]
-                                                                for i in range(4)])
-              for acc in ("main", "second") for p in range(3)]
-    halts = [dict(url=pg.app_url, account="main", after=0.3, specs=[])] * 2
+    orders = [dict(url=pg.app_url, account=acc, qty=1, specs=[["%s-%d" % (acc, i), "H%d-USD" % i] for i in range(4)])
+              for acc in accounts]
+    halts = [dict(url=pg.app_url, account=accounts[0], after_fills=3, specs=[])] * 2
     res = _run_mixed(orders, halts)
     assert sorted(r["halt"] for r in res if "halt" in r) == [False, True]  # genau einer loest aus
     events = PostgresEventLog(pg.app_url).events()
     halt_seq = [e.seq for e in events if e.event_type == "HALT_ACTIVATED"]
     assert len(halt_seq) == 1
+    fills_before = [e for e in events if e.event_type == "ORDER_FILLED" and e.seq < halt_seq[0]]
+    assert len(fills_before) >= 3  # der Wettlauf hat wirklich stattgefunden
     fills_after = [e for e in events if e.event_type == "ORDER_FILLED" and e.seq > halt_seq[0]]
     assert fills_after == []
     rejected_after = [json.loads(e.payload_json)["reasons"] for e in events
                       if e.event_type == "ORDER_REJECTED" and e.seq > halt_seq[0]]
-    assert rejected_after and all(r == ["TRADING_HALTED"] for r in rejected_after)
+    assert len(rejected_after) == 24 - len(fills_before)  # alle uebrigen Orders kamen nach dem Not-Aus
+    assert all(r == ["TRADING_HALTED"] for r in rejected_after)
     with admin(pg) as c:
         assert c.execute("SELECT count(*) FROM positions").fetchone()[0] == len(
             [e for e in events if e.event_type == "ORDER_FILLED"])
@@ -292,3 +328,72 @@ def test_missing_halt_row_counts_as_halted(pg):
             " side, quantity, entry_price, stop_loss, take_profit, leverage, opened_at, margin, risk_at_open, entry_fee,"
             " last_funding_ts) VALUES ('main','P9','OPEN','s','t','synthetic','X-USD','spot','long',1,100,99,102,1,"
             " now(),100,1.1,0.1,now())")
+
+
+def test_release_with_a_missing_row_fails_loudly_and_logs_nothing(pg):
+    with admin(pg) as c:
+        c.execute("ALTER TABLE trading_halt DISABLE TRIGGER ALL")
+        c.execute("DELETE FROM trading_halt")
+        c.execute("ALTER TABLE trading_halt ENABLE TRIGGER ALL")
+    with pytest.raises(KillSwitchError, match="fehlt"):
+        release(pg)
+    assert PostgresEventLog(pg.app_url).of_type(EventType.HALT_RELEASED) == ()
+
+
+def test_release_rearms_the_brakes_of_every_account(pg):
+    """Freigabe nimmt den bisherigen Verlust bewusst hin: Tagesbeginn und Hoechststand aller Konten = aktuelle Equity.
+    Sonst loeste dieselbe Bremse sofort wieder aus."""
+    ex, clock = pg_exec(pg)
+    other, _ = pg_exec(pg, clock, account="second")
+    with admin(pg) as c:
+        c.execute("UPDATE accounts SET peak_equity = 11200")  # 10,7 % unter dem Hoechststand
+    ex.portfolio_state()
+    assert ex.halt_status().reason is HaltReason.DRAWDOWN
+    release(pg)
+    with admin(pg) as c:
+        rows = c.execute("SELECT account_id, peak_equity, day_start_equity FROM accounts ORDER BY 1").fetchall()
+    assert rows == [("main", D(10000), D(10000)), ("second", D(10000), D(10000))]
+    assert ex.submit(intent("a"), snap(clock)).status is OrderStatus.FILLED
+    assert not ex.halt_status().halted
+
+
+def test_every_connection_limits_hanging_transactions(pg):
+    ex, _ = pg_exec(pg)
+    with ex._transaction() as cur:
+        cur.execute("SHOW idle_in_transaction_session_timeout")
+        assert cur.fetchone()["idle_in_transaction_session_timeout"] == "15s"
+
+
+def test_hanging_transaction_cannot_block_the_external_halt_for_long(pg):
+    """Ein Prozess haengt MITTEN in einer Transaktion (haelt Konto- und Not-Aus-Zeile). Der Server beendet seine Sitzung
+    nach 15 s; der Not-Aus von aussen gelingt danach (mit Wiederholung). Dauert rund 15-25 s."""
+    import threading
+    import time
+
+    release_hang = threading.Event()
+
+    def hang(stage):
+        if stage == "before_commit":
+            release_hang.wait(40)
+
+    stuck, clock = pg_exec(pg, fault_hook=hang)
+    t = threading.Thread(target=lambda: _swallow(lambda: stuck.submit(intent("a"), snap(clock))))
+    t.start()
+    time.sleep(0.5)
+    switch = PostgresKillSwitch(pg.app_url)
+    started = time.monotonic()
+    assert switch.trip(HaltReason.MANUAL, "Notfall") is True
+    assert time.monotonic() - started < 35
+    switch.close()
+    release_hang.set()
+    t.join(10)
+    assert halt_row(pg)[:2] == (True, "MANUAL")
+    with admin(pg) as c:
+        assert c.execute("SELECT count(*) FROM positions").fetchone()[0] == 0  # die haengende Order kam nie an
+
+
+def _swallow(fn):
+    try:
+        fn()
+    except Exception:  # noqa: BLE001 - die beendete Sitzung meldet einen Verbindungsfehler; das ist hier erwartet
+        pass

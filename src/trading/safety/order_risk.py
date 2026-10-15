@@ -64,14 +64,21 @@ class RiskLimits(Protocol):
 
 
 def brake_reasons(portfolio: PortfolioState, limits: RiskLimits) -> List[RejectReason]:
-    """Notbremsen Tagesverlust und Drawdown - eine Definition fuer Risikopruefung UND Not-Aus."""
+    """Notbremsen Tagesverlust und Drawdown fuer einen Portfolio-Zustand."""
+    return brake_reasons_for(portfolio.equity, portfolio.day_start_equity, portfolio.peak_equity, limits)
+
+
+def brake_reasons_for(
+    equity: Decimal, day_start_equity: Decimal, peak_equity: Decimal, limits: RiskLimits
+) -> List[RejectReason]:
+    """Notbremsen Tagesverlust und Drawdown - EINE Definition fuer Risikopruefung UND Not-Aus."""
     reasons: List[RejectReason] = []
-    if portfolio.day_start_equity > 0:
-        day_loss = (portfolio.day_start_equity - portfolio.equity) / portfolio.day_start_equity
+    if day_start_equity > 0:
+        day_loss = (day_start_equity - equity) / day_start_equity
         if day_loss >= limits.max_daily_loss:
             reasons.append(RejectReason.DAILY_LOSS_LIMIT)
-    if portfolio.peak_equity > 0:
-        drawdown = (portfolio.peak_equity - portfolio.equity) / portfolio.peak_equity
+    if peak_equity > 0:
+        drawdown = (peak_equity - equity) / peak_equity
         if drawdown >= limits.max_drawdown:
             reasons.append(RejectReason.DRAWDOWN_LIMIT)
     return reasons
@@ -215,8 +222,8 @@ def evaluate_order(
     if liq is not None and abs(fill - liq) < limits.liquidation_buffer * abs(fill - stop):
         reasons.append(RejectReason.LIQUIDATION_TOO_CLOSE)
 
-    # --- 7. Notbremsen (Tagesverlust, Drawdown) ---
-    reasons.extend(brake_reasons(portfolio, limits))
+    # --- 7. Notbremsen (Tagesverlust, Drawdown) - wie alle Grenzen am Zustand NACH der Order (Kosten der Order zaehlen) ---
+    reasons.extend(brake_reasons_for(equity_after, portfolio.day_start_equity, portfolio.peak_equity, limits))
 
     return RiskDecision(
         approved=not reasons,
