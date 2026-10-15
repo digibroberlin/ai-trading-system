@@ -8,7 +8,9 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
-import psycopg
+import pytest
+# Ohne psycopg (z. B. Python 3.9, Kern-Pruefung) sichtbar ueberspringen statt beim Einsammeln abzubrechen.
+psycopg = pytest.importorskip("psycopg", reason="psycopg nicht installiert - Datenbank-Tests uebersprungen")
 from conftest import requires_db
 from helpers import D, FUT, NO_SLIP, T0, Env, inst, make_candle, make_setup, snapshot
 

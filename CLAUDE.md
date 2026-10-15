@@ -58,7 +58,7 @@ Maßgeblich ist GitHub (`digibroberlin/ai-trading-system`). Gearbeitet wird in C
 Cloud-Routine (D-009). Der Mac-Ordner ist nur noch Sicherung. In einer Cloud-Sitzung zu Beginn:
 
 ```bash
-python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -q -r requirements-dev.txt
+python3.12 -m venv /tmp/venv && /tmp/venv/bin/pip install -q --require-hashes -r requirements/dev.lock
 bash scripts/cloud_test_db.sh && set -a && source /tmp/ai-trading-test-db.env && set +a   # Wegwerf-PostgreSQL
 /tmp/venv/bin/python scripts/preflight.py
 ```
@@ -75,6 +75,7 @@ export TEST_ADMIN_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/
 python scripts/preflight.py            # alle Prüfungen; STABIL nur ohne übersprungene Tests
 python scripts/mutation_check.py       # Gegenprobe (ca. 15 min)
 python scripts/secret_scan.py --history
+python scripts/dependency_audit.py     # bekannte Lücken in Abhängigkeiten (braucht Netz + requirements/audit.lock)
 docker-compose --env-file <Passwort-Datei> run --rm tests
 ```
 Compose heißt auf diesem Mac `docker-compose` (Colima), nicht `docker compose`. In zsh Befehle nie über Variablen wie

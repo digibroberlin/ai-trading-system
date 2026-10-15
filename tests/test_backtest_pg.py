@@ -5,6 +5,8 @@ Die Engine entscheidet in beiden Faellen mit demselben Code. Dieser Test beweist
 """
 
 import pytest
+# Ohne psycopg (z. B. Python 3.9, Kern-Pruefung) sichtbar ueberspringen statt beim Einsammeln abzubrechen.
+psycopg = pytest.importorskip("psycopg", reason="psycopg nicht installiert - Datenbank-Tests uebersprungen")
 from bt_helpers import config, synthetic
 from conftest import requires_db
 from helpers import D
@@ -65,7 +67,6 @@ def test_backtest_through_postgres_equals_the_in_memory_backtest(pg):
 
 
 def test_backtest_state_in_the_database_matches_the_reported_result(pg):
-    import psycopg
     from psycopg.rows import dict_row
 
     data, cfg = synthetic(days=8, vol=0.01), config()
