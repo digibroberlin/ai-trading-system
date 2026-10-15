@@ -42,7 +42,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 ### Phase B – Architekturentscheidung
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-04 | Untersuchung Hummingbot, Freqtrade, NautilusTrader, CCXT (Doku, Architektur, Lizenz) → Entscheidung in `DECISIONS.md` | begründete Entscheidung, Lizenzen geprüft | ⏳ |
+| AP-04 | Untersuchung Hummingbot, Freqtrade, NautilusTrader, CCXT (Doku, Architektur, Lizenz) → Entscheidung in `DECISIONS.md` | begründete Entscheidung, Lizenzen geprüft | ✅ D-006, `FRAMEWORK_ANALYSIS.md` |
 | AP-05 | Abhängigkeiten: Sicherheitsprüfung (pip-audit), Versionen mit Prüfsummen (M12) | Audit ohne bekannte Lücken, Lockfile | ⏳ |
 
 ### Phase C – Sicherheit und Robustheit (Audit Stufe 2)

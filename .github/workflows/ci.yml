@@ -5,7 +5,7 @@ name: Tests
 
 on:
   push:
-    branches: ["**"]
+    branches: ["main", "develop"]  # Arbeitszweige werden lokal geprueft (spart das kostenlose Kontingent, siehe D-007)
     tags: ["stable/**"]
   pull_request:
   workflow_dispatch:

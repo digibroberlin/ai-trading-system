@@ -24,7 +24,7 @@ Keine. (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP
 ## Nächste Schritte
 
 1. Nach B-001: AP-02 (hochladen, Actions prüfen), dann B-002/AP-03 (Cloud-Routine).
-2. Unabhängig davon: AP-04 (Framework-Untersuchung), AP-05 (Abhängigkeiten), dann Phase C (AP-06 …).
+2. Unabhängig davon: AP-05 (Abhängigkeiten, CCXT-Prüfung), dann Phase C (AP-06 …). AP-04 erledigt (D-006).
 
 ## Arbeitsumgebung (lokal, Mac)
 
