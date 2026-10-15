@@ -18,6 +18,12 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:37 UT
 * **Arbeitsort:** künftig die Cloud (D-008); der Mac-Ordner bleibt danach nur Sicherung.
 * **Handel:** keiner. Es läuft kein Bot, kein Paper- oder Demo-Betrieb.
 
+## In Arbeit (Zwischenstand)
+
+* **AP-07 Not-Aus** auf Zweig `ap/07-not-aus` (WIP-Commit 37d87a0, hochgeladen): Code, Migration 003, Tests fertig und grün.
+  Nächster Schritt: Ergebnis der Gegenprobe `python scripts/mutation_check.py --only N01 … N12 G31 … G40` prüfen,
+  Testbericht ergänzen, Preflight, nach `develop` zusammenführen.
+
 ## Zuletzt erledigt
 
 * AP-06 (Cloud-Sitzung, 2026-10-15): zentraler PAPER-Schutz beim `import trading` für jeden Prozess, breitere Schlüssel-Erkennung
