@@ -100,7 +100,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 
 ## 3. Geplante stabile Stände
 
-`stable/001-phase1-3-foundation` ✅ · `stable/002-stage1-core-backtesting` ✅ · `stable/003-autonomy-baseline` (AP-01) ·
+`stable/001-phase1-3-foundation` ✅ · `stable/002-stage1-core-backtesting` ✅ · `stable/003-autonomy-baseline` ✅ (AP-01) ·
 `stable/004-safety-stage2` (AP-06…12) · `stable/005-market-data` (AP-13…15) · `stable/006-strategy-research` (AP-16…20) ·
 `stable/007-trading-engine` (AP-21…22) · `stable/008-dashboard` (AP-23…24) · `stable/009-operations` (AP-25…28) ·
 `stable/010-release-candidate` (AP-29…30). Die Nummern folgen dem tatsächlichen Verlauf.

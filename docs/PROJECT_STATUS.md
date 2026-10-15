@@ -9,8 +9,8 @@ Keine. (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP
 
 ## Aktueller Stand (2026-10-15)
 
-* **Letzter stabiler Stand:** `stable/002-stage1-core-backtesting` (606 Tests, Gegenprobe 193/193).
-* **Zweige:** `main` (stabil), `develop` (Integration). Arbeitspaket AP-01 auf `chore/autonomy-baseline`.
+* **Letzter stabiler Stand:** `stable/003-autonomy-baseline` (633 Tests, Gegenprobe 193/193, Preflight STABIL).
+* **Zweige:** `main` (stabil), `develop` (Integration).
 * **GitHub:** noch nicht verbunden (Blocker B-001). Alles liegt lokal; zusätzlich Git-Bündel in `backups/`.
 * **Handel:** keiner. Es läuft kein Bot, kein Paper- oder Demo-Betrieb.
 
