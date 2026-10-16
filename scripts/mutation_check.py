@@ -300,6 +300,7 @@ z("Z21","Nettoergebnis ohne Betriebskosten",AUC,"        net - operating, ai, at
 z("Z22","Zeitraum-Kosten nicht anteilig",AUC,"        return cost_up(self.amount * Decimal(str(overlap)) / Decimal(str(whole)))","        return self.amount")
 z("Z23","Teure Methode schon bei positivem Mittelwert bevorzugt",AUV,"    elif low > 0:","    elif mean_diff > 0:")
 z("Z24","Teure Methode schon mit wenigen Daten bevorzugt",AUV,"    if n < min_samples:","    if False:")
+KERN.append(("Z25","Geheimnis-Scan nimmt jeden Namen mit 'token' aus",[("scripts/secret_scan.py","    return bool(TOKEN_COUNT_NAME.search(name)) and not OTHER_SENSITIVE.search(name)","    return True")],["tests/test_secret_scan.py"]))
 
 
 BACKTEST: List[Mutant] = [

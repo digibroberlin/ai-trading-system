@@ -67,6 +67,16 @@ PLACEHOLDER = re.compile(
     )$
     """
 )
+# Token-ANZAHLEN der KI-Kostenmessung (input_tokens, tokens_out ...) sind keine Zugangs-Token: "tokens" in der Mehrzahl,
+# ohne ein weiteres heikles Wort im Namen. Echte Token-Variablen (GH_TOKEN, access_token, bearer_token) bleiben erfasst.
+TOKEN_COUNT_NAME = re.compile(r"(?i)tokens")
+OTHER_SENSITIVE = re.compile(r"(?i)password|passwort|passwd|secret|api[_\-]?key|access[_\-]?key|private[_\-]?key|passphrase|bearer")
+
+
+def is_token_count(name: str) -> bool:
+    return bool(TOKEN_COUNT_NAME.search(name)) and not OTHER_SENSITIVE.search(name)
+
+
 # Name einer Konstanten oder Umgebungsvariablen (GROSS_MIT_UNTERSTRICH) - Gross-/Kleinschreibung zaehlt hier.
 CONSTANT_NAME = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$")
 
@@ -98,7 +108,7 @@ def check_line(line: str) -> List[str]:
     found = [label for pattern, label in TOKEN_PATTERNS if pattern.search(line)]
     for m in ASSIGNMENT.finditer(line):
         value = m.group("value")
-        if not is_placeholder(value):
+        if not is_placeholder(value) and not is_token_count(m.group("name")):
             found.append("Zuweisung an '%s'" % m.group("name"))
     for m in URL_WITH_PASSWORD.finditer(line):
         if not is_placeholder(m.group("value")):
