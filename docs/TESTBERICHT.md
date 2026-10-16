@@ -430,3 +430,22 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16,
 * **Preflight:** STABIL – **1477/1477** Tests, 0 übersprungen (mit PostgreSQL 16). Python 3.9 (ohne Datenbank): 1251 bestanden,
   11 Module übersprungen (10 Datenbank + Dashboard; FastAPI braucht ≥ 3.10 – erwartet).
 * **Nicht geprüft:** Anmeldung/Server-Betrieb (AP-28); DEMO mit laufender Engine (AP-21).
+
+## Nachtrag 2026-10-16 – AP-21 Laufzeit-Engine (D-021)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Nur simulierte Uhr und erfundene Daten.
+
+* **Neu:** `runtime/engine.py` (RuntimeEngine, DecisionMomo, `simulate`, Start-Sperre), Ereignis `REGIME_CHANGE`,
+  `AkiAgent.update_equity`/`record_regime_change`, Executor-Schnittstelle um `halt`/`halt_status` ergänzt,
+  Dashboard-Option `--simulation` (DEMO).
+* **Tests:** `test_runtime_engine` (17): aus ohne Freigabe (auch bei LIVE-Modus oder Börsen-Schlüssel); über 3000
+  Ereignisse durch alle Agenten mit stimmiger Buchhaltung; Reproduzierbarkeit; Neustart mit Aufwärmen = ununterbrochener
+  Lauf; dieselbe Kerze nach Neustart eröffnet keine zweite Position; Kennungen aus der Entscheidungszeit; drei Fehler →
+  Not-Aus; fehlerhafte/doppelte/offene Kerzen verworfen; Futures ohne Funding blockiert; KI-Kosten je Ereignis nur bei
+  Setups, ohne Budget nichts bezahlt; Phasenwechsel als Ereignis und einziger Anlass der Phasen-Prüfung; Dashboard aus der
+  laufenden Engine. Beim Entwickeln gefunden: doppelte Kurvenpunkte bei gleichzeitigen Kerzen, Signal-Ausstiege fehlten in
+  AKI, Kurvenpunkt vor den Orders (alles behoben).
+* **Gegenprobe:** RT01–RT08 **8/8 entdeckt** (RT08 erst nach strengerem Aufwärm-Test).
+* **Preflight:** STABIL – **1502/1502** Tests, 0 übersprungen; Python 3.9: 1274 bestanden, 12 übersprungen (Datenbank,
+  FastAPI – erwartet).
+* **Nicht geprüft:** echter Betrieb (bewusst gesperrt), echte Marktdaten (AP-14/15).

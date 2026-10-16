@@ -218,3 +218,13 @@ def test_main_program_refuses_any_mode_other_than_paper(monkeypatch):
     monkeypatch.setenv("TRADING_MODE", "live")
     with pytest.raises(ConfigError):
         main(["--days", "1"])
+
+
+def test_simulation_mode_shows_the_engine_as_demo():
+    from trading.dashboard.__main__ import simulation_source
+
+    state = simulation_source(synthetic(days=12, seed=2), "breakout").state(T0)
+    assert state["mode"] == "DEMO" and state["status"]["strategy"] == "breakout-20-10"
+    assert state["status"]["accounting_problem"] == "" and state["metrics"]["trades"] >= 0
+    with pytest.raises(ValueError):
+        simulation_source(synthetic(days=2), "gibt-es-nicht")

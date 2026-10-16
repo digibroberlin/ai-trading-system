@@ -26,7 +26,8 @@ Es gibt keinen Code, der eine echte Order senden könnte (keine Netzwerk-Bibliot
 | Austauschbare KI-Modelle | nur Schnittstelle (kein echter Anbieter, keine Kosten) |
 | Strategie-Bibliothek (6 Strategien + Vergleichsmaßstäbe), Marktphasen | gebaut und getestet (AP-16/17), nur auf erfundenen Daten |
 | Dashboard (nur lesend, Browser) | gebaut und getestet (AP-23/24), siehe unten |
-| Echte historische Daten, Live-Marktdaten, Börsen-Adapter, Laufzeit-Engine | **noch nicht gebaut** |
+| Laufzeit-Engine (ereignisgesteuert, alle sechs Agenten) | gebaut und getestet (AP-21), **standardmäßig aus** – Start nur mit Ihrer Freigabe |
+| Echte historische Daten, Live-Marktdaten, Börsen-Adapter | **noch nicht gebaut** |
 
 Testergebnis: **606 Tests bestanden, 0 übersprungen** auf Python 3.12 mit PostgreSQL 16 – auf dem Mac **und** im Docker-Container.
 Ohne Datenbank laufen 512 Tests, 94 Datenbank-Tests werden dann sichtbar als „skipped“ gemeldet.
@@ -188,6 +189,18 @@ Warnungen. Die Seite aktualisiert sich selbst (WebSocket). `--strategy momentum-
 nur von diesem Rechner aus erreichbar (keine Anmeldung – nicht ins Internet stellen).
 
 ![Dashboard mit synthetischen Daten](docs/img/dashboard.png)
+
+`python3.12 -m trading.dashboard --simulation` spielt stattdessen die Laufzeit-Engine einmal im Zeitraffer mit erfundenen
+Daten ab und zeigt das Paper-Konto im Modus DEMO (kein laufender Betrieb, keine Marktdaten, keine Börse).
+
+### Laufzeit-Engine (AP-21, D-021) – bleibt aus
+
+`trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →
+Marktphase (bei Wechsel ein Ereignis) → Strategie für genau dieses Instrument → volle Pipeline mit allen sechs Agenten →
+AKI. KI nur ereignisbasiert über den Kosten-Orchestrator; die Kosten je Ereignis werden gemessen. Nach drei Fehlern in Folge
+löst sie den Not-Aus aus. **Starten lässt sie sich nur**, wenn alles zutrifft: `EngineConfig(enabled=True)`, Modus PAPER
+ohne Börsen-Schlüssel und Ihre ausdrückliche Freigabe `TRADING_ENGINE_APPROVAL="PAPER-HANDEL FREIGEGEBEN"`. Echte
+Marktdaten-Anbindungen (AP-14/15) fehlen noch – bis dahin läuft sie nur in Tests und Simulationen.
 
 ### Globaler Not-Aus (Kill Switch)
 
