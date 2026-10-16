@@ -515,6 +515,32 @@ def test_less_confident_ai_never_overrides_more_confident_rules():
     assert env2.orch.analyze(request(), rules).source is Source.AI
 
 
+def test_cached_ai_answer_never_overrides_more_confident_rules():
+    env = Env(FakeProvider({"claude-haiku-5-5": 0.72}))
+    assert env.orch.analyze(request()).source is Source.AI  # 0,72 >= 0,70: wird gecacht
+    rules = RuleAnswer({"approve": False}, D("0.79"))
+    a = env.orch.analyze(request(agent="YUZU"), rules)
+    assert a.source is Source.RULES and a.answer == {"approve": False} and a.reason == "REGELN_ERSATZ:KI_NICHT_SICHERER"
+    assert len(env.provider.calls) == 1 and a.cost == 0  # kein neuer Aufruf
+    weaker = env.orch.analyze(request(agent="YUZU"), RuleAnswer({"approve": False}, D("0.6")))
+    assert weaker.source is Source.CACHE and weaker.answer["approve"] is True
+
+
+def test_waiting_for_a_parallel_analysis_never_overrides_more_confident_rules():
+    slow = ScriptedProvider(delay=0.3, confidence={"claude-haiku-5-5": 0.72})
+    env = Env(slow)
+    results = {}
+    first = threading.Thread(target=lambda: results.setdefault("KIBO", env.orch.analyze(request())))
+    first.start()
+    import time
+
+    time.sleep(0.1)  # KIBO laeuft schon; YUZU wartet auf dasselbe Ergebnis
+    results["YUZU"] = env.orch.analyze(request(agent="YUZU"), RuleAnswer({"approve": False}, D("0.79")))
+    first.join(5)
+    assert len(slow.calls) == 1 and results["KIBO"].source is Source.AI
+    assert results["YUZU"].source is Source.RULES and results["YUZU"].answer == {"approve": False}
+
+
 def test_uncertain_ai_results_are_not_reused_from_cache():
     env = Env(FakeProvider({"claude-haiku-5-5": 0.5}))
     env.orch.analyze(request(max_tier=Tier.CHEAP))
@@ -548,6 +574,32 @@ def test_failing_measurement_blocks_further_paid_calls_but_keeps_the_result():
     a = env.orch.analyze(request())
     assert a.source is Source.AI and a.records and a.records[-1].cost > 0
     assert env.ledger.status().blocked and "Messung" in env.ledger.status().note
+
+
+def test_aki_keeps_the_paid_call_even_if_its_event_log_fails():
+    """Faellt das Ereignisprotokoll beim Messpunkt aus, stehen die Kosten trotzdem in AKIs Auswertung und im
+    Nettobericht (sonst waere der Nettogewinn zu hoch), und das Budget ist gesperrt."""
+    from trading.agents.aki import AkiAgent
+    from trading.audit.event_log import InMemoryEventLog
+    from trading.audit.events import EventType
+
+    class FailingLog(InMemoryEventLog):
+        def append(self, event_type, payload):
+            if event_type is EventType.AI_CALL:
+                raise OSError("Protokoll voll")
+            return super().append(event_type, payload)
+
+    env = Env()
+    aki = AkiAgent(FailingLog(env.clock))
+    registry = ProviderRegistry()
+    registry.register(env.provider)
+    orch = AIOrchestrator(registry, DEFAULT_PRICES, env.ledger, ActivationPolicy(DEFAULT_ACTIVATION, env.clock),
+                          env.clock, aki.record_ai_call)
+    a = orch.analyze(request())
+    assert a.source is Source.AI and a.cost > 0
+    assert aki.ai_cost_summary().total_cost == a.cost
+    assert aki.net_profit_report(T0, T0 + timedelta(days=1)).ai_cost == a.cost
+    assert env.ledger.status().blocked
 
 
 class SettleFails(InMemoryBudgetLedger):

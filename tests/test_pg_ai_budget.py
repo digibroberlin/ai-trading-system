@@ -149,6 +149,156 @@ def test_parallel_reservations_never_exceed_the_daily_limit(pg):
         assert c.execute("SELECT SUM(reserved) FROM ai_budget_entries").fetchone()[0] == D("1.0")
 
 
+def test_one_ledger_shared_by_threads_never_mixes_their_transactions(pg, monkeypatch):
+    """Der Orchestrator ruft EIN Budget aus mehreren Threads auf. Ohne Sperre lief die Transaktion des zweiten Threads als
+    Savepoint in der des ersten: Rollte der erste zurueck (hier: Anwendungsbudget reicht nicht), war die gemeldete
+    Reservierung des zweiten weg - oder die Verbindung blieb in einer nie festgeschriebenen Transaktion haengen."""
+    import trading.persistence.ai_budget as ai_budget
+
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("10"), D("100")), "Eigner")
+    led = ledger(pg, AIBudget(D("1"), D("0.5"), D("50")))
+    barrier = threading.Barrier(2, timeout=1.0)
+    first_inside = threading.Event()
+    original = ai_budget._spent
+
+    def spent_and_wait(cur):
+        result = original(cur)
+        if threading.current_thread().name == "A":
+            first_inside.set()
+        try:
+            barrier.wait()  # ohne Sperre: beide gleichzeitig in der Transaktion; mit Sperre laeuft die Wartezeit ab
+        except threading.BrokenBarrierError:
+            pass
+        return result
+
+    monkeypatch.setattr(ai_budget, "_spent", spent_and_wait)
+    outcome = {}
+
+    def run(name, amount):
+        try:
+            outcome[name] = led.reserve(D(amount), "KIBO", "m")
+        except BudgetError as exc:
+            outcome[name] = exc
+
+    a = threading.Thread(target=run, args=("A", "0.6"), name="A")  # 0,6 > Tagesbudget der Anwendung: Abbruch
+    b = threading.Thread(target=run, args=("B", "0.1"), name="B")
+    a.start()
+    assert first_inside.wait(5)
+    b.start()
+    a.join(10)
+    b.join(10)
+    assert isinstance(outcome["A"], BudgetError) and not isinstance(outcome["B"], BudgetError)
+    with admin(pg) as c:
+        assert c.execute("SELECT reservation_id, reserved FROM ai_budget_entries").fetchall() == [
+            (outcome["B"].reservation_id, D("0.1"))]
+    assert led._db.get().info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    led.close()
+
+
+def test_ledger_never_works_inside_a_foreign_open_transaction(pg):
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("1")), "Eigner")
+    led = ledger(pg)
+    led._db.get().execute("SELECT 1")  # offene Transaktion auf der Verbindung (z. B. nach einem Programmfehler)
+    with pytest.raises(BudgetError, match="nicht frei"):
+        led.reserve(D("0.1"), "KIBO", "m")
+    assert led.status().blocked  # Zustand unklar: wie gesperrt behandeln
+    led._db.get().rollback()
+    led.reserve(D("0.1"), "KIBO", "m")
+    led.close()
+
+
+def test_orchestrator_threads_sharing_one_database_budget_book_every_paid_call(pg):
+    from test_ai_orchestration import FakeProvider, request
+
+    from trading.ai.activation import DEFAULT_ACTIVATION, ActivationPolicy
+    from trading.ai.orchestrator import AIOrchestrator, Source
+    from trading.ai.pricing import DEFAULT_PRICES
+    from trading.ai.provider import ProviderRegistry
+
+    set_limits_as_admin(pg.admin_url, AIBudget(D("0.01"), D("1"), D("10")), "Eigner")
+    clock = FixedClock(T0)
+    provider = FakeProvider()
+    registry = ProviderRegistry()
+    registry.register(provider)
+    led = ledger(pg, clock=clock)
+    orch = AIOrchestrator(registry, DEFAULT_PRICES, led, ActivationPolicy(DEFAULT_ACTIVATION, clock), clock)
+    results = []
+
+    def worker(i):
+        for j in range(3):
+            results.append(orch.analyze(request(subject="S%d-%d" % (i, j), payload={"i": i, "j": j})))
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    paid = [a for a in results if a.source is Source.AI]
+    assert len(paid) == len(provider.calls) == 24
+    with admin(pg) as c:
+        rows, actual, open_ = c.execute("SELECT count(*), sum(actual), count(*) FILTER (WHERE actual IS NULL)"
+                                        " FROM ai_budget_entries").fetchone()
+    assert rows == 24 and open_ == 0 and actual == sum(a.cost for a in paid)
+    assert led._db.get().info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+    led.close()
+
+
+@pytest.mark.parametrize("level", ["READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"])
+def test_database_budget_holds_under_every_isolation_level(pg, level):
+    """Zwei Reservierungen gleichzeitig, jede fuer sich erlaubt, zusammen ueber der Tagesgrenze: Bei jeder Isolationsstufe
+    geht nur eine durch. (Mit einer reinen Lesesperre FOR UPDATE zaehlte REPEATABLE READ einen veralteten Stand.)"""
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("10")), "Eigner")
+    insert = ("INSERT INTO ai_budget_entries (reservation_id, created_at, day, agent, model, reserved)"
+              " VALUES (%s, now(), current_date, 'KIBO', 'm', 1)")
+    a, b = psycopg.connect(pg.app_url), psycopg.connect(pg.app_url)
+    for conn in (a, b):
+        conn.execute("SET TRANSACTION ISOLATION LEVEL " + level)
+    b.execute("SELECT 1")  # Schnappschuss von b entsteht VOR der Reservierung von a
+    a.execute(insert, ("a",))
+    failure = []
+
+    def second():
+        try:
+            b.execute(insert, ("b",))  # wartet auf a
+            b.commit()
+        except (E.CheckViolation, E.SerializationFailure) as exc:
+            failure.append(exc)
+            b.rollback()
+
+    t = threading.Thread(target=second)
+    t.start()
+    import time
+
+    time.sleep(0.3)
+    a.commit()
+    t.join(10)
+    assert len(failure) == 1
+    with admin(pg) as c:
+        assert c.execute("SELECT sum(reserved), count(*) FROM ai_budget_entries").fetchone() == (D("1"), 1)
+    a.close()
+    b.close()
+
+
+def test_app_role_guard_holds_even_with_broader_column_rights(pg):
+    """Zweiter Gurt: Selbst wenn eine spaetere Migration der Anwendung mehr Spaltenrechte gaebe, darf sie nur sperren -
+    nie Grenzen, Freigabe oder Entsperrung aendern (der Trigger prueft das, nicht nur die Rechte)."""
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("1")), "Eigner")
+    with admin(pg) as c:
+        c.execute("GRANT UPDATE ON ai_budget_limits TO trading_app")
+    with app(pg) as c:
+        for stmt in ("UPDATE ai_budget_limits SET per_call_usd = 5",
+                     "UPDATE ai_budget_limits SET daily_usd = 5, monthly_usd = 5",
+                     "UPDATE ai_budget_limits SET approved_by = 'App'",
+                     "UPDATE ai_budget_limits SET approved_at = clock_timestamp()",
+                     "UPDATE ai_budget_limits SET unblocked_by = 'App'",
+                     "UPDATE ai_budget_limits SET unblocked_at = clock_timestamp()"):
+            with pytest.raises(E.InsufficientPrivilege, match="Administrator"):
+                c.execute(stmt)
+        c.execute("UPDATE ai_budget_limits SET blocked = true, block_reason = 'Test'")
+        with pytest.raises(E.InsufficientPrivilege, match="Administrator"):
+            c.execute("UPDATE ai_budget_limits SET blocked = false")
+
+
 def test_application_can_neither_raise_limits_nor_unblock(pg):
     with app(pg) as c:
         with pytest.raises(E.InsufficientPrivilege):
@@ -190,6 +340,8 @@ def test_limits_need_the_name_and_a_new_time_of_the_approval(pg):
         with pytest.raises(E.CheckViolation, match="Namen"):  # neuer Zeitpunkt, aber ohne Namen
             c.execute("UPDATE ai_budget_limits SET daily_usd = 2, monthly_usd = 2, approved_by = ' ',"
                       " approved_at = clock_timestamp()")
+        with pytest.raises(E.CheckViolation, match="neuem Zeitpunkt"):  # Zeitpunkt geloescht statt erneuert
+            c.execute("UPDATE ai_budget_limits SET daily_usd = 2, monthly_usd = 2, approved_at = NULL")
         c.execute("UPDATE ai_budget_limits SET daily_usd = 2, monthly_usd = 2, approved_by = 'Eigner',"
                   " approved_at = clock_timestamp()")
         assert c.execute("SELECT daily_usd, approved_by FROM ai_budget_limits").fetchone() == (D("2"), "Eigner")
@@ -205,6 +357,8 @@ def test_unblocking_needs_a_name_and_a_new_time(pg):
                 c.execute(stmt)
     unblock_as_admin(pg.admin_url, "Eigner")
     ledger(pg).block("nochmal")
+    with admin(pg) as c, pytest.raises(E.CheckViolation, match="Entsperren"):  # Zeitpunkt geloescht statt erneuert
+        c.execute("UPDATE ai_budget_limits SET blocked = false, unblocked_at = NULL")
     with admin(pg) as c, pytest.raises(E.CheckViolation, match="Entsperren"):  # die alte Freigabe reicht nicht
         c.execute("UPDATE ai_budget_limits SET blocked = false")
     unblock_as_admin(pg.admin_url, "Eigner")
@@ -220,6 +374,13 @@ def test_entries_are_settled_exactly_once_and_otherwise_immutable(pg):
     led.settle(r, D("0.1"))
     with pytest.raises(BudgetError):
         led.settle(r, D("0.05"))
+    r2 = led.reserve(D("0.1"), "KIBO", "m")
+    with app(pg) as c:  # Zeitpunkt der Abrechnung setzt die Datenbank, nicht die Anwendung
+        c.execute("UPDATE ai_budget_entries SET actual = 0.1, settled_at = '1999-01-01T00:00Z' WHERE reservation_id = %s",
+                  (r2.reservation_id,))
+    with admin(pg) as c:
+        assert c.execute("SELECT settled_at > now() - interval '1 hour' FROM ai_budget_entries WHERE reservation_id = %s",
+                         (r2.reservation_id,)).fetchone() == (True,)
     with app(pg) as c:
         with pytest.raises(E.InsufficientPrivilege):
             c.execute("UPDATE ai_budget_entries SET actual = 0")

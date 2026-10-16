@@ -322,6 +322,8 @@ z("Z37","Eskalation scheitert an der eigenen Abkuehlzeit",AIO,"            run.c
 z("Z38","Cache waechst unbegrenzt",AIO,"        while len(self._cache) >= MAX_CACHE_ENTRIES:","        while False:")
 z("Z39","Sperre in der Budget-Reservierung fehlt",AIB,"        with self._lock:\n            if self._blocked:\n                raise BudgetError(\"KI-Budget gesperrt","        if True:\n            if self._blocked:\n                raise BudgetError(\"KI-Budget gesperrt")
 z("Z40","Betriebskosten nicht nach UTC umgerechnet",AUC,"        object.__setattr__(self, \"start\", self.start.astimezone(timezone.utc))\n        object.__setattr__(self, \"end\", self.end.astimezone(timezone.utc))\n","")
+z("Z41","Cache-Treffer schlaegt sicherere Regeln",AIO,"                if valid_rules is not None and cached.confidence <= valid_rules.confidence:","                if False:")
+z("Z42","AKI verliert den Messpunkt bei Protokollfehler","src/trading/agents/aki.py","        self._ai_records.append(record)\n        self._log.append(EventType.AI_CALL, record)\n","        self._log.append(EventType.AI_CALL, record)\n        self._ai_records.append(record)\n")
 KERN.append(("Z25","Geheimnis-Scan nimmt jeden Namen mit 'tokens' aus",[("scripts/secret_scan.py","    return bool(TOKEN_COUNT_NAME.match(name))","    return 'tokens' in name.lower()")],["tests/test_secret_scan.py"]))
 
 
@@ -450,6 +452,14 @@ DATENBANK: List[Mutant] = [
  ("G82","KI-Budget bucht auf den Tag der Anwendung",[(S6,"    NEW.created_at := now();                           -- Zeit und Tag von der Datenbank, nicht von der Anwendung\n    NEW.day := (now() AT TIME ZONE 'UTC')::date;\n","")], PGB),
  ("G83","Neue KI-Grenzen mit alter Freigabe",[(S6,"                OR NEW.approved_at IS NOT DISTINCT FROM OLD.approved_at) THEN","                ) THEN")], PGB),
  ("G84","KI-Budget ohne Namen und Zeitpunkt entsperrbar",[(S6,"        IF OLD.blocked AND NOT NEW.blocked\n           AND (NEW.unblocked_by IS NULL","        IF false AND OLD.blocked AND NOT NEW.blocked\n           AND (NEW.unblocked_by IS NULL")], PGB),
+ ("G85","Neue KI-Grenzen mit geloeschtem Freigabe-Zeitpunkt",[(S6,"           AND (NEW.approved_by IS NULL OR btrim(NEW.approved_by) = '' OR NEW.approved_at IS NULL\n","           AND (NEW.approved_by IS NULL OR btrim(NEW.approved_by) = ''\n")], PGB),
+ ("G86","Entsperren mit geloeschtem Zeitpunkt",[(S6,"           AND (NEW.unblocked_by IS NULL OR btrim(NEW.unblocked_by) = '' OR NEW.unblocked_at IS NULL\n","           AND (NEW.unblocked_by IS NULL OR btrim(NEW.unblocked_by) = ''\n")], PGB),
+ ("G87","Abrechnungszeit von der Anwendung",[(S6,"    NEW.settled_at := now();\n","")], PGB),
+ ("G88","KI-Reservierungen nur lesend gesperrt (REPEATABLE READ)",[(S6,"    UPDATE ai_budget_limits SET reservations = reservations + 1 WHERE id = 1 RETURNING * INTO lim;\n","    SELECT * INTO lim FROM ai_budget_limits WHERE id = 1 FOR UPDATE;\n")], PGB),
+ ("G89","Anwendung darf Freigabe-Felder des KI-Budgets aendern",[(S6,"           OR NEW.monthly_usd IS DISTINCT FROM OLD.monthly_usd OR NEW.approved_by IS DISTINCT FROM OLD.approved_by\n           OR NEW.approved_at IS DISTINCT FROM OLD.approved_at OR NEW.unblocked_by IS DISTINCT FROM OLD.unblocked_by\n           OR NEW.unblocked_at IS DISTINCT FROM OLD.unblocked_at\n","           OR NEW.monthly_usd IS DISTINCT FROM OLD.monthly_usd\n")], PGB),
+ ("G90","Anwendung darf KI-Grenzen aendern (Trigger)",[(S6,"        IF NEW.per_call_usd IS DISTINCT FROM OLD.per_call_usd OR NEW.daily_usd IS DISTINCT FROM OLD.daily_usd\n           OR NEW.monthly_usd IS DISTINCT FROM OLD.monthly_usd OR NEW.approved_by","        IF NEW.approved_by")], PGB),
+ ("G91","KI-Budget: eine Verbindung ohne Sperre fuer alle Threads",[(PAB,"        with self._lock:\n            conn = self._db.get()","        if True:\n            conn = self._db.get()")], PGB),
+ ("G92","KI-Budget arbeitet in fremder offener Transaktion",[(PAB,"            if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:","            if False:")], PGB),
 ]
 
 

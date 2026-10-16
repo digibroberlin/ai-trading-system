@@ -249,6 +249,10 @@ class AIOrchestrator:
             if cached is not None:
                 self._note(run, request, Source.CACHE, "CACHE_TREFFER", tier=cached.tier, model=cached.model,
                            confidence=cached.confidence)
+                if valid_rules is not None and cached.confidence <= valid_rules.confidence:
+                    # Wie bei einer frischen Analyse: Eine nicht sicherere KI-Antwort ersetzt die Regeln nie (auch
+                    # nicht aus dem Cache oder fuer Wartende einer parallel laufenden Analyse).
+                    return self._fallback(run, request, valid_rules, "KI_NICHT_SICHERER")
                 return self._finish(run, Source.CACHE, "CACHE_TREFFER", cached.answer, cached.confidence,
                                     cached.tier, cached.model)
             assert waiting is not None

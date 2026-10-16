@@ -12,6 +12,7 @@ einen anderen Tag oder Monat buchen.
 from __future__ import annotations
 
 import secrets
+import threading
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
@@ -44,15 +45,21 @@ class PostgresBudgetLedger(BudgetLedger):
         self._db = ConnectionKeeper(url)  # verbindet nach einem Abbruch neu (Audit H7); sonst BudgetError = kein Aufruf
         self._budget = budget
         self._clock = clock
+        # EINE Verbindung fuer alle Threads des Orchestrators: Ohne diese Sperre wuerde die Transaktion eines zweiten
+        # Threads nur ein Savepoint in der des ersten - Reservierungen und Sperren gingen verloren.
+        self._lock = threading.RLock()
 
     def close(self) -> None:
         self._db.close()
 
     @contextmanager
     def _tx(self) -> Iterator[Any]:
-        conn = self._db.get()
-        with conn.transaction(), conn.cursor() as cur:
-            yield cur
+        with self._lock:
+            conn = self._db.get()
+            if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:  # nie in eine fremde Transaktion
+                raise BudgetError("Verbindung des KI-Budgets ist nicht frei (%s)." % conn.info.transaction_status.name)
+            with conn.transaction(), conn.cursor() as cur:
+                yield cur
 
     def reserve(self, amount: Decimal, agent: str, model: str) -> Reservation:
         check_amount(amount)
@@ -62,7 +69,8 @@ class PostgresBudgetLedger(BudgetLedger):
         rid = "%s-%s" % (now.strftime("%Y%m%dT%H%M%S"), secrets.token_hex(6))
         try:
             with self._tx() as cur:
-                cur.execute("SELECT blocked, block_reason FROM ai_budget_limits WHERE id = 1 FOR UPDATE")
+                # schreibend gesperrt (nicht FOR UPDATE): unter REPEATABLE READ bricht eine ueberholte Reservierung ab
+                cur.execute("UPDATE ai_budget_limits SET blocked = blocked WHERE id = 1 RETURNING blocked, block_reason")
                 lim = cur.fetchone()
                 if lim is None or lim[0]:
                     raise BudgetError("KI-Budget gesperrt: %s" % ((lim[1] if lim else "") or "Zeile fehlt"))
@@ -109,7 +117,7 @@ class PostgresBudgetLedger(BudgetLedger):
                             " FROM ai_budget_limits WHERE id = 1")
                 lim = cur.fetchone()
                 day, today, month = _spent(cur)
-        except (psycopg.Error, DatabaseUnavailableError) as exc:
+        except (psycopg.Error, DatabaseUnavailableError, BudgetError) as exc:
             return BudgetStatus(day, ZERO, ZERO, AIBudget(), True, "nicht lesbar: %s" % type(exc).__name__)
         if lim is None:
             return BudgetStatus(day, today, month, AIBudget(), True, "Zeile fehlt")

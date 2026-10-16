@@ -8,7 +8,10 @@
 --     wird genau einmal; nichts wird geloescht.
 --   * Zweiter Gurt: Beim Anlegen einer Reservierung prueft die Datenbank selbst, dass Einzel-, Tages- und Monatsgrenze
 --     eingehalten sind (Reservierungen zaehlen voll, abgerechnete mit den tatsaechlichen Kosten). Alle Reservierungen
---     laufen nacheinander (Sperre auf der Grenzen-Zeile) - mehrere Prozesse koennen das Budget nicht gemeinsam sprengen.
+--     laufen nacheinander: Jede SCHREIBT die Grenzen-Zeile (Zaehler `reservations`). Unter READ COMMITTED wartet die
+--     naechste und sieht danach den neuen Verbrauch; unter REPEATABLE READ / SERIALIZABLE bricht sie mit einem
+--     Serialisierungsfehler ab (eine reine Lesesperre FOR UPDATE haette dort einen veralteten Stand gezaehlt) - mehrere
+--     Prozesse koennen das Budget so bei keiner Isolationsstufe gemeinsam sprengen.
 --     Tag und Zeitpunkt setzt die DATENBANK (UTC), nicht die Anwendung: Eine falsch gehende Uhr kann so nicht in einen
 --     anderen Tag oder Monat buchen. (Gegen eine Anwendung, die absichtlich falsche Kosten abrechnet, schuetzt der Gurt
 --     nicht - er schuetzt gegen falsche Konfiguration, falsche Uhr und Wettlaeufe.)
@@ -27,7 +30,8 @@ CREATE TABLE ai_budget_limits (
     approved_at   TIMESTAMPTZ, -- ... und wann (jede Aenderung braucht einen NEUEN Zeitpunkt)
     unblocked_by  TEXT,
     unblocked_at  TIMESTAMPTZ,
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reservations  BIGINT      NOT NULL DEFAULT 0,  -- Zaehler; jede Reservierung schreibt ihn (Serialisierung, s. o.)
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),  -- letzte Aenderung von Grenzen, Sperre oder Freigabe
     CHECK (daily_usd <= monthly_usd)
 );
 INSERT INTO ai_budget_limits (id) VALUES (1);
@@ -61,7 +65,14 @@ BEGIN
                 USING ERRCODE = 'check_violation';
         END IF;
     END IF;
-    NEW.updated_at := now();
+    IF ROW(NEW.per_call_usd, NEW.daily_usd, NEW.monthly_usd, NEW.blocked, NEW.block_reason, NEW.approved_by,
+           NEW.approved_at, NEW.unblocked_by, NEW.unblocked_at)
+       IS DISTINCT FROM ROW(OLD.per_call_usd, OLD.daily_usd, OLD.monthly_usd, OLD.blocked, OLD.block_reason,
+           OLD.approved_by, OLD.approved_at, OLD.unblocked_by, OLD.unblocked_at) THEN
+        NEW.updated_at := now();
+    ELSE
+        NEW.updated_at := OLD.updated_at;  -- reine Reservierung: kein "geaendert"
+    END IF;
     RETURN NEW;
 END;
 $$;
@@ -94,7 +105,8 @@ DECLARE
 BEGIN
     NEW.created_at := now();                           -- Zeit und Tag von der Datenbank, nicht von der Anwendung
     NEW.day := (now() AT TIME ZONE 'UTC')::date;
-    SELECT * INTO lim FROM ai_budget_limits WHERE id = 1 FOR UPDATE;  -- serialisiert alle Reservierungen
+    -- serialisiert alle Reservierungen - SCHREIBEND, damit es auch unter REPEATABLE READ / SERIALIZABLE gilt
+    UPDATE ai_budget_limits SET reservations = reservations + 1 WHERE id = 1 RETURNING * INTO lim;
     IF NOT FOUND OR lim.blocked THEN
         RAISE EXCEPTION 'KI-Budget gesperrt oder nicht vorhanden' USING ERRCODE = 'check_violation';
     END IF;

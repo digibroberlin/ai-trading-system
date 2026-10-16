@@ -88,9 +88,11 @@ class AkiAgent(BaseAgent):
     # --- Kosten (D-016: Nettogewinn nach ALLEN Kosten) ---
 
     def record_ai_call(self, record: AICallRecord) -> None:
-        """Messpunkt des KI-Orchestrators (als `recorder` uebergeben): jede Analyse-Stufe mit Tokens und Kosten."""
-        self._log.append(EventType.AI_CALL, record)
+        """Messpunkt des KI-Orchestrators (als `recorder` uebergeben): jede Analyse-Stufe mit Tokens und Kosten.
+        Zuerst gemerkt, dann protokolliert: Scheitert das Protokoll, fehlen die Kosten trotzdem nicht im Nettobericht
+        (der Fehler geht weiter an den Orchestrator, der daraufhin das Budget sperrt)."""
         self._ai_records.append(record)
+        self._log.append(EventType.AI_CALL, record)
 
     def record_operating_cost(self, cost: OperatingCost) -> None:
         """Betriebskosten fuer einen Zeitraum (Server, Marktdaten, Sonstiges; nie gemessene KI-Aufrufe doppelt)."""
