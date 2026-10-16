@@ -4,11 +4,6 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Offen
 
-### B-002 Cloud-Routine – eingerichtet 2026-10-15, Funktionsprüfung offen
-* Stündliche Routine angelegt (Opus 5.5). Der erste Lauf prüft und dokumentiert die Cloud-Umgebung.
-* Noch zu prüfen: ob die Cloud-Umgebung PostgreSQL bereitstellen kann (sonst Datenbank-Tests über GitHub Actions) und
-  auf welche Zweige eine Cloud-Sitzung schreiben darf.
-
 ## Später (noch nicht nötig)
 
 * **B-003 Order-Anbindung für Börsen-Demokonten.** AGENTS.md §2 Regel 1 verbietet heute jede Order-Funktion an eine Börse.
@@ -21,3 +16,5 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 * **B-001 (2026-10-15):** GitHub-Konto `digibroberlin`, privates Repository, Deploy Key nur für dieses Repository,
   Claude-GitHub-App freigegeben. `main`, `develop` und `stable/001`–`stable/003` hochgeladen.
+* **B-002 (2026-10-15):** Cloud-Routine geprüft (AP-03, erster Lauf): PostgreSQL lässt sich in der Cloud über
+  `scripts/cloud_test_db.sh` einrichten, alle Datenbank-Tests laufen, Push auf Arbeitszweige und `develop` funktioniert.
