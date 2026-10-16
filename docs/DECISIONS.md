@@ -223,6 +223,22 @@ sollen nicht möglichst viele Tokens oder Trades erzeugen, sondern kostenpflicht
 **Preise:** datierte Tabelle (Stand 2026-10-06, Anthropic-Erstanbieter-API): Haiku 5.5 0,10/0,50, Sonnet 5.5 2/10, Opus 5.5
 4/20 USD je Million Input/Output-Tokens; Cache-Lesen ~0,1×, Cache-Schreiben 1,25× Input (Haiku-Cache-Lesepreis daraus
 abgeleitet, nicht aus der Liste). Vor echtem Einsatz gegen die aktuelle Preisliste prüfen.
+**Nachgeschärft nach unabhängiger Prüfung (25 bestätigte Befunde, alle behoben):**
+* Die Wertschranke gilt für die **ganze Analyse** (alle Stufen zusammen höchstens 10 % des erwarteten Nutzens), nicht je Stufe.
+* Meldet der Anbieter keinen Verbrauch oder ein anderes Modell als angefragt, wird die **volle Reservierung** gebucht und das
+  Budget gesperrt; ebenso, wenn Eingabe- oder Ausgabe-Tokens die Annahmen der Obergrenze verletzen (auch wenn die Kosten
+  zufällig darunter bleiben). Ein Anbieterfehler zählt als bezahlter Aufruf mit voller Reservierung.
+* Eine KI-Antwort ersetzt eine Regel-Entscheidung nur, wenn sie **sicherer** ist als die Regeln; sonst gilt die Regel.
+* Die Sperre des Orchestrators wird während des Netzwerkaufrufs nicht gehalten; gleiche gleichzeitige Analysen warten auf
+  die erste (in-flight-Erkennung, höchstens 120 s). Der Cache ist begrenzt (10 000 Einträge, abgelaufene werden entfernt).
+* Scheitern AKI-Protokoll oder Budget-Abrechnung nach einem bezahlten Aufruf, sperrt sich das Budget; der Aufruf geht nie
+  verloren.
+* KI-Kosten je Trade werden über Zeitraumgrenzen richtig zugeordnet (Analysen vor dem Zeitraum für Trades im Zeitraum).
+* **Datenbank-Budget:** Tag und Zeitpunkt jeder Buchung setzt die **Datenbank-Uhr** (UTC) – eine falsch gehende
+  Anwendungsuhr kann keinen „neuen Tag“ vortäuschen. Neue Grenzen brauchen Namen **und neuen Zeitpunkt** der Freigabe,
+  Entsperren ebenso (`unblocked_by`/`unblocked_at`); eine frühere Freigabe gilt nicht weiter.
+* Geheimnis-Scan: Nur feste Zähler-Namen (`input_tokens`, `output_tokens`, `max_tokens`, `tokens_in` …) sind ausgenommen,
+  nicht jeder Name mit „tokens“.
 **Grenzen:** KIBO/YUZU sind noch neutrale Platzhalter – die Orchestrierung ist die Infrastruktur, an die sie mit echter
 Regel-Logik (AP-17) und später mit KI (AP-22, nach Budgetfreigabe) angeschlossen werden. Der Nutzen jeder KI-Analyse ist
 bis zum Nachweis (AP-33 mit echten Daten) unbewiesen.

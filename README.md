@@ -206,6 +206,14 @@ PYTHONPATH=src python3.12 -c "from decimal import Decimal as D; from trading.ai.
   from trading.persistence.ai_budget import set_limits_as_admin; import os; \
   set_limits_as_admin(os.environ['ADMIN_DATABASE_URL'], AIBudget(D('0.05'), D('1'), D('20')), 'Ihr Name')"
 ```
+Tage und Monate zählen nach der Uhr der **Datenbank** (UTC), nicht nach der Uhr der Anwendung. Lagen die tatsächlichen Kosten
+einmal über der Reservierung (oder meldet der Anbieter keinen Verbrauch), sperrt sich das Budget für alle Prozesse. Aufheben
+nur nach Prüfung der Ursache, mit Ihrem Namen (er wird mit Zeitpunkt gespeichert):
+
+```bash
+PYTHONPATH=src python3.12 -c "from trading.persistence.ai_budget import unblock_as_admin; import os; \
+  unblock_as_admin(os.environ['ADMIN_DATABASE_URL'], 'Ihr Name')"
+```
 AKI weist aus: KI-Aufrufe, Tokens und Kosten je Agent und Modell, je Analyse und je Signal, je Tag und Monat, KI-Kosten je
 Trade (direkt und voll umgelegt), Server-/Marktdaten-/sonstige Kosten und das **Nettoergebnis nach allen Kosten**.
 

@@ -654,9 +654,9 @@ def test_concurrent_reservations_hold_even_with_aggressive_thread_switching():
     try:
         for _ in range(5):
             led, _ = ledger(AIBudget(D("0.01"), D("0.2"), D("5")))
-            ok = []
+            ok: list = []
 
-            def worker():
+            def worker(led=led, ok=ok):
                 for _ in range(10):
                     try:
                         led.reserve(D("0.01"), "KIBO", "m")

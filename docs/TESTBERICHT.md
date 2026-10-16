@@ -300,3 +300,34 @@ Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
   694 bestanden, 9 Datenbank-Module übersprungen (erwartet).
 * **Nicht geprüft:** echter Datenbank-Neustart und echte Netzwerkausfälle (simuliert durch vom Server beendete Sitzungen);
   volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.
+
+## Nachtrag 2026-10-16 – AP-31/32/33 KI-Kostenoptimierung und Nettogewinn nach allen Kosten (D-016)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch;
+**kein** echter KI-Anbieter, nur eine Attrappe – es wurde kein einziger bezahlter Aufruf gemacht.
+
+* **Neue Module:** `ai/pricing.py` (datierte Preistabelle, Kosten je Aufruf, Obergrenze), `ai/budget.py` (harte Budgets je
+  Aufruf/Tag/Monat, Standard 0, Reservierung vor dem Aufruf), `ai/activation.py` (ereignisbasierte Aktivierung mit
+  Abkühlzeit), `ai/orchestrator.py` (Regeln → Cache/Doppel-Erkennung → Aktivierung → Stufen billig→teuer mit Wertschranke),
+  `audit/costs.py` (Betriebskosten, KI-Kosten je Agent/Modell/Analyse/Signal/Tag/Monat, Kosten je Trade, Nettoergebnis nach
+  allen Kosten), `audit/ai_value.py` (gepaarter Bootstrap-Vergleich zweier Methoden), `persistence/ai_budget.py` +
+  Migration 006 (Budget als Datenbank-Gurt).
+* **Tests:** `test_ai_orchestration` (61), `test_operating_costs` (12), `test_pg_ai_budget` (19, mit Datenbank),
+  Geheimnis-Scan-Fälle für Token-Zähler und echte Token-Variablen.
+* **Unabhängige Prüfung** (8 Prüf-Agenten mit Gegenprüfung): **25 bestätigte Befunde**, alle behoben und mit Tests belegt.
+  Die wichtigsten: (1) Meldete der Anbieter keinen Verbrauch, wurden 0 USD gebucht – das Budget war damit wirkungslos; jetzt
+  volle Reservierung + Sperre. (2) Die Wertschranke galt je Stufe statt je Analyse (bis ~15 % statt 10 %). (3) Eine sehr
+  unsichere KI-Antwort konnte eine sicherere Regel-Entscheidung ersetzen. (4) Der Datenbank-Gurt vertraute dem Tag der
+  Anwendung – mit falscher Uhr ließen sich Tages- und Monatsgrenze umgehen; jetzt setzt die Datenbank Tag und Zeitpunkt.
+  (5) Neue Grenzen ließen sich mit der alten Freigabe setzen; jetzt sind Name und neuer Zeitpunkt Pflicht (auch fürs
+  Entsperren). (6) Die Ausnahme im Geheimnis-Scan war zu breit (jeder Name mit „tokens“); jetzt nur feste Zähler-Namen.
+  Weitere: Modell-Abweichung des Anbieters, Ausgabe über `max_tokens`, Fehler in Protokoll/Abrechnung, Sperre während des
+  Netzwerkaufrufs, unbegrenzter Cache, Kostenzuordnung über Zeitraumgrenzen, Sommerzeit bei Betriebskosten, schwache Tests.
+* **Vorfall:** Ein Zwischenstand wurde hochgeladen, obwohl der Geheimnis-Scan einen (falschen) Fund meldete – die
+  Befehlskette hatte den Fehlercode verschluckt. Es war kein Geheimnis betroffen (Token-**Anzahlen**). Seitdem wird nur noch
+  mit `if secret_scan; then push` hochgeladen.
+* **Gegenprobe:** ERGEBNIS_GEGENPROBE
+* **Preflight:** ERGEBNIS_PREFLIGHT
+* **Nicht geprüft:** echter KI-Anbieter (bewusst, Budget 0, B-004); ob KI-Analysen ihr Geld wert sind (AP-33 mit echten Daten
+  in AP-20); Monatswechsel im Datenbank-Budget nur mit vorab eingefügten Einträgen (die Datenbank-Uhr lässt sich nicht
+  verstellen); volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.
