@@ -611,3 +611,13 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Preflight:** STABIL – **1759/1759** Tests, 0 übersprungen; Python 3.9: 1514 bestanden, 16 übersprungen (erwartet).
   Danach nur noch `COPY deploy` im Test-Image ergänzt (Tests für Abhängigkeiten und Deployment erneut grün).
 * **Nicht geprüft:** echter Server (B-005).
+
+## Nachtrag 2026-10-16 – Funding-Sätze für Futures im laufenden Betrieb (D-031)
+
+* **Neu:** `runtime/funding.py` (`LiveFunding`), eingebunden in den Paper-Dienst.
+* **Tests:** `test_live_funding` (6): Abrechnungen vor ihrer Kerze, einmal, mit dem Satz der Börse und dem
+  Kerzen-Schluss als Kurs; Spot unberührt; vorübergehende Ausfälle werden mit der nächsten Kerze nachgeholt (ohne
+  Not-Aus); ausbleibende Abrechnungen (> 12 h) und dauerhaft unerreichbare Schnittstelle lösen den Not-Aus einmal aus;
+  die Engine übernimmt den Satz. `test_runtime_service`: Futures-Dienst erhält die Abrechnungen des letzten Tages vor
+  den ersten Kerzen, kein Not-Aus.
+* **Gegenprobe:** LF01–LF07 **7/7 entdeckt**.

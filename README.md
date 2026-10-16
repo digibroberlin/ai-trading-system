@@ -355,7 +355,7 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
 
 * **Marktüberwachung (AP-15) nur simuliert geprüft:** simulierter Server und lokales WebSocket-Gegenstück; die
   Live-Probe wartet auf die Netzfreigabe (B-008). Bitget-Kerzen: Schlusswert = letzter Stand vor der nächsten Kerze.
-  Futures-Funding kommt im laufenden Betrieb noch nicht über den Strom (Futures werden dann blockiert – fail closed).
+  Futures-Funding kommt im laufenden Betrieb per REST nach jeder Kerze (D-031); bleibt es 12 h aus: Not-Aus.
   Der WebSocket-Zugang braucht Python ≥ 3.10.
 * **Marktdaten-Adapter (AP-14) noch nicht gegen die echten Börsen geprüft:** Die Antwortformen sind nach der
   Schnittstellenbeschreibung nachgebildet; der eine echte Testabruf scheitert in der Cloud an der Netzregel (B-008). Der

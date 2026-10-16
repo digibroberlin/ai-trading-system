@@ -128,7 +128,8 @@ src/trading/
   ops/                   logs.py (JSON-Logging, schwärzt Geheimnisse), health.py (OK/WARN/CRITICAL, Kennzahlen für
                          /api/health und /metrics; AP-25)
   runtime/               engine.py (ereignisgesteuerte Laufzeit-Engine, AP-21; standardmäßig AUS, Start nur mit Freigabe),
-                         service.py + __main__.py (Paper-Dienst für den Betrieb, AP-27: doppelte Freigabe, Wächter)
+                         service.py + __main__.py (Paper-Dienst für den Betrieb, AP-27: doppelte Freigabe, Wächter),
+                         funding.py (Funding-Sätze für Futures im Betrieb, D-031)
   strategies/            library.py (Trendfolge, Momentum,
                          Mean Reversion, Breakout, Volatilität, Scalping), benchmarks.py (Nicht-Handeln, Kaufen-und-Halten)
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,

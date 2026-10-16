@@ -90,6 +90,7 @@ OPH, OPL = "src/trading/ops/health.py", "src/trading/ops/logs.py"
 BKT, BKS = ["tests/test_pg_backup.py"], "scripts/backup.py"  # Sicherung mit Rueckspiel-Test (AP-26)
 BET = ["tests/test_runtime_service.py", "tests/test_ops_scripts.py"]  # Betrieb (AP-27)
 BES, BEC = "src/trading/runtime/service.py", "docker-compose.prod.yml"
+LFT, LFS = ["tests/test_live_funding.py", "tests/test_runtime_service.py"], "src/trading/runtime/funding.py"  # D-031
 DPT, DPH, DPI, DPA = (["tests/test_deploy.py"], "deploy/server/harden.sh", "deploy/server/install.sh",
                       "scripts/ops/alert_check.py")  # Server, Alarme, Kosten (AP-28)
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
@@ -505,6 +506,13 @@ BACKTEST: List[Mutant] = [
  ("DP09", "Alarm-Kanal ohne Verschluesselung erlaubt", [(DPA, "    if not url.startswith(\"https://\"):", "    if False:")], DPT),
  ("DP10", "Alarm-Adresse erscheint im Protokoll", [(DPA, "        out(\"ALARM: %s\" % text)", "        out(\"ALARM: %s (%s)\" % (text, webhook))")], DPT),
  ("DP11", "Serverkosten nicht monatsweise verteilt", [("src/trading/audit/costs.py", "            year, month = (year + 1, 1) if month == 12 else (year, month + 1)", "            year, month = year, month")], DPT),
+ ("LF01", "Funding erst nach der Kerze", [(LFS, "            if candle.instrument in self._asked:\n                yield from self._new_funding(candle)\n            yield candle", "            yield candle\n            if candle.instrument in self._asked:\n                yield from self._new_funding(candle)")], LFT),
+ ("LF02", "Abrechnungen doppelt geliefert", [(LFS, "                if since < when <= until:", "                if when <= until:")], LFT),
+ ("LF03", "Abfragezeitraum rueckt nicht vor", [(LFS, "            self._asked[instrument] = until", "            pass")], LFT),
+ ("LF04", "Ausbleibende Abrechnungen ohne Not-Aus", [(LFS, "        if age > MAX_FUNDING_GAP_S and not self._halted:", "        if False:")], LFT),
+ ("LF05", "Kurzer Ausfall beim Start loest sofort Not-Aus aus", [(LFS, "            reference = self._started  # noch nie", "            reference = self._lookback  # noch nie")], LFT),
+ ("LF06", "Paper-Dienst ohne Live-Funding", [(BES, "                events = funding.events(candles)", "                events = candles")], LFT),
+ ("LF07", "Falscher Kurs zur Abrechnung", [(LFS, "FundingEvent(instrument, when, Decimal(rate), candle.close)", "FundingEvent(instrument, when, Decimal(rate), candle.open)")], LFT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),

@@ -14,6 +14,7 @@ Betriebssicherheit:
     Code 3 - Docker startet ihn neu; die Engine waermt sich danach aus der Historie auf, ohne zu handeln.
   * Not-Aus, Datenbank, Marktdaten, Engine und KI-Budget erscheinen unter /api/health (bei CRITICAL HTTP 503).
 KI-Zweitmeinungen sind hier nicht angeschlossen (Budget-Freigabe B-004 offen): KIBO und YUZU entscheiden regelbasiert.
+Futures: Die Funding-Abrechnungen der Boerse kommen ueber `LiveFunding` (D-031) vor der jeweiligen Kerze.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 from trading.agents.aki import AkiAgent
 from trading.ai.budget import BudgetLedger
@@ -36,11 +37,14 @@ from trading.backtest.data import HistoricalDataSource
 from trading.clock import Clock, SystemClock
 from trading.config import ConfigError, load_settings
 from trading.domain.instrument import Exchange, InstrumentId, MarketType, is_instrument
+from trading.domain.models import Candle, FundingEvent
 from trading.domain.universe import TradingUniverse
 from trading.execution.protocol import Executor
+from trading.marketdata.history import ExchangeHistorySource
 from trading.marketdata.stream import MarketStreamMonitor, bucket
 from trading.ops.health import HealthProbe
 from trading.runtime.engine import EngineConfig, EngineDisabledError, EngineStats, RuntimeEngine, check_start_allowed
+from trading.runtime.funding import LiveFunding
 from trading.safety.kill_switch import KillSwitch
 from trading.strategies import STRATEGY_TYPES, build_strategy
 
@@ -172,7 +176,14 @@ class PaperService:
         LOG.info("Paper-Dienst startet: %s, %d s, Strategie %s", ",".join(i.key for i in self.config.instruments),
                  self.config.interval_s, self.config.strategy, extra={"component": "service"})
         LOG.info("Aufgewaermt mit %d Kerzen", self.warm_up(), extra={"component": "service"})
-        stats = self.engine.run(self.parts.monitor.candles(stop=stop.is_set), environ)
+        candles = self.parts.monitor.candles(stop=stop.is_set)
+        events: Iterable[Union[Candle, FundingEvent]] = candles
+        if isinstance(self.parts.history, ExchangeHistorySource):
+            funding = LiveFunding(self.parts.history, self.config.instruments, self.parts.clock,
+                                  self.parts.kill_switch)
+            if funding.needed:  # Futures: Abrechnungen der Boerse vor der jeweiligen Kerze (D-031)
+                events = funding.events(candles)
+        stats = self.engine.run(events, environ)
         LOG.info("Paper-Dienst beendet: %d Ereignisse, %d Fehler", stats.events, stats.errors,
                  extra={"component": "service"})
         return stats

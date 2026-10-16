@@ -34,10 +34,10 @@ def candle(instrument, open_time, interval=60, volume=D(2)):
     return Candle(instrument, open_time, interval, p, p + 5, p - 5, p + 1, volume)
 
 
-def push(open_time, sent, high_delta=5, volume="2"):
+def push(open_time, sent, high_delta=5, volume="2", inst_type="SPOT"):
     p = price(open_time)
     row = [str(ms(open_time)), str(p), str(p + high_delta), str(p - 5), str(p + 1), volume, "0", "0"]
-    return json.dumps({"action": "update", "arg": {"instType": "SPOT", "channel": "candle1m", "instId": "BTCUSDT"},
+    return json.dumps({"action": "update", "arg": {"instType": inst_type, "channel": "candle1m", "instId": "BTCUSDT"},
                        "data": [row], "ts": ms(sent)})
 
 

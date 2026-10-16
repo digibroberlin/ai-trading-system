@@ -491,3 +491,13 @@ einen vom Eigner gewählten HTTPS-Kanal (`ALERT_WEBHOOK_URL`, nie im Protokoll).
 **Serverkosten:** `COST_SERVER_MONTHLY_USD` (sowie Marktdaten/Sonstiges) → monatliche Einträge im Kostenbuch → Netto nach
 allen Kosten im Dashboard. Ungültige Angaben verhindern den Start.
 **Grenzen:** nur Trockenlauf; Server, Konto, Kosten und Alarm-Kanal entscheidet der Eigner (B-005).
+
+## D-031 · 2026-10-16 · Funding-Sätze für Futures im laufenden Betrieb (schließt die Lücke aus D-026/D-029)
+**Entscheidung:** `runtime/funding.py` (`LiveFunding`) holt nach jeder geschlossenen Futures-Kerze die Abrechnungen der
+Börse seit der letzten Abfrage über die öffentliche REST-Schnittstelle (AP-14) und gibt sie **vor** der Kerze an die
+Engine: Die Engine kennt damit den aktuellen Satz (Futures sind nicht mehr blockiert), der Executor bucht die
+Abrechnung auf offene Positionen. Beim Start werden die Abrechnungen des letzten Tages erneut geliefert – je Position
+wirkt jede Abrechnung höchstens einmal (Executor, `last_funding_ts`), verpasste werden also nachgeholt, doppelte nicht
+gebucht. Kurs zur Abrechnung: Schluss der Kerze (Näherung wie in AP-14). Vorübergehende Fehler: nächster Versuch mit
+der nächsten Kerze. **Fail closed:** Ist die letzte bekannte Abrechnung älter als 12 Stunden (bzw. seit dem Start
+12 Stunden lang keine Antwort), löst `LiveFunding` den Not-Aus aus – sonst fehlten Haltekosten still.
