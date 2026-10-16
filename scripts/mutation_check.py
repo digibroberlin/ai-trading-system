@@ -45,6 +45,9 @@ LI = "src/trading/safety/limits.py"
 EL = "src/trading/audit/event_log.py"
 CF = "src/trading/config.py"
 IN = "src/trading/__init__.py"
+KS = "src/trading/safety/kill_switch.py"
+PK = "src/trading/persistence/kill_switch.py"
+DB = "src/trading/persistence/db.py"
 EN = "src/trading/backtest/engine.py"
 DA = "src/trading/backtest/data.py"
 CM = "src/trading/backtest/compare.py"
@@ -53,12 +56,13 @@ PL = "src/trading/persistence/pg_event_log.py"
 MG = "src/trading/persistence/migrate.py"
 S1 = "db/migrations/001_initial.sql"
 S2 = "db/migrations/002_instruments_and_exposure.sql"
+S3 = "db/migrations/003_kill_switch.sql"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 BT_PG = BT + ["tests/test_backtest_pg.py"]
 PG = ["tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
-      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py"]
+      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py", "tests/test_pg_kill_switch.py"]
 
 KERN: List[Mutant] = []
 
@@ -113,14 +117,14 @@ m("P15","Doppelte/aeltere Kerze wird verarbeitet",PE,"if last_close is not None 
 m("P16","Veraltete Bewertungskurse nicht erkannt",PE,"if mark is None or (now - mark.time).total_seconds() > self._limits.max_mark_age_s:","if mark is None:")
 m("P17","Kein Zuruecksetzen nach Fehler (nicht atomar)",PE,"            except BaseException:\n                self._restore(backup)\n                raise","            except BaseException:\n                raise")
 m("P18","Doppelte Order-ID wird ausgefuehrt",PE,"if intent.client_order_id in self._seen_order_ids:","if False:")
-m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
+m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
 m("P20","Funding: auch Shorts zahlen bei positivem Satz",PE,"cost = cost_up(position.side.sign * event.rate * position.quantity * event.mark_price)","cost = cost_up(event.rate * position.quantity * event.mark_price)")
 m("P21","Funding auf Spot-Instrument akzeptiert",PE,"problems.append(RejectReason.BAD_FUNDING)  # Funding gibt es nur bei Futures","pass")
 m("P22","Schliessen mit beliebigem Grund (z. B. als Take-Profit)",PE,"if reason not in _REQUESTED_EXITS:","if False:")
 m("P23","Datenluecke wird nicht protokolliert",PE,"if last_close is not None and candle.open_time > last_close:","if False:")
 m("P24","Einstiegsgebuehr wird nicht abgebucht",PE,"        self._balance -= decision.entry_fee\n","")
 m("P25","Marktdaten fuer ein anderes Instrument akzeptiert (Order)",PE,"        if snapshot.instrument != setup.instrument:\n            return self._reject(intent, (RejectReason.SYMBOL_MISMATCH,), None)","")
-m("P26","Ungueltige Marktdaten bei Order akzeptiert",PE,"        if not validation.ok:\n            return self._reject(intent, validation.reasons, None)","")
+m("P26","Ungueltige Marktdaten bei Order akzeptiert",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return self._reject(intent, validation.reasons, None)\n","")
 m("P27","Ereignisse sofort statt am Ende (bei Fehler bleibt Protokoll stehen)",PE,"        self._pending.append((event_type, payload))","        self._log.append(event_type, payload)")
 m("P28","Zukuenftiges Funding wird gebucht",PE,"        if not problems and (event.time - self._clock.now()).total_seconds() > FUTURE_TOLERANCE_S:\n            problems.append(RejectReason.FUTURE_TIMESTAMP)","")
 m("P29","Auffaellige Kerze wird nicht protokolliert",PE,"            > self._limits.max_price_jump\n        ):","            > self._limits.max_price_jump * 1000\n        ):")
@@ -213,12 +217,32 @@ m("E02","Erkennung von Boersen-Schluesseln abgeschaltet",CF,"    if offending:\n
 m("E03","Anderer Modus als PAPER erlaubt",CF,"    if raw_mode != TradingMode.PAPER.value:","    if False:")
 # ---- Zentraler PAPER-Schutz (AP-06, Audit M3)
 m("E04","PAPER-Schutz beim Import abgeschaltet",IN,"\n_enforce_paper_process()\n","\n")
-m("E05","Schluessel-Namen nur in Grossschrift erkannt",CF,'return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")','return re.sub(r"[^A-Z0-9]+", "_", name).strip("_")')
-m("E06","Boersen-Praefixe (CDP, Binance, CCXT ...) nicht erkannt",CF,"    return parts[0] in _EXCHANGE_PREFIXES and any(p in norm for p in _SECRET_PARTS)","    return False")
+m("E05","Schluessel-Namen nur in Grossschrift erkannt",CF,'return re.sub(r"[^A-Z0-9]+", "_", split.upper()).strip("_")','return re.sub(r"[^A-Z0-9]+", "_", split).strip("_")')
+m("E06","Boersen-Praefixe (CDP, Binance, CCXT ...) nicht erkannt",CF,"    return _mentions_exchange(norm.split(\"_\")) and any(p in norm for p in _SECRET_PARTS)","    return False")
+m("E11","Boersenname nur am Anfang des Namens erkannt",CF,"    return any(p in _EXCHANGE_PREFIXES or p.startswith(_LONG_EXCHANGE_PREFIXES) for p in parts)","    return parts[0] in _EXCHANGE_PREFIXES")
+m("E12","camelCase-Namen nicht zerlegt",CF,'    split = re.sub(r"([a-z0-9])([A-Z])", r"\\1_\\2", name)',"    split = name")
 m("E07","Allgemeine Namen (API_KEY ...) nicht erkannt",CF," or norm in _GENERIC_NAMES"," ")
 m("E08","Schluessel-Inhalte unter fremdem Namen nicht erkannt",CF,"if _is_credential_name(name) or _CREDENTIAL_VALUE.search(value):","if _is_credential_name(name):")
 m("E09","TRADING_MODE in Kleinschreibung ignoriert",CF,'if _normalized(k) == "TRADING_MODE"]','if k == "TRADING_MODE"]')
 m("E10","Passphrase unter beliebigem Namen nicht erkannt",CF,' or "PASSPHRASE" in norm:',':')
+# ---- Globaler Not-Aus (AP-07)
+m("N01","Not-Aus vor der Datenpruefung nicht beachtet",PE,"        halted = self._halted_reasons()\n        if halted is not None:\n            return self._reject(intent, halted, None)\n\n        # 2. Marktdaten","        # 2. Marktdaten")
+m("N02","Not-Aus nach der Bewertung nicht beachtet",PE,"        halted = self._halted_reasons()\n        if halted is not None:\n            return self._reject(intent, halted, None)\n        decision","        decision")
+m("N03","Ausgeloester Not-Aus wird ignoriert",PE,"        if not status.halted:\n            return None","        if True:\n            return None")
+m("N04","Datenfehler loesen keinen Not-Aus aus",PE,"        if bad:\n            self._trip(HaltReason.DATA_ERROR","        if False:\n            self._trip(HaltReason.DATA_ERROR")
+m("N05","Wiederholte Kerzen loesen den Not-Aus aus",PE,"    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED,","    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED, RejectReason.DUPLICATE_CANDLE,")
+m("N06","Notbremsen loesen keinen Not-Aus aus",PE,"        for brake in brake_reasons_for(equity, day_start, peak, self._limits):","        for brake in ():")
+m("N07","Protokollfehler loest keinen Not-Aus aus",PE,'                    self._trip_silently(HaltReason.PROTOCOL_ERROR, "Protokoll nicht schreibbar: %s" % type(exc).__name__)',"                    pass")
+m("N08","Freigabe ohne Bestaetigungstext",KS,"    if confirmation != RELEASE_CONFIRMATION:","    if False:")
+m("N09","Freigabe ohne Namen",KS,"    if not name:\n","    if False:\n")
+m("N10","Unlesbarer Not-Aus gilt als frei",PE,'            return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)',"            return HaltStatus(False)")
+m("N11","Zweiter Ausloeser ueberschreibt den ersten Grund",KS,"            if self._state.halted:\n                return False\n","")
+m("N12","Tagesverlust-Bremse loest den Not-Aus nicht mehr aus (eine Definition fuer beide)",OR,"        if day_loss >= limits.max_daily_loss:","        if day_loss > limits.max_daily_loss * 2:")
+m("N13","Verlust der Mitternachts-Kerze zaehlt fuer keinen Tag",PE,"        if now.date() > self._day:\n            # Tageswechsel","        if False:\n            # Tageswechsel")
+m("N14","Notbremsen vor statt nach der Order gemessen",OR,"    reasons.extend(brake_reasons_for(equity_after, portfolio.day_start_equity","    reasons.extend(brake_reasons_for(portfolio.equity, portfolio.day_start_equity")
+m("N15","Geteilter Not-Aus wird waehrend der Order nicht festgehalten",KS,"    def hold(self) -> ContextManager[object]:\n        return self._lock\n","")
+m("N16","Fehler beim Ausloesen bricht Stop-Loss ab",PE,"        except Exception as exc:  # gemeinsamer Not-Aus nicht schreibbar: wenigstens hier stoppen, Schliessen nicht abbrechen\n","        except ZeroDivisionError as exc:  # eingebauter Fehler\n")
+m("N17","Freigabe setzt die Bezugswerte der Notbremsen nicht neu",PE,"        self._day, self._day_start_equity, self._peak_equity = now.date(), equity, equity\n","")
 
 
 BACKTEST: List[Mutant] = [
@@ -290,6 +314,23 @@ DATENBANK: List[Mutant] = [
  ("G28","Order-Vermerk wird nicht gespeichert",[(EX,"        if order is not None:\n            oid, result = order","        if False:\n            oid, result = order")], PG),
  ("G29","Geschlossene Position bleibt in der DB offen",[(EX,"                    \"UPDATE positions SET status = 'CLOSED', closed_at = %s\"","                    \"UPDATE positions SET status = status, closed_at = %s\"")], PG),
  ("G30","Guthaben wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(),",'new_vals = (account["balance"], engine.equity(),')], PG),
+ ("G31","Anwendung darf den Not-Aus aufheben",[(S3,"        IF current_user = 'trading_app' THEN\n            RAISE EXCEPTION 'Not-Aus darf nur","        IF false THEN\n            RAISE EXCEPTION 'Not-Aus darf nur")], PG),
+ ("G32","DB-Gurt: neue Position trotz Not-Aus",[(S3,"    IF COALESCE((SELECT halted FROM trading_halt WHERE id = 1), true) THEN","    IF false THEN")], PG),
+ ("G33","Erster Grund des Not-Aus ueberschreibbar",[(S3,"IF NEW.reason IS DISTINCT FROM OLD.reason OR NEW.since IS DISTINCT FROM OLD.since\n           OR NEW.note IS DISTINCT FROM OLD.note THEN","IF false THEN")], PG),
+ ("G34","Vom Programm ausgeloester Not-Aus wird nicht gespeichert",[(EX,"            write_trip(cur, halt_after)\n","            pass\n")], PG),
+ ("G35","Protokoll-Schreibfehler setzt keinen Not-Aus",[(EX,"                trip_in_new_transaction(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,\n                                        \"Protokoll nicht schreibbar","                (lambda *a: None)(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,\n                                        \"Protokoll nicht schreibbar")], PG),
+ ("G36","Executor liest den Not-Aus nicht aus der Datenbank",[(EX,"halt = read_halt(cur, lock=True)","halt = HaltStatus(False)")], PG),
+ ("G37","Fehlende Not-Aus-Zeile gilt als frei",[(PK,'return HaltStatus(True, None, None, "Not-Aus-Zeile fehlt")',"return RUNNING")], PG),
+ ("G38","Beschaedigtes Protokoll bei der Pruefung setzt keinen Not-Aus",[(EX,"        if not ok:\n            with self._conn_lock:","        if False:\n            with self._conn_lock:")], PG),
+ ("G39","Not-Aus wird ohne Sicherungspunkt protokolliert (kaputtes Protokoll verhindert ihn)",[(PK,"                with conn.transaction():\n                    log_event(","                if True:\n                    log_event(")], PG),
+ ("G40","Not-Aus-Zeile ohne Sperre gelesen (Wettlauf mit Ausloesern)",[(EX,"halt = read_halt(cur, lock=True)","halt = read_halt(cur)")], PG),
+ ("G41","Not-Aus-Zeile loesch-/neu anlegbar (Freigabe ohne Namen)",[(S3,"CREATE TRIGGER trading_halt_no_insert_delete BEFORE INSERT OR DELETE ON trading_halt","CREATE TRIGGER trading_halt_no_insert_delete BEFORE UPDATE OF id ON trading_halt")], PG),
+ ("G42","Not-Aus-Tabelle leerbar (TRUNCATE)",[(S3,"CREATE TRIGGER trading_halt_no_truncate BEFORE TRUNCATE ON trading_halt","CREATE TRIGGER trading_halt_no_truncate AFTER INSERT ON trading_halt")], PG),
+ ("G43","Freigabe erbt Name und Zeitpunkt einer frueheren Freigabe",[(S3,"           OR NEW.released_at IS NOT DISTINCT FROM OLD.released_at OR NEW.released_at < OLD.since THEN","           THEN")], PG),
+ ("G44","Haengende Transaktionen ohne Zeitlimit",[(DB,'            " -c idle_in_transaction_session_timeout=15000"\n',"")], PG),
+ ("G45","Freigabe setzt die Notbremsen der Konten nicht neu",[(PK,'"UPDATE accounts SET day = %s, day_start_equity = equity, peak_equity = equity,"\n                " version = version + 1, updated_at = now()",','"SELECT %s::date",')], PG),
+ ("G46","Freigabe ohne Not-Aus-Zeile meldet Erfolg",[(PK,"            if cur.rowcount != 1:  # Zeile fehlt","            if False:  # Zeile fehlt")], PG),
+ ("G47","Ausloesen von aussen ohne Wiederholung bei belegter Sperre",[(PK,"            except psycopg.errors.LockNotAvailable:\n","            except ZeroDivisionError:\n")], PG),
 ]
 
 
@@ -312,6 +353,19 @@ def copy_project(workdir: Path) -> Path:
     for name in ("pyproject.toml", "Dockerfile"):
         shutil.copy(ROOT / name, copy)
     return copy
+
+
+def stale_entries() -> List[str]:
+    """Eintraege, deren Textstelle nicht genau einmal im Projekt steht. Vor dem Lauf geprueft, damit ein veralteter Eintrag
+    nicht erst nach langer Laufzeit auffaellt - und damit kein Fehler an einer unbeabsichtigten zweiten Stelle eingebaut wird."""
+    stale = []
+    for group in GROUPS.values():
+        for key, _, edits, _ in group:
+            for path, old, _ in edits:
+                count = (ROOT / path).read_text(encoding="utf-8").count(old)
+                if count != 1:
+                    stale.append("%s (%s: %d Fundstellen)" % (key, path, count))
+    return stale
 
 
 def check(mutant: Mutant, copy: Path, with_db: bool) -> Tuple[bool, str]:
@@ -354,6 +408,10 @@ def main(argv: Sequence[str]) -> int:
         raise SystemExit("Unbekannte Gruppe: %s (moeglich: %s)" % (", ".join(unknown), ", ".join(GROUPS)))
     keys = [mt[0] for group in GROUPS.values() for mt in group]
     assert len(keys) == len(set(keys)), "Kennungen muessen eindeutig sein"
+
+    stale = stale_entries()
+    if stale:
+        raise SystemExit("Veraltete Eintraege - bitte an den aktuellen Code anpassen:\n  " + "\n  ".join(stale))
 
     found = missed = skipped = 0
     survivors: List[str] = []

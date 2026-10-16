@@ -29,14 +29,16 @@ _FORBIDDEN_CREDENTIAL_ENV = re.compile(
     r"^(COINBASE|BITGET|CB|BG)[A-Z0-9_]*(KEY|SECRET|PASSPHRASE|TOKEN)[A-Z0-9_]*$"
 )
 
-# Erste Namensteile, die auf eine Boerse oder eine Boersen-Bibliothek deuten (Audit M3: auch CDP = Coinbase Developer
-# Platform, weitere grosse Boersen und CCXT). Verglichen wird der erste Teil des Namens in Grossschrift, getrennt an "_".
+# Namensteile, die auf eine Boerse oder eine Boersen-Bibliothek deuten (Audit M3: auch CDP = Coinbase Developer Platform,
+# weitere grosse Boersen und CCXT). Geprueft wird JEDER Teil des Namens (MY_BINANCE_API_KEY, FREQTRADE__EXCHANGE__KEY);
+# lange Namen auch als Anfang eines Teils (BINANCEUS_..., KRAKENFUTURES_..., BINANCEAPIKEY).
 _EXCHANGE_PREFIXES = frozenset({
     "COINBASE", "CDP", "CB", "BITGET", "BG", "BINANCE", "KRAKEN", "BYBIT", "OKX", "OKEX", "KUCOIN", "GATE", "GATEIO",
     "MEXC", "HTX", "HUOBI", "BITFINEX", "BITMEX", "DERIBIT", "BITSTAMP", "GEMINI", "CRYPTOCOM", "HYPERLIQUID",
     "BITVAVO", "CCXT", "EXCHANGE",
 })
-_SECRET_PARTS = ("KEY", "SECRET", "PASSPHRASE", "TOKEN", "PASSWORD", "PRIVATE", "PEM", "UID")
+_LONG_EXCHANGE_PREFIXES = tuple(sorted(n for n in _EXCHANGE_PREFIXES if len(n) >= 5))
+_SECRET_PARTS = ("KEY", "SECRET", "PASSPHRASE", "TOKEN", "PASSWORD", "PRIVATE", "PEM", "UID", "CREDENTIAL")
 # Allgemeine Namen, unter denen Boersen-Schluessel oft abgelegt werden. Bewusst KEINE breite Regel wie "enthaelt SECRET":
 # Cloud- und Entwicklungsumgebungen haben eigene Zugaenge (z. B. AWS_SECRET_ACCESS_KEY, GH_TOKEN), die mit Handel nichts
 # zu tun haben; sie wuerden sonst jeden Start verhindern.
@@ -49,15 +51,20 @@ _CREDENTIAL_VALUE = re.compile(r"organizations/[0-9A-Za-z-]+/apiKeys/|BEGIN EC P
 
 
 def _normalized(name: str) -> str:
-    return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")
+    """Grossschrift, Teile durch "_" getrennt - auch bei camelCase (binanceApiSecret -> BINANCE_API_SECRET)."""
+    split = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    return re.sub(r"[^A-Z0-9]+", "_", split.upper()).strip("_")
+
+
+def _mentions_exchange(parts: List[str]) -> bool:
+    return any(p in _EXCHANGE_PREFIXES or p.startswith(_LONG_EXCHANGE_PREFIXES) for p in parts)
 
 
 def _is_credential_name(name: str) -> bool:
     norm = _normalized(name)
     if _FORBIDDEN_CREDENTIAL_ENV.match(norm) or norm in _GENERIC_NAMES or "PASSPHRASE" in norm:
         return True
-    parts = norm.split("_")
-    return parts[0] in _EXCHANGE_PREFIXES and any(p in norm for p in _SECRET_PARTS)
+    return _mentions_exchange(norm.split("_")) and any(p in norm for p in _SECRET_PARTS)
 
 
 def credential_variables(env: Mapping[str, str]) -> List[str]:

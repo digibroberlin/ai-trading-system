@@ -188,3 +188,32 @@ ausgeführt (keine Sicherheitslogik geändert); GitHub-Actions-Ergebnis (aus der
 * **Gefundener Fehler in der Gegenprobe selbst:** Die Arbeitskopie enthielt seit AP-05 den Ordner `requirements/` nicht; der neue
   Sperrdatei-Test schlug dort immer fehl, und **jeder** eingebaute Fehler hätte als „entdeckt“ gegolten. Behoben (Kopie vollständig)
   und abgesichert: Die Gegenprobe läuft jetzt zuerst eine **Grundprobe** ohne eingebauten Fehler und bricht ab, wenn die schon scheitert.
+
+## Nachtrag 2026-10-15 – AP-07 Globaler Not-Aus (Kill Switch)
+
+Umgebung: Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Neue Tests:** `tests/test_kill_switch.py` (28, ohne Datenbank) und `tests/test_pg_kill_switch.py` (27, mit Datenbank, darunter
+  ein Mehrprozess-Test mit 8 echten Prozessen auf 6 Konten, 3× wiederholt, und ein Test mit einer 15 s hängenden Transaktion).
+  Angepasst (strenger, nicht schwächer): Tagesverlust-Bremse löst sich nicht mehr um Mitternacht, sondern erst nach Freigabe;
+  die Notbremsen werden am Zustand nach der Order gemessen (Grenzfälle mit 2,40 Gebühr neu berechnet).
+* **Preflight:** STABIL – **798/798** Tests, 0 übersprungen (mypy, ruff, Geheimnis-Scan ohne Befund).
+* **Ein Ausreißer, nicht erklärt:** Ein Preflight-Lauf während der Arbeit meldete „796 bestanden, 2 fehlgeschlagen“. In sechs
+  weiteren Komplettläufen und vier Läufen der zeitkritischen Testdateien trat das nicht wieder auf. Welche Tests es waren, ist
+  nicht bekannt, weil `preflight.py` bis dahin nur die Summe ausgab – das Skript nennt fehlgeschlagene Tests jetzt mit Namen.
+  Verdacht: zeitabhängige Mehrprozess-/Thread-Tests unter Last. Bleibt beobachtet.
+* **Unabhängige Prüfung (5 Prüf-Agenten, jeder Befund von einem zweiten Agenten gegengeprüft):** 16 bestätigte Befunde, keiner
+  „hoch“, alle behoben und mit Tests abgesichert – u. a.: Verlust der Mitternachts-Kerze fiel aus der Tagesbremse; Notbremse vor
+  statt nach der Order gemessen; geteilter Not-Aus konnte zwischen Prüfung und Fill ausgelöst werden; eine hängende Transaktion
+  blockierte den Not-Aus von außen unbegrenzt; Freigabe konnte in der Datenbank Name/Zeit einer früheren Freigabe erben;
+  Schlüssel-Erkennung übersah camelCase und Börsennamen in der Mitte (`MY_BINANCE_API_KEY`, `FREQTRADE__EXCHANGE__KEY`);
+  Docker-Testimage enthielt `Dockerfile`/`.github` nicht (2 Tests wären dort rot); Lückenprüfung übersprang Python-3.9-Pakete;
+  mehrere Tests prüften schwächer als behauptet (Trigger-Tests nur über fehlende Rechte, Mehrprozess-Test konnte trivial bestehen).
+* **Nicht geprüft:** Docker-Image-Bau (Docker Hub 429 in der Cloud); GitHub-Actions-Lauf der neuen Stände (aus dieser Sitzung
+  nicht einsehbar – die Routine kann ihn lesen); vollständige Gegenprobe aller 236 Einträge (nur die AP-06/07-Einträge, siehe unten).
+* **Gegenprobe der AP-06/07-Einträge (Cloud-Routine, 2026-10-16 02:21–02:58 UTC, mit Datenbank):** **46 von 46 entdeckt**
+  (E04–E12, N01–N17, G30–G47 sowie die angepassten P19/P26). Dabei fielen vier Einträge auf, deren Textstelle durch AP-07
+  nicht mehr im Code stand (E05, P19, P26, N06) – die volle Gegenprobe wäre an ihnen abgebrochen. Angepasst, ohne die Absicht
+  der Prüfung zu ändern. Neu: `mutation_check.py` prüft vor dem Lauf, dass **jede** Textstelle genau einmal vorkommt, und
+  bricht sonst sofort mit einer Liste ab. Die vollständige Gegenprobe aller 236 Einträge ist für AP-07 **nicht** gelaufen
+  (folgt spätestens vor `stable/004`).

@@ -19,7 +19,9 @@ from trading.clock import FixedClock
 from trading.domain.models import ExitReason, FundingEvent, MarketType, OrderIntent, OrderStatus, Side
 from trading.domain.reasons import RejectReason as R
 from trading.persistence.pg_event_log import PostgresEventLog
+from trading.persistence.kill_switch import PostgresKillSwitch
 from trading.persistence.pg_executor import PostgresPaperExecutor
+from trading.safety.kill_switch import RELEASE_CONFIRMATION, HaltReason
 from trading.safety.limits import DEFAULT_LIMITS
 from trading.safety.risk_manager import RiskManager
 
@@ -244,7 +246,7 @@ def test_trading_day_its_starting_equity_and_the_daily_loss_brake_survive_restar
         assert len(feed(ex, clock, make_candle(clock.now(), D(100), D(100), D(98), D("98.5")))) == 1
         clock.advance(120)
     assert ex.submit(big("blocked", "ETH-USD"), snapshot(symbol="ETH-USD", ts=clock.now())).reasons == (
-        R.DAILY_LOSS_LIMIT,)
+        R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
 
     # Neustart am selben Tag: Handelstag und Tagesstart sind unveraendert, die Bremse gilt weiter.
     restarted = new_executor(pg, clock)
@@ -252,10 +254,18 @@ def test_trading_day_its_starting_equity_and_the_daily_loss_brake_survive_restar
     assert state.day_start_equity == equity_day1 and state.equity == equity_day1 - D("313.432")
     assert day_in_db() == (day2, equity_day1)
     assert restarted.submit(big("after-restart", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).reasons == (
-        R.DAILY_LOSS_LIMIT,)
+        R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
 
-    # Tag 3: neuer Tagesstart beim (niedrigeren) Kapital - Handel ist wieder moeglich, auch nach einem Neustart.
+    # Tag 3: Die Bremse hat den Not-Aus ausgeloest (AP-07) - er gilt auch am neuen Tag und nach Neustart weiter,
+    # bis ein Administrator ihn bewusst aufhebt. Danach neuer Tagesstart beim (niedrigeren) Kapital.
     clock.set(T0 + timedelta(days=2))
+    fresh = new_executor(pg, clock)
+    assert fresh.halt_status().reason is HaltReason.DAILY_LOSS
+    assert fresh.submit(big("day3-halted", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).reasons == (
+        R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
+    admin_switch = PostgresKillSwitch(pg.admin_url, clock)
+    admin_switch.release("Eigner", RELEASE_CONFIRMATION)
+    admin_switch.close()
     fresh = new_executor(pg, clock)
     assert fresh.submit(big("day3", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).status is OrderStatus.FILLED
     assert day_in_db() == (clock.now().date(), equity_day1 - D("313.432"))

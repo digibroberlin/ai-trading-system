@@ -56,8 +56,26 @@ def order_worker(a: Dict[str, Any]) -> None:
     wait_until(a["start_at"])
     for oid, sym in a["specs"]:
         setup = make_setup(oid, symbol=sym, market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
-        res = ex.submit(OrderIntent(oid, setup, D(9), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
+        res = ex.submit(OrderIntent(oid, setup, D(a.get("qty", 9)), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
         emit({"order": oid, "status": res.status.value, "reasons": [r.value for r in res.reasons]})
+    ex.close()
+
+
+def halt_worker(a: Dict[str, Any]) -> None:
+    """Loest den globalen Not-Aus aus, sobald mindestens `after_fills` Positionen eroeffnet sind - also sicher MITTEN im
+    Handel der anderen Prozesse (nicht vorher, nicht nachher; unabhaengig davon, wie schnell die Prozesse starten)."""
+    import psycopg
+
+    ex = make_executor(a["url"], a["account"])
+    wait_until(a["start_at"])
+    with psycopg.connect(a["url"], autocommit=True) as conn:
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            row = conn.execute("SELECT count(*) FROM positions").fetchone()
+            if row is not None and row[0] >= a["after_fills"]:
+                break
+            time.sleep(0.005)
+    emit({"halt": ex.halt("Mehrprozess-Test")})
     ex.close()
 
 
@@ -145,7 +163,7 @@ def operation_worker(a: Dict[str, Any]) -> None:
     ex.close()
 
 
-WORKERS = {"order": order_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker,
+WORKERS = {"order": order_worker, "halt": halt_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker,
            "operation": operation_worker}
 
 if __name__ == "__main__":

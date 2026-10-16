@@ -307,12 +307,12 @@ def test_process_with_a_wrong_clock_cannot_reset_the_daily_loss_limit(pg):
         assert a.submit(intent("t%d" % i, qty=D(40), stop=D(99), tp=D(102)), snap(clock)).status is OrderStatus.FILLED
         feed(a, clock, make_candle(clock.now(), D(100), D(100), D(98), D("98.5")))
         clock.advance(120)
-    assert a.submit(intent("blocked", "ETH-USD"), snap(clock, "ETH-USD")).reasons == (R.DAILY_LOSS_LIMIT,)
+    assert a.submit(intent("blocked", "ETH-USD"), snap(clock, "ETH-USD")).reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
     b, _ = pg_exec(pg, FixedClock(T0 - timedelta(days=1)))
     b.portfolio_state()
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT day, day_start_equity FROM accounts").fetchone() == (T0.date(), D(10000))
-    assert a.submit(intent("still", "SOL-USD"), snap(clock, "SOL-USD")).reasons == (R.DAILY_LOSS_LIMIT,)
+    assert a.submit(intent("still", "SOL-USD"), snap(clock, "SOL-USD")).reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
 
 
 def test_application_role_is_used_never_the_administrator(pg):

@@ -480,7 +480,7 @@ def test_failing_migration_changes_nothing(pg, tmp_path):
 def test_database_without_version_table_is_not_touched_unless_baselined(pg_v1):
     """So sah die echte Datenbank vor Stufe 1 aus: Schema 001, aber keine Versionstabelle."""
     from conftest import MIGRATIONS
-    from trading.persistence.migrate import MigrationError, migrate
+    from trading.persistence.migrate import MigrationError, load_migrations, migrate
 
     with admin(pg_v1) as c:
         c.execute("DROP TABLE schema_migrations")  # nur in der kurzlebigen Test-DB
@@ -488,8 +488,9 @@ def test_database_without_version_table_is_not_touched_unless_baselined(pg_v1):
         migrate(pg_v1.admin_url, MIGRATIONS)
     with admin(pg_v1) as c:
         assert c.execute("SELECT to_regclass('public.instrument_state')").fetchone() == (None,)
-    assert migrate(pg_v1.admin_url, MIGRATIONS, baseline_existing=True) == [2]
-    assert [(v, note) for v, _, note in versions(pg_v1)] == [(1, "baseline: bestand bereits"), (2, "")]
+    later = [m.version for m in load_migrations(MIGRATIONS)][1:]  # alle nach 001
+    assert migrate(pg_v1.admin_url, MIGRATIONS, baseline_existing=True) == later
+    assert [(v, note) for v, _, note in versions(pg_v1)] == [(1, "baseline: bestand bereits")] + [(v, "") for v in later]
 
 
 def test_migration_002_keeps_existing_positions_trades_and_the_log(pg_v1):
@@ -519,7 +520,8 @@ def test_migration_002_keeps_existing_positions_trades_and_the_log(pg_v1):
     log = fill_log(pg_v1, 3)
     head_before = log.events()[-1].hash
 
-    assert migrate(pg_v1.admin_url, MIGRATIONS) == [2]
+    from trading.persistence.migrate import load_migrations
+    assert migrate(pg_v1.admin_url, MIGRATIONS) == [m.version for m in load_migrations(MIGRATIONS)][1:]
 
     with admin(pg_v1) as c:
         assert c.execute("SELECT position_id, status, exchange, symbol, quantity, risk_at_open FROM positions"

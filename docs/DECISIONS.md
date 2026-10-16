@@ -71,11 +71,42 @@ Lücke (CVE-2025-71176 / PYSEC-2026-1845, behoben in 9.0.3; ein *anderer lokaler
 * `pytest` wird auf **9.0.3** angehoben. Ausnahme: Der GitHub-Job „Kern ohne Datenbank (Python 3.9)“ bleibt bei 8.4.2, weil
   pytest 9 Python 3.9 nicht mehr unterstützt. Er läuft nur auf einer frischen Wegwerf-Maschine ohne weitere Benutzer; die Lücke ist dort
   nicht ausnutzbar. Diese eine Ausnahme steht mit Begründung in `scripts/dependency_audit.py` und gilt nur für `py39.lock`.
-* `scripts/dependency_audit.py` prüft alle Sperrdateien auf bekannte Lücken; es braucht Netzwerk und läuft deshalb in
-  GitHub Actions (eigener Job), nicht in `preflight.py`.
+* `scripts/dependency_audit.py` prüft **jede** Paketversion aus allen Sperrdateien auf bekannte Lücken – auch Einträge, die
+  nur für Python 3.9 oder Windows gelten (pip-audit allein hätte sie unter 3.12 still übersprungen). Kann es nicht vollständig
+  prüfen (kein Netz, pip-audit fehlt), meldet es Code 2 „nicht vollständig“ statt eines Ergebnisses. Es braucht Netzwerk und
+  läuft deshalb in GitHub Actions (eigener Job), nicht in `preflight.py`.
 * **CCXT (Vorabprüfung für AP-14, D-006):** Version 4.5.88 zieht 24 Pakete nach (u. a. aiohttp, cryptography, requests, coincurve);
   `pip-audit` meldete am 2026-10-15 keine bekannte Lücke. CCXT wird erst mit AP-14 als Extra `exchange` aufgenommen – dann mit eigener
   Sperrdatei und erneuter Prüfung.
 **Grenzen:** Das Basis-Image `python:3.12-slim` ist noch nicht per Digest festgeschrieben, und die Container haben weiter freien
 Internetzugang (beides Rest von M12, gehört zu AP-27). Das geänderte Dockerfile konnte in der Cloud nicht gebaut werden
 (Docker Hub: „429 Too Many Requests“); geprüft wurden dieselben Installationsschritte in frischen Python-Umgebungen.
+
+## D-011 · 2026-10-15 · Globaler Not-Aus; Notbremsen halten bis zur bewussten Freigabe (AP-07)
+**Entscheidung:**
+* Ein globaler Not-Aus (eine Zeile `trading_halt` für alle Konten und Prozesse) sperrt neue Positionen. Schließen
+  (Stop-Loss, Take-Profit, Liquidation, Ausstiegssignal) und Funding laufen weiter – Risiko abbauen muss immer gehen.
+* Automatische Auslöser: formal fehlerhafte Marktdaten (NaN, nicht-positive Kurse, kaputte Kerzen, naive oder zukünftige
+  Zeitstempel, fehlerhafte Funding-Ereignisse), Fehler beim Schreiben oder Prüfen des Ereignisprotokolls, die Notbremsen
+  Tagesverlust (3 %) und Drawdown (10 %). **Nicht** ausgelöst wird durch doppelte/ältere Kerzen (normale Wiederholung), zu weite
+  Spreads, Kurssprünge oder veraltete Kurse – sie blockieren wie bisher nur die einzelne Order.
+* **Strenger als vorher:** Die Tagesverlust-Bremse löste sich bisher um Mitternacht von selbst. Jetzt bleibt der Handel gestoppt,
+  bis ein Mensch die Ursache geprüft und den Not-Aus aufgehoben hat (Audit M14: „Bremse ohne Freigabe-Verfahren“).
+* Aufheben nur mit Namen und dem Text `HANDEL FREIGEBEN`, in der Datenbank nur mit einer Administrator-Verbindung
+  (Trigger verweigert es der Anwendungsrolle). Der erste Grund bleibt stehen, bis aufgehoben wird. Alles im Ereignisprotokoll.
+* Fail closed: Ist der Zustand nicht lesbar oder fehlt die Zeile, gilt der Handel als gestoppt (Programm und Datenbank).
+* Jede Aktion sperrt nach der Konto-Zeile auch die Not-Aus-Zeile (`FOR UPDATE`). Folge: Aktionen **verschiedener** Konten laufen
+  nacheinander. Bewusst gewählt: Sonst könnte ein Prozess zwischen „Not-Aus gelesen“ und „Position gespeichert“ überholt werden.
+* **Freigabe setzt die Bremsen neu an:** Wer freigibt, nimmt den bisherigen Verlust bewusst hin. Tagesbeginn und Höchststand
+  werden auf die aktuelle Equity gesetzt (in der Datenbank für alle Konten, in derselben Transaktion wie die Freigabe).
+  Ohne das löste dieselbe Bremse sofort wieder aus, und nach einem Drawdown wäre eine Freigabe nie möglich.
+* **Ergänzt nach der unabhängigen Prüfung (2026-10-15):** (a) Beim Tageswechsel zählt ein Verlust seit der letzten
+  Bewertung noch zum alten Tag (vorher fiel z. B. der Verlust der Kerze, die um Mitternacht schließt, aus der Tagesbremse);
+  (b) die Notbremsen in der Risikoprüfung gelten wie alle Grenzen am Zustand **nach** der Order (Kosten der Order zählen);
+  (c) ein Executor hält den (geteilten) Not-Aus für die Dauer seiner Operation fest; (d) scheitert das Auslösen des
+  gemeinsamen Not-Aus, stoppt wenigstens der Executor selbst – ein Stop-Loss wird dadurch nie abgebrochen;
+  (e) die Datenbank beendet eine in einer Transaktion hängende Sitzung nach 15 s (sonst blockierte sie den Not-Aus selbst),
+  das Auslösen von außen wird bei belegter Sperre wiederholt; (f) eine Freigabe braucht in der Datenbank einen neuen
+  Zeitpunkt (sie erbt nicht Name/Zeit einer früheren Freigabe); (g) die Kommandozeile liefert eindeutige Rückgabecodes.
+**Folgen für Backtests:** Der Backtest nutzt denselben Executor; trifft eine Strategie die Notbremse, endet der Handel in diesem
+Backtest (das bildet den echten Betrieb ab). Die bestehenden Backtest-Ergebnisse haben sich dadurch nicht geändert.

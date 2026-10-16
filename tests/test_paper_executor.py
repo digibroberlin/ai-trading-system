@@ -25,6 +25,7 @@ from trading.domain.models import (
 )
 from trading.domain.reasons import RejectReason as R
 from trading.execution.costs import MONEY_QUANTUM, CostModel
+from trading.safety.kill_switch import RELEASE_CONFIRMATION, HaltReason
 from trading.safety.limits import DEFAULT_LIMITS
 
 FUTM = {"market_type": MarketType.FUTURES}
@@ -687,20 +688,27 @@ def test_stale_valuation_of_an_open_position_blocks_new_trades_until_refreshed()
     assert small_order(env, "d", "SOL-USD").status is OrderStatus.FILLED
 
 
-def test_daily_loss_kill_switch_stops_trading_then_resets_next_day():
+def test_daily_loss_brake_halts_trading_until_deliberate_release():
+    """Tagesverlust >= 3 % loest den Not-Aus aus. Er bleibt auch am naechsten Tag bestehen (AP-07, strenger als frueher:
+    vorher loeste sich die Bremse um Mitternacht von selbst) - bis ein Mensch ihn bewusst freigibt."""
     env = Env()
     blocked_at = None
     for i in range(10):
         r = env.order("t%d" % i)
         if r.status is OrderStatus.REJECTED:
             blocked_at = i
-            assert r.reasons == (R.DAILY_LOSS_LIMIT,)
+            assert r.reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
             break
         env.feed(make_candle(env.clock.now(), D(100), D(100), D(98), D(98.5)))  # Stop wird ausgeloest
         env.clock.advance(120)
     assert blocked_at == 7  # 7 Verluste a 0,448 % = 3,13 % >= 3 %
+    assert env.executor.halt_status().reason is HaltReason.DAILY_LOSS
+    assert [e.payload["reason"] for e in env.log.of_type(EventType.HALT_ACTIVATED)] == ["DAILY_LOSS"]
     env.clock.set(T0 + timedelta(days=1))
-    assert env.order("next-day").status is OrderStatus.FILLED
+    assert env.order("next-day").reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
+    env.executor.release_halt("Eigner", RELEASE_CONFIRMATION)
+    assert env.order("after-release").status is OrderStatus.FILLED
+    assert env.log.of_type(EventType.HALT_RELEASED)[0].payload["operator"] == "Eigner"
 
 
 def test_clock_going_backwards_does_not_reset_the_daily_loss_limit():
@@ -712,7 +720,7 @@ def test_clock_going_backwards_does_not_reset_the_daily_loss_limit():
         env.clock.advance(120)
     env.clock.set(env.clock.now() - timedelta(days=1))
     r = env.order("after", symbol="ETH-USD", snap_kw={"symbol": "ETH-USD"})
-    assert r.reasons == (R.DAILY_LOSS_LIMIT,)
+    assert r.reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
     assert env.executor.portfolio_state().day_start_equity == D(10000)
 
 
@@ -729,10 +737,16 @@ def test_peak_equity_never_falls_and_drawdown_limit_blocks():
     state = dataclasses.replace(Env().executor.export_state(), peak_equity=D("11112"))
     dd = Env()
     dd.executor.restore_state(state)
-    assert dd.order("x").reasons == (R.DRAWDOWN_LIMIT,)
+    assert dd.order("x").reasons == (R.TRADING_HALTED, R.DRAWDOWN_LIMIT)
+    assert dd.executor.halt_status().reason is HaltReason.DRAWDOWN
+    # Gemessen wird am Zustand NACH der Order (Gebuehr 2,40): 9 997,60 gegen den Hoechststand.
     ok = Env()
-    ok.executor.restore_state(dataclasses.replace(state, peak_equity=D("11111")))  # 9,99 %
+    ok.executor.restore_state(dataclasses.replace(state, peak_equity=D("11108")))  # 9,996 % nach der Order
     assert ok.order("x").status is OrderStatus.FILLED
+    edge = Env()
+    edge.executor.restore_state(dataclasses.replace(state, peak_equity=D("11109")))  # 9,98 % vorher, 10,0004 % danach
+    assert edge.order("x").reasons == (R.DRAWDOWN_LIMIT,)  # die Order selbst wuerde die Grenze reissen: abgelehnt
+    assert not edge.executor.halt_status().halted  # ... aber kein Not-Aus, denn ausgefuehrt wurde nichts
 
 
 # ------------------------------------------------------------------ M5: keine halben Zustaende, kein Handel ohne Protokoll
@@ -754,9 +768,12 @@ def test_failed_logging_rolls_the_order_back_completely():
     with pytest.raises(OSError):
         env.order("x")
     assert env.executor.open_positions == () and env.executor.balance == D(10000) and log.events() == ()
+    # Protokollfehler -> Not-Aus (AP-07): ohne bewusste Freigabe keine neue Position.
+    assert env.executor.halt_status().reason is HaltReason.PROTOCOL_ERROR
     log.fail = False
+    env.executor.release_halt("Eigner", RELEASE_CONFIRMATION)
     assert env.order("x").status is OrderStatus.FILLED  # die Order-ID wurde nicht verbraucht
-    assert [e.event_type for e in log.events()] == ["ORDER_FILLED"]
+    assert [e.event_type for e in log.events()] == ["HALT_RELEASED", "ORDER_FILLED"]
 
 
 def test_failed_logging_rolls_back_exits_funding_and_closes():

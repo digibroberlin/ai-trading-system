@@ -30,6 +30,9 @@ CMD ["python", "-m", "trading.demo"]
 FROM base AS test
 COPY tests ./tests
 COPY scripts ./scripts
+# Auch diese Dateien pruefen Tests (nur Installationswege, keine Geheimnisse - CI nutzt Wegwerf-Testpasswoerter).
+COPY Dockerfile ./
+COPY .github ./.github
 RUN pip install --no-cache-dir --require-hashes -r requirements/dev.lock
 USER trader
 CMD ["pytest", "-q", "-rs"]

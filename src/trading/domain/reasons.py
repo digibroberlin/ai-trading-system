@@ -65,3 +65,4 @@ class RejectReason(str, Enum):
     EXECUTION_ERROR = "EXECUTION_ERROR"
     NO_POSITION = "NO_POSITION"
     INVALID_EXIT_REASON = "INVALID_EXIT_REASON"
+    TRADING_HALTED = "TRADING_HALTED"  # globaler Not-Aus ist ausgeloest (safety/kill_switch.py)
