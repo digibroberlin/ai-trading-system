@@ -168,3 +168,25 @@ Kontostand-Spalten beliebig überschreiben (z. B. den Höchststand senken und da
 **Bewusst nicht umgesetzt:** ein gemeinsames Risikolimit über alle Konten. Da nur noch der Administrator Konten anlegt, ist die
 Zahl der Konten eine bewusste Entscheidung des Eigners. Die Beträge selbst (Guthaben, Equity) prüft die Datenbank nicht nach –
 sie stammen aus der einen Risikorechnung der Anwendung; jede Änderung steht im Protokoll.
+
+## D-015 · 2026-10-16 · Wiederverbindung zur Datenbank (AP-11, Audit H7)
+**Problem:** Riss die Verbindung zur Datenbank ab (Datenbank-Neustart, Netzwerk, vom Server beendete Sitzung), scheiterte jeder
+weitere Aufruf von Executor, Protokoll und Not-Aus, bis der Prozess neu gestartet wurde.
+**Entscheidung:**
+* Eine gemeinsame Verbindungsverwaltung (`persistence/db.py`, `ConnectionKeeper`) prüft vor jeder Transaktion, ob die
+  Verbindung noch gilt, und baut sie sonst neu auf: bis zu 4 Versuche mit 0,5 / 1 / 2 s Wartezeit, je Versuch höchstens 5 s
+  Verbindungsaufbau. Danach `DatabaseUnavailableError` – nie endloses Warten, nie Handeln ohne Datenbank. Beim Start wird nicht
+  gewartet (falsche Adresse oder falsches Passwort sofort melden). Eine bewusst geschlossene Verbindung verbindet sich nie neu.
+* **Aktionen** (Order, Schließen, Kerze, Funding, Portfolio): Reißt die Verbindung ab, **bevor** die Engine entschieden hat
+  (beim Sperren oder Laden), ist nichts geschehen → genau eine Wiederholung mit neuer Verbindung. Reißt sie **danach** ab
+  (auch beim COMMIT), ist der Ausgang ungewiss → keine stille Wiederholung, der Fehler geht an den Aufrufer. Dieselbe Order-ID
+  darf er gefahrlos erneut senden: Sie liefert das gespeicherte Ergebnis oder wird jetzt bearbeitet, nie doppelt (D-012).
+* **Reine Abfragen** (Kontostand, Positionen, Trades, Not-Aus-Zustand) werden nach einem Abbruch einmal wiederholt – Lesen
+  ändert nichts. Ist der Not-Aus-Zustand trotzdem nicht lesbar, gilt der Handel weiter als gestoppt.
+* **Not-Aus von außen** wiederholt auch nach einer abgerissenen Verbindung (doppelt auslösen schadet nie). Ein
+  **Protokolleintrag** (`PostgresEventLog.append`) wird nicht still wiederholt (er könnte schon gespeichert sein); der nächste
+  Aufruf verbindet neu.
+* Fehler bei **intakter** Verbindung (z. B. Sperr-Zeitlimit) werden nie automatisch wiederholt.
+* Hängende Transaktionen begrenzt seit AP-07 der Server (`idle_in_transaction_session_timeout` 15 s, TCP-Keepalive).
+**Bewusst nicht umgesetzt:** Überwachung/Alarm bei Verbindungsproblemen (kommt mit Logging und Gesundheits-Endpunkten, AP-25);
+ein Verbindungspool (ein Prozess braucht nur eine Verbindung). Der Zähler `reconnects` ist dafür vorbereitet.

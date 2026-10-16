@@ -151,6 +151,8 @@ backups/                 Sicherungen vor riskanten Änderungen (Archive werden n
   Wer den Not-Aus von außen auslöst, sperrt nur die Not-Aus-Zeile.
 * Die Datenbank führt je Instrument **eine** Marktzeitleiste (`instrument_state`). Der Container `app` kennt nur die eingeschränkte Rolle;
   Administrator-Zugang haben ausschließlich die Einmal-Dienste `migrate` und `tests`.
+* **Verbindungen nur über `persistence/db.py`** (`ConnectionKeeper`): Nach einem Abbruch wird begrenzt neu verbunden. Eine Aktion
+  wird nur automatisch wiederholt, wenn die Verbindung schon vor der Entscheidung weg war – nie, wenn ihr Ausgang ungewiss ist (D-015).
 * **Passwörter nie im Projektordner** (OneDrive synchronisiert in die Cloud): Passwort-Datei außerhalb, per `--env-file`.
 * Neue Datenbank-Tests laufen gegen eine frische Test-Datenbank (Fixture `pg`). Mehrprozess-Tests nutzen **echte Betriebssystem-Prozesse** (`tests/pg_workers.py`).
 * `docker-compose down -v` und `colima delete` löschen Daten – nur auf ausdrückliche Anweisung des Projekteigners.

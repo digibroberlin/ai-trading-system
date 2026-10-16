@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Routine (stündlicher Lauf) seit 2026-10-16 06:13 UTC für AP-11
+keine
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
@@ -19,10 +19,17 @@ gesperrt von Cloud-Routine (stündlicher Lauf) seit 2026-10-16 06:13 UTC für AP
 
 ## In Arbeit (Zwischenstand)
 
-* nichts. Nächstes Paket: **AP-11** (Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen; Audit H7).
+* nichts. Nächstes Paket: **AP-12** (Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI).
+  Danach Meilenstein `stable/004-safety-stage2`: volle Gegenprobe (`preflight.py --mutation --record`, in der Cloud ca. 45–60 min).
 
 ## Zuletzt erledigt
 
+* AP-11 Wiederverbindung zur Datenbank (Cloud-Routine 2026-10-16 06:13–06:55 UTC, Audit H7, D-015): Nach einem
+  Verbindungsabbruch verbinden sich Executor, Protokoll und Not-Aus selbst neu (höchstens 4 Versuche mit 0,5/1/2 s Wartezeit,
+  dann Fehler). Aktionen werden nur wiederholt, wenn die Verbindung vor der Entscheidung abriss; bei Abbruch während des COMMIT
+  kommt ein Fehler, dieselbe Order-ID kann gefahrlos erneut gesendet werden. Zeitlimit für hängende Transaktionen gab es schon
+  (AP-07). Preflight STABIL 877/877, 0 übersprungen; Python 3.9: 694 bestanden. Gegenprobe G66–G73 + angepasste G08/G35/G47/G62
+  12/12. Volle Gegenprobe steht vor `stable/004` aus. Alarm bei Verbindungsproblemen fehlt noch (AP-25).
 * AP-10 Rechte der App-Rolle (Cloud-Routine 2026-10-16 05:08–05:40 UTC, Audit M2 Rest, D-014): Konten legt nur noch ein
   Administrator an (Migration 005, `python -m trading.persistence.accounts create KONTO STARTKAPITAL`, Protokoll
   `ACCOUNT_CREATED`); der Executor startet ohne Konto nicht und hat keinen Parameter „Startkapital“ mehr. Die Datenbank prüft jede

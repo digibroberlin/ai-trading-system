@@ -239,6 +239,10 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
   Prozess zwischen „Not-Aus gelesen“ und „Position gespeichert“ überholt werden – aber Aktionen verschiedener Konten laufen nicht
   mehr gleichzeitig. Für den geplanten Betrieb (ein Konto) ohne Folgen. Hängt ein Prozess mitten in einer Transaktion, blockiert
   er alle Konten und das Auslösen von außen, bis die Datenbank seine Sitzung beendet (spätestens nach rund 15 Sekunden).
+* **Wiederverbindung zur Datenbank (AP-11, D-015):** Nach einem Verbindungsabbruch verbindet sich der Prozess selbst neu
+  (höchstens 4 Versuche in rund 3,5 Sekunden, dann Fehler). Riss die Verbindung **während** einer Order ab, meldet der Executor
+  einen Fehler statt still zu wiederholen; der Aufrufer sendet dieselbe Order-ID erneut. Ein Alarm bei Verbindungsproblemen
+  fehlt noch (AP-25). Getestet mit vom Server beendeten Sitzungen, nicht mit echten Netzwerkausfällen oder Datenbank-Neustarts.
 * **Not-Aus erkennt nur formal kaputte Daten**, keine plausibel aussehenden falschen Kurse. Ausbleibende Daten (veralteter Feed)
   lösen ihn noch nicht aus – das kommt mit der Marktüberwachung (AP-15).
 * **Wiederholte Order (AP-08):** Gleiche Order-ID mit **exakt** gleichem Inhalt liefert das ursprüngliche Ergebnis (Status,
