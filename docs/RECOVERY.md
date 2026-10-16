@@ -46,7 +46,16 @@ Danach wie im README: Passwort-Datei außerhalb des Projekts anlegen, `docker-co
 
 ## 6. Datenbank wiederherstellen
 
-Die Datenbank enthält nur Paper-Daten. Ein Abzug wird in eine **neue, leere** Datenbank eingespielt – nie über die bestehende:
+**Seit AP-26 (D-028):** Sicherungen entstehen mit `python scripts/backup.py create` (Datei `backups/trading-<Zeit>.dump`
+plus `.sha256` und `.json`) und werden mit `python scripts/backup.py verify backups/trading-<Zeit>.dump` geprüft: Der
+Rückspiel-Test spielt sie in eine Wegwerf-Datenbank ein und vergleicht Zeilen, Schema-Stand und Ereigniskette. Eine
+bestandene Sicherung wird – wie unten – nur in eine **neue, leere** Datenbank zurückgespielt:
+```bash
+createdb trading_wiederhergestellt            # als Datenbank-Administrator
+pg_restore --exit-on-error --dbname trading_wiederhergestellt backups/trading-<Zeit>.dump
+```
+
+Ältere Abzüge (`.sql`): Die Datenbank enthält nur Paper-Daten. Ein Abzug wird in eine **neue, leere** Datenbank eingespielt – nie über die bestehende:
 ```bash
 docker exec ai-trading-system-db-1 createdb -U trading trading_wiederhergestellt
 docker exec -i ai-trading-system-db-1 psql -U trading -d trading_wiederhergestellt < backups/datenbank_<datum>.sql

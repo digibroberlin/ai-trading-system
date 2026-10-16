@@ -555,3 +555,21 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
   `test_dashboard`: Gesundheit mit Prüfung (200/503), `/metrics`, nur GET.
 * **Gegenprobe:** OP01–OP11 **11/11 entdeckt**.
 * **Preflight:** STABIL – **1683/1683** Tests, 0 übersprungen; Python 3.9: 1451 bestanden, 13 übersprungen (erwartet).
+
+## Nachtrag 2026-10-16 – AP-26 Sicherungen mit Rückspiel-Test (D-028, Audit M14)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16, pg_dump/pg_restore 16.
+
+* **Neu:** `scripts/backup.py` (create, verify, prune), Test-Image mit `postgresql-client`, CI-Schritt zeigt die
+  Werkzeug-Versionen.
+* **Tests:** `test_pg_backup` (8, echte Datenbank, echtes pg_dump/pg_restore): vollständiges Sichern und Rückspielen mit
+  Prüfung von Zeilen, Schema-Stand und Ereigniskette; Dateien nur für den Eigentümer; Wegwerf-Datenbank wird entfernt;
+  nie überschreiben; beschädigte Datei, fehlende Zeilen, anderer Schema-Stand und manipulierte Kette werden erkannt;
+  Passwort nur über die Umgebung; Aufräumen behält die neuesten; zu alte oder fehlende Werkzeuge werden gemeldet;
+  Sicherungen kann der Geheimnis-Scan nicht durchlassen.
+* **Gegenprobe:** BK01–BK10 **10/10 entdeckt** (mit Datenbank).
+* **Preflight:** STABIL – **1701/1701** Tests, 0 übersprungen; Python 3.9: 1461 bestanden, 14 übersprungen (erwartet; dort
+  fehlt psycopg). Ein erster 3.9-Lauf zeigte, dass die Testdatei psycopg ohne Prüfung lud – behoben, danach Preflight
+  wiederholt.
+* **Nicht geprüft:** der Bau des Test-Images mit `postgresql-client` (der Proxy der Cloud lässt aus Containern kein HTTP
+  zu) – beim nächsten `docker-compose ... run --rm tests` auf dem Mac.
