@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-keine
+gesperrt von Cloud-Routine (stündlicher Lauf) seit 2026-10-16 03:08 UTC für AP-08
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
