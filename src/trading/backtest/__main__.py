@@ -41,7 +41,8 @@ def main() -> None:
         hold.name, hold.return_pct, hold.stats.max_drawdown_pct))
     blocked = {r.strategy: r.blocked_by_reason for r in results if r.blocked_by_reason}
     print("Blockierte Setups: %s" % (blocked or "keine"))
-    print("Neutrale Platzhalter-Agenten: %s" % ", ".join(results[0].placeholders))
+    print("KIBO/YUZU: %s" % ("neutrale Platzhalter: " + ", ".join(results[0].placeholders)
+                              if results[0].placeholders else "regelbasiert (Marktphase, Technik, Umfeld)"))
 
 
 if __name__ == "__main__":

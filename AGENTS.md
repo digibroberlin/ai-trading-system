@@ -64,8 +64,8 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
 | **MOMO** | Erkennt Trading-Chancen und Markttrends, schlägt Ein- und Ausstiege vor | `scan(contexts) -> [TradeSetup]`, `exit_signals(contexts, positions) -> [ExitSignal]` | Schnittstelle; im Backtest liefert `StrategyMomo` die Vorschläge einer `Strategy` |
 | **RIN** | Validiert Kursdaten, Entry, Stop-Loss, Take-Profit (Vetorecht) | `validate(setup, ctx) -> AgentOpinion` | Schnittstelle + **regelbasiert implementiert** (`RuleBasedRin`) |
 | **SORA** | Bewertet Risiko, Positionsgröße, mögliche Verluste | `size(setup, ctx, portfolio) -> SizingProposal` | Schnittstelle + **regelbasiert implementiert** (`RuleBasedSora`) |
-| **KIBO** | Bewertet technische Handelssignale | `evaluate(setup, ctx) -> AgentOpinion` | Schnittstelle + **neutraler Platzhalter** `NeutralKibo` (stimmt ohne Urteil zu; wird im Ergebnis ausgewiesen) |
-| **YUZU** | Bewertet alternative Signale und Marktbedingungen | `evaluate(setup, ctx) -> AgentOpinion` | Schnittstelle + **neutraler Platzhalter** `NeutralYuzu` |
+| **KIBO** | Bewertet technische Handelssignale | `evaluate(setup, ctx) -> AgentOpinion` | **regelbasiert** `RuleBasedKibo` (AP-17, D-019): Stop im Rauschen und Setups gegen einen klaren Trend hart abgelehnt; Bewertung aus Trend, Momentum, RSI, Volumen; optional KI-Zweitmeinung nur bei unsicherem Ergebnis über den Orchestrator. `NeutralKibo` nur noch auf ausdrücklichen Wunsch |
+| **YUZU** | Bewertet alternative Signale und Marktbedingungen | `evaluate(setup, ctx) -> AgentOpinion` | **regelbasiert** `RuleBasedYuzu` (AP-17, D-019): extreme Volatilität, Funding stark gegen die Position, Spread/Volumen hart abgelehnt; Bewertung aus Funding, Volatilität (Scalping), Stimmung; optional KI-Zweitmeinung |
 | **AKI** | Dokumentiert alles, führt Kapitalkurve und Performance-Bericht | `record_*`, `record_equity`, `report()` | **implementiert** (Sicherheitsfunktion) |
 
 Ablauf (`src/trading/pipeline.py`, D-017): MOMO → RIN → SORA (Vorprüfung) → KIBO → YUZU → SORA (endgültige Größe unter der
@@ -101,14 +101,17 @@ src/trading/
   execution/             costs.py (Gebühren, Slippage, Rundung), paper_executor.py, protocol.py (Executor-Schnittstelle)
   marketdata/            candles.py (Kerzen- und Reihenprüfung), synthetic.py (erfundene Daten), feed.py (Schnittstelle)
   agents/                base.py, contracts.py, momo/rin/sora/kibo/yuzu (abstrakt), aki (implementiert),
-                         rin_rules.py (RuleBasedRin), sora_rules.py (RuleBasedSora), neutral.py (Platzhalter KIBO/YUZU)
+                         rin_rules.py (RuleBasedRin), sora_rules.py (RuleBasedSora), kibo_rules.py, yuzu_rules.py (AP-17),
+                         ai_review.py (KI-Zweitmeinung über den Orchestrator), neutral.py (Platzhalter nur auf Wunsch)
   ai/                    provider.py (Schnittstelle, Verbrauch), orchestrator.py (DER Weg zu jeder KI-Analyse), pricing.py
                          (datierte Preise, Kostenobergrenze), budget.py (harte Budgets), activation.py (ereignisbasiert)
   audit/                 event_log.py (Hash-Kette), events.py, stats.py (Trade-Kennzahlen), performance.py (Kapitalkurve, Bericht),
                          costs.py (Betriebs-/KI-Kosten, Netto nach allen Kosten), ai_value.py (lohnt die teurere Analyse?)
   backtest/              data.py (geprüfter Datensatz, Datenquellen), strategy.py, engine.py, compare.py, reference.py
                          (Vorführung: python -m trading.backtest) – siehe docs/BACKTESTING.md
-  strategies/            indicators.py (SMA/EMA/ATR/RSI/Bollinger/Donchian …, Decimal), library.py (Trendfolge, Momentum,
+  analysis/              indicators.py (SMA/EMA/ATR/RSI/Bollinger/Donchian …, Decimal), regime.py (Marktphasen: Trend/Seitwärts,
+                         Volatilitätsrang) – ohne Handelslogik, genutzt von Strategien und KIBO/YUZU
+  strategies/            library.py (Trendfolge, Momentum,
                          Mean Reversion, Breakout, Volatilität, Scalping), benchmarks.py (Nicht-Handeln, Kaufen-und-Halten)
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,
                          kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release), ai_budget.py (KI-Budget, DB-Gurt),

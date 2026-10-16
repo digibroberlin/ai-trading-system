@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 17:46 UTC für AP-17 (Marktphasen, regelbasierte KIBO/YUZU)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 17:59 UTC für AP-23 (Dashboard: API und Weboberfläche, AP-23/24)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,11 +22,15 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Nächstes Paket in Plan-Reihenfolge: **AP-13** (Börsenregeln je Instrument). Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-17** (danach AP-23/24, AP-21);
-  AP-16 ist erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-23/24** (Dashboard, danach AP-21);
+  AP-16 und AP-17 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-17 Marktphasen und regelbasierte KIBO/YUZU** (interaktive Cloud-Sitzung, 2026-10-16, D-019): Trend/Seitwärts und
+  Volatilitätsrang; KIBO prüft Technik (Stop im Rauschen, gegen klaren Trend, Momentum, RSI, Volumen), YUZU das Umfeld
+  (Volatilität, Funding, Spread/Volumen, Stimmung); KI nur als Zweitmeinung über den Kosten-Orchestrator. Alle sechs
+  Agenten laufen jetzt im Backtest. Preflight STABIL 1451/1451; Python 3.9: 1241 bestanden; Gegenprobe KY01–KY10 10/10.
 * **AP-16 Strategie-Bibliothek** (interaktive Cloud-Sitzung, 2026-10-16, D-018): Indikatoren (Decimal), sechs Strategien
   (Trendfolge, Momentum, Mean Reversion, Breakout, Volatilität, Scalping) auf gemeinsamem Rahmen mit ATR-Stops, Vergleich
   mit Nicht-Handeln und Kaufen-und-Halten (nach allen Handelskosten). Alle laufen durch die volle Pipeline; kein Blick in

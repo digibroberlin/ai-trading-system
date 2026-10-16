@@ -20,7 +20,7 @@ RIN und SORA regelbasiert · AKI mit Kapitalkurve und Bericht · Pipeline · Ere
 PostgreSQL) · PostgreSQL-Executor mit Konto-Sperre und Datenbank-Gurten · Migrationen · Neustartfestigkeit · deterministische
 Backtesting-Engine auf synthetischen Daten · Docker (db, migrate, app, tests) · Gegenprobe- und Geheimnis-Werkzeuge.
 
-**Unvollständig:** MOMO (nur Schnittstelle; im Backtest über `Strategy`) · KIBO/YUZU (neutrale Platzhalter) · KI-Anbindung
+**Unvollständig:** MOMO (Strategie-Bibliothek AP-16; Laufzeit-Anbindung AP-21) · KIBO/YUZU regelbasiert seit AP-17 · KI-Anbindung
 (nur `NullProvider`) · `marketdata/feed.py` (nur Schnittstelle) · keine Börsen-Adapter · nur eine Referenz-Strategie ·
 kein Walk-forward · keine Laufzeit-Engine (nur `demo.py`) · kein Dashboard/API · kein Logging/Monitoring · keine automatischen
 Backups · keine Server-Konfiguration.
@@ -78,7 +78,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
 | AP-16 | Strategie-Bibliothek: Trendfolge, Momentum, Mean Reversion, Breakout, Volatilität, Scalping; Benchmarks (Kaufen und Halten, Nicht-Handeln) | jede Strategie getestet, ohne Blick in die Zukunft | ✅ D-018 |
-| AP-17 | Marktphasen-Erkennung (Trend/Seitwärts, Volatilität) – Grundlage für KIBO und YUZU (regelbasiert) | Tests | ⏳ |
+| AP-17 | Marktphasen-Erkennung (Trend/Seitwärts, Volatilität) – Grundlage für KIBO und YUZU (regelbasiert) | Tests | ✅ D-019 |
 | AP-18 | Forschungsrahmen: Trainings-/Validierungs-/Testdaten strikt getrennt, Walk-forward, Kostenempfindlichkeit, Zählung aller Versuche gegen Überanpassung, Strategie-Register mit Freigabestatus | Tests; Test-Daten nur einmal je Strategie-Version | ⏳ |
 | AP-19 | AKI: Bewertung von Strategien und Agenten (Nettoergebnis **nach allen Kosten inkl. KI** (AP-31), Erwartungswert, Drawdown, Profit-Faktor, Stabilität über Marktphasen); Backtests rechnen Betriebs- und Analysekosten mit ein | Tests | ⏳ |
 | AP-20 | Erste ehrliche Untersuchung auf echten historischen Daten (technische Validierung), Bericht – auch wenn kein Vorteil gefunden wird; inkl. Wirtschaftlichkeitsvergleich (AP-33): lohnt eine Analyse ihre Kosten gegenüber der günstigeren Alternative? | Bericht in `docs/` | ⏳ |
