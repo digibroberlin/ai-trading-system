@@ -114,6 +114,7 @@ src/trading/
   dashboard/             state.py (Momentaufnahme aus Backtest/Paper), api.py (FastAPI nur lesend, WebSocket), static/
                          (Weboberfläche ohne fremde Server), __main__.py (python -m trading.dashboard) – einziges Paket mit
                          Webserver-Bibliotheken (Test stellt das sicher)
+  runtime/               engine.py (ereignisgesteuerte Laufzeit-Engine, AP-21; standardmäßig AUS, Start nur mit Freigabe)
   strategies/            library.py (Trendfolge, Momentum,
                          Mean Reversion, Breakout, Volatilität, Scalping), benchmarks.py (Nicht-Handeln, Kaufen-und-Halten)
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,

@@ -18,6 +18,7 @@ from trading.domain.models import (
     PortfolioState,
     Position,
 )
+from trading.safety.kill_switch import HaltStatus
 
 
 class Executor(Protocol):
@@ -39,6 +40,10 @@ class Executor(Protocol):
     def apply_funding(self, event: FundingEvent) -> Decimal: ...
 
     def portfolio_state(self) -> PortfolioState: ...
+
+    def halt(self, note: str = "") -> bool: ...  # globaler Not-Aus von Hand (True = neu ausgeloest)
+
+    def halt_status(self) -> HaltStatus: ...
 
     @property
     def open_positions(self) -> Tuple[Position, ...]: ...

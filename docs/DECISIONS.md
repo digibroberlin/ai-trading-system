@@ -319,3 +319,21 @@ Dashboard-Code ruft keine ändernden Methoden (Order, Schließen, Not-Aus, Budge
 Drawdown wird an allen Punkten gemessen. Paper-Modus: aktueller Kontostand als letzter Punkt (nur für die Anzeige);
 widersprüchliche Buchhaltung wird angezeigt statt falscher Zahlen.
 **Abweichung vom Plan:** keine. **Grenzen:** keine Anmeldung (für Server: AP-28); DEMO wird erst mit AP-21 live gespeist.
+
+## D-021 · 2026-10-16 · Ereignisgesteuerte Laufzeit-Engine (AP-21)
+**Entscheidung:** `RuntimeEngine.process(ereignis)` statt einer Dauerschleife: Jede geschlossene Kerze durchläuft
+Executor (Stops/Ziele/Bewertung, eigener Datenschutz) → Marktphase (Wechsel = Ereignis `REGIME_CHANGE`, KI dafür nur
+über den Orchestrator mit Auslöser REGIME_CHANGE) → Strategie für **genau dieses Instrument** → Ausstiege, dann Einstiege
+durch die volle Pipeline (RIN → SORA-Vorprüfung → KIBO → YUZU → SORA unter der Sperre → Executor) → AKI (neu geschlossene
+Trades, Kapitalkurve nach allen Folgen des Ereignisses; gleichzeitige Kerzen ergeben einen Punkt). Funding → Executor.
+**Kennungen** = Strategie|Instrument|Richtung|Entscheidungszeit: reproduzierbar, nach Neustart idempotent (AP-08).
+**Neustart:** Executor und Protokoll liegen im Betrieb in PostgreSQL; die Engine füllt nur ihre Historie auf
+(`warm_up`, entscheidet und protokolliert dabei nichts) und macht genau dort weiter – geprüft: identische Trades wie ein
+ununterbrochener Lauf.
+**Fehler:** jeder Fehler wird protokolliert; nach `max_consecutive_errors` (3) in Folge Not-Aus. Verworfene Kerzen
+(fehlerhaft, doppelt, älter, noch offen) lösen keine Entscheidung aus. Futures ohne bekannten Funding-Satz: kein
+Ersatzwert, Validator/RIN blockieren.
+**Start nur mit Freigabe:** `enabled=True` + PAPER ohne Börsen-Schlüssel + `TRADING_ENGINE_APPROVAL="PAPER-HANDEL
+FREIGEGEBEN"`; sonst `EngineDisabledError`. Tests und Vorführungen nutzen nur `process`/`simulate` mit simulierter Uhr.
+**Grenzen:** Ausführung zum Schlusskurs der Kerze plus Spread/Slippage (im Betrieb später zum aktuellen Kurs); echte
+Marktdaten-Anbindung fehlt (AP-14/15).

@@ -74,6 +74,8 @@ BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 STT = ["tests/test_strategies.py"]  # Strategie-Bibliothek (AP-16)
 KYT = ["tests/test_kibo_yuzu.py", "tests/test_backtest_engine.py"]  # Marktphasen, KIBO, YUZU (AP-17)
 DBT = ["tests/test_dashboard.py"]  # Dashboard (AP-23/24)
+RTT = ["tests/test_runtime_engine.py"]  # Laufzeit-Engine (AP-21)
+RTE = "src/trading/runtime/engine.py"
 DSH_API, DSH_STATE = "src/trading/dashboard/api.py", "src/trading/dashboard/state.py"
 KB, YZ, RG, AR = ("src/trading/agents/kibo_rules.py", "src/trading/agents/yuzu_rules.py",
                   "src/trading/analysis/regime.py", "src/trading/agents/ai_review.py")
@@ -385,6 +387,14 @@ BACKTEST: List[Mutant] = [
  ("DA04", "Ausgeduennte Kapitalkurve verliert den tiefsten Punkt", [(DSH_STATE, "    keep = {round(i * step) for i in range(limit - 1)} | {0, len(points) - 1, lowest}", "    keep = {round(i * step) for i in range(limit - 1)} | {0, len(points) - 1}")], DBT),
  ("DA05", "Drawdown nur aus den angezeigten Punkten", [(DSH_STATE, "    return [{\"time\": p.time.isoformat(), \"equity\": str(p.equity), \"drawdown_pct\": str(drawdown[p.time])}\n            for p in thin_curve(points)]", "    return [{\"time\": p.time.isoformat(), \"equity\": str(p.equity), \"drawdown_pct\": \"0\"}\n            for p in thin_curve(points)]")], DBT),
  ("DA06", "WebSocket sendet unveraenderte Zustaende erneut", [(DSH_API, "                if body[\"version\"] != last:", "                if True:")], DBT),
+ ("RT01", "Engine startet ohne Freigabe des Eigners", [(RTE, "    if env.get(APPROVAL_ENV) != APPROVAL_TEXT:", "    if False:")], RTT),
+ ("RT02", "Engine standardmaessig eingeschaltet", [(RTE, "    enabled: bool = False  # Standard: AUS.", "    enabled: bool = True  # Standard: AUS.")], RTT),
+ ("RT03", "Wiederholte Engine-Fehler ohne Not-Aus", [(RTE, "        if self._consecutive_errors >= self._config.max_consecutive_errors:", "        if False:")], RTT),
+ ("RT04", "Engine handelt auf verworfenen Kerzen", [(RTE, "        if not accepted:\n            self.stats.rejected_candles += 1", "        if False:\n            self.stats.rejected_candles += 1")], RTT),
+ ("RT05", "Signal-Ausstiege fehlen in AKI", [(RTE, "        new = trades[self._registered:]", "        new = trades[len(trades):]")], RTT),
+ ("RT06", "Setup-Kennung ohne Entscheidungszeit", [(RTE, "p.side.value, now.strftime(\"%Y%m%dT%H%M%SZ\"))", "p.side.value, \"x\")")], RTT),
+ ("RT07", "Futures mit erfundenem Funding-Satz", [(RTE, "        rate = self._funding.get(candle.instrument)\n", "        rate = self._funding.get(candle.instrument, ZERO)\n")], RTT),
+ ("RT08", "Aufwaermen nach Neustart handelt", [(RTE, "                self._remember(c)\n                taken += 1", "                self.process(c)\n                taken += 1")], RTT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),

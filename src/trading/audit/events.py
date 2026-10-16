@@ -33,6 +33,7 @@ class EventType(str, Enum):
     HALT_RELEASED = "HALT_RELEASED"  # Not-Aus bewusst aufgehoben (wer)
     ACCOUNT_CREATED = "ACCOUNT_CREATED"  # Konto von einem Administrator angelegt (Name, Startkapital)
     AI_CALL = "AI_CALL"  # jede KI-Analyse-Stufe: Agent, Anlass, Setup, Modell, Tokens, Kosten (auch Regeln/Cache/uebersprungen)
+    REGIME_CHANGE = "REGIME_CHANGE"  # Marktphase eines Instruments hat gewechselt (Laufzeit-Engine, AP-21)
     OPERATING_COST = "OPERATING_COST"  # Betriebskosten (Server, Marktdaten, Sonstiges) fuer einen Zeitraum
 
 

@@ -94,6 +94,9 @@ class AkiAgent(BaseAgent):
         self._ai_records.append(record)
         self._log.append(EventType.AI_CALL, record)
 
+    def record_regime_change(self, instrument: str, before: str, after: str) -> None:
+        self._log.append(EventType.REGIME_CHANGE, {"instrument": instrument, "before": before, "after": after})
+
     def record_operating_cost(self, cost: OperatingCost) -> None:
         """Betriebskosten fuer einen Zeitraum (Server, Marktdaten, Sonstiges; nie gemessene KI-Aufrufe doppelt)."""
         self._log.append(EventType.OPERATING_COST, cost)
@@ -125,6 +128,15 @@ class AkiAgent(BaseAgent):
             raise ValueError("Kapitalkurve: Zeitpunkte muessen streng aufsteigend sein.")
         self._curve.append(point)
         return point
+
+    def update_equity(self, time: datetime, state: PortfolioState) -> EquityPoint:
+        """Wie `record_equity`, aber ein Punkt zum SELBEN Zeitpunkt wird ersetzt (Laufzeit: mehrere Kerzen schliessen
+        gleichzeitig - der Punkt zeigt dann den Stand nach der letzten). Aeltere Zeitpunkte bleiben ein Fehler."""
+        point = EquityPoint.from_state(time, state)
+        if self._curve and point.time == self._curve[-1].time:
+            self._curve[-1] = point
+            return point
+        return self.record_equity(time, state)
 
     @property
     def trades(self) -> Tuple[ClosedTrade, ...]:

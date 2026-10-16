@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 18:16 UTC für AP-21 (Ereignisgesteuerte Laufzeit-Engine, bleibt deaktiviert)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 18:33 UTC für AP-18 (Forschungsrahmen: getrennte Daten, Walk-forward, Versuchszählung, Strategie-Register)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,11 +22,15 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Nächstes Paket in Plan-Reihenfolge: **AP-13** (Börsenregeln je Instrument). Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-21** (Laufzeit-Engine, bleibt deaktiviert);
-  AP-16, AP-17 und AP-23/24 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-18/19** (Forschungsrahmen, Bewertung durch AKI);
+  AP-16, AP-17, AP-21 und AP-23/24 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-21 Laufzeit-Engine** (interaktive Cloud-Sitzung, 2026-10-16, D-021): ereignisgesteuert, alle sechs Agenten,
+  KI nur ereignisbasiert mit Kostenmessung je Ereignis, Neustart mit Aufwärmen, Not-Aus nach wiederholten Fehlern.
+  **Standardmäßig aus** – Start nur mit `enabled`, PAPER und `TRADING_ENGINE_APPROVAL="PAPER-HANDEL FREIGEGEBEN"`.
+  Preflight STABIL 1502/1502; Python 3.9: 1274 bestanden; Gegenprobe RT01–RT08 8/8.
 * **AP-23/24 Dashboard** (interaktive Cloud-Sitzung, 2026-10-16, D-020): `python3.12 -m trading.dashboard` →
   http://127.0.0.1:8000. FastAPI nur lesend mit WebSocket, Modi BACKTEST/DEMO, LIVE gesperrt; Oberfläche mit Kapital,
   Kurve, Drawdown, Kennzahlen, Positionen, Trades, Agenten, Blockaden, Strategievergleich, Kosten und Netto nach allen
