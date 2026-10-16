@@ -323,3 +323,47 @@ Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
 * **Preflight:** STABIL – **886/886** Tests, 0 übersprungen; ruff und mypy `--strict` ohne Befunde. Python 3.9 (ohne Datenbank):
   703 bestanden, 9 Datenbank-Module übersprungen (erwartet).
 * **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus). KIBO/YUZU sehen die SORA-Größe noch nicht.
+
+## Nachtrag 2026-10-16 – AP-31/32/33 KI-Kostenoptimierung und Nettogewinn nach allen Kosten (D-016)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch;
+**kein** echter KI-Anbieter, nur eine Attrappe – es wurde kein einziger bezahlter Aufruf gemacht.
+
+* **Neue Module:** `ai/pricing.py` (datierte Preistabelle, Kosten je Aufruf, Obergrenze), `ai/budget.py` (harte Budgets je
+  Aufruf/Tag/Monat, Standard 0, Reservierung vor dem Aufruf), `ai/activation.py` (ereignisbasierte Aktivierung mit
+  Abkühlzeit), `ai/orchestrator.py` (Regeln → Cache/Doppel-Erkennung → Aktivierung → Stufen billig→teuer mit Wertschranke),
+  `audit/costs.py` (Betriebskosten, KI-Kosten je Agent/Modell/Analyse/Signal/Tag/Monat, Kosten je Trade, Nettoergebnis nach
+  allen Kosten), `audit/ai_value.py` (gepaarter Bootstrap-Vergleich zweier Methoden), `persistence/ai_budget.py` +
+  Migration 006 (Budget als Datenbank-Gurt).
+* **Tests:** `test_ai_orchestration` (68), `test_operating_costs` (15), `test_pg_ai_budget` (27, mit Datenbank),
+  Geheimnis-Scan-Fälle für Token-Zähler und echte Token-Variablen.
+* **Unabhängige Prüfung** (8 Prüf-Agenten mit Gegenprüfung): **25 bestätigte Befunde**, alle behoben und mit Tests belegt.
+  Die wichtigsten: (1) Meldete der Anbieter keinen Verbrauch, wurden 0 USD gebucht – das Budget war damit wirkungslos; jetzt
+  volle Reservierung + Sperre. (2) Die Wertschranke galt je Stufe statt je Analyse (bis ~15 % statt 10 %). (3) Eine sehr
+  unsichere KI-Antwort konnte eine sicherere Regel-Entscheidung ersetzen. (4) Der Datenbank-Gurt vertraute dem Tag der
+  Anwendung – mit falscher Uhr ließen sich Tages- und Monatsgrenze umgehen; jetzt setzt die Datenbank Tag und Zeitpunkt.
+  (5) Neue Grenzen ließen sich mit der alten Freigabe setzen; jetzt sind Name und neuer Zeitpunkt Pflicht (auch fürs
+  Entsperren). (6) Die Ausnahme im Geheimnis-Scan war zu breit (jeder Name mit „tokens“); jetzt nur feste Zähler-Namen.
+  Weitere: Modell-Abweichung des Anbieters, Ausgabe über `max_tokens`, Fehler in Protokoll/Abrechnung, Sperre während des
+  Netzwerkaufrufs, unbegrenzter Cache, Kostenzuordnung über Zeitraumgrenzen, Sommerzeit bei Betriebskosten, schwache Tests.
+* **Zweite unabhängige Prüfung** (der Korrekturen selbst, 4 Prüfer + Gegenprüfung): 6 bestätigte Befunde, alle behoben.
+  Schwer: (1) Die Korrektur „keine Sperre während des Anbieteraufrufs“ ließ mehrere Threads gleichzeitig über **eine**
+  Datenbank-Verbindung buchen – Reservierungen und Sperren gingen verloren (nachgestellt: 45 % über dem Tagesbudget). Jetzt
+  Sperre um jede Budget-Transaktion; Tests mit einem gemeinsamen Budget aus 8 Threads und einem erzwungenen Wettlauf.
+  (2) Unter REPEATABLE READ zählte der Datenbank-Gurt einen veralteten Stand (zwei Reservierungen über der Tagesgrenze);
+  jetzt schreibende Serialisierung, Test über alle drei Isolationsstufen. Mittel/leicht: Cache-Treffer konnten sicherere
+  Regeln ersetzen; AKI verlor den Messpunkt bei Protokollfehler; fünf eingebaute Fehler im Gurt blieben unentdeckt (jetzt
+  getestet). Danach selbst geprüft und abgesichert (ohne weiteren Prüf-Lauf, auf Wunsch des Eigners): Zeitraum ohne
+  Zeitzone wird abgelehnt, voll umgelegte KI-Kosten je Trade nie kleiner als die direkten und inkl. Kostenbuch, „nur
+  Ausgabe“ bzw. 0 Ausgabe-Tokens bei Text gelten als fehlende Verbrauchsmeldung, nicht schreibbare Sperre stoppt
+  wenigstens den eigenen Prozess. Bewusst offen (optional, README „Bekannte Grenzen“): Wartezeit bei hängendem Anbieter,
+  zu kleine Verbrauchsmeldungen, Reichweite des Geheimnis-Scans, Strenge zweier Nebenläufigkeitstests.
+* **Vorfall:** Ein Zwischenstand wurde hochgeladen, obwohl der Geheimnis-Scan einen (falschen) Fund meldete – die
+  Befehlskette hatte den Fehlercode verschluckt. Es war kein Geheimnis betroffen (Token-**Anzahlen**). Seitdem wird nur noch
+  mit `if secret_scan; then push` hochgeladen.
+* **Gegenprobe:** alle Kosten-Einträge auf dem Endstand **69/69 entdeckt** (Z01–Z49, G74–G93; mit Datenbank).
+* **Preflight:** STABIL – **1363/1363** Tests, 0 übersprungen (mit PostgreSQL 16); ruff und mypy `--strict` ohne Befunde.
+  Python 3.9 (ohne Datenbank): 1128 bestanden, 10 Datenbank-Module übersprungen (erwartet; Stand vor den letzten Tests).
+* **Nicht geprüft:** echter KI-Anbieter (bewusst, Budget 0, B-004); ob KI-Analysen ihr Geld wert sind (AP-33 mit echten Daten
+  in AP-20); Monatswechsel im Datenbank-Budget nur mit vorab eingefügten Einträgen (die Datenbank-Uhr lässt sich nicht
+  verstellen); volle Gegenprobe aller Einträge (erst vor `stable/005`); Docker-Image-Bau.
