@@ -92,8 +92,8 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 ### Phase G – Dashboard
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-23 | FastAPI (nur lesend) + WebSocket-Aktualisierung; Modi BACKTEST / DEMO / LIVE (deaktiviert) | API-Tests | ⏳ |
-| AP-24 | Web-Oberfläche: Kapital, Positionen, P&L, Kapitalkurve, Drawdown, Kennzahlen, Agenten/Strategien, Blockaden, Systemstatus, Fehler; **Kosten**: KI je Agent/Modell/Tag/Monat, Budgetstand, Betriebskosten, Nettoergebnis nach allen Kosten | lokal mit synthetischen Daten geprüft | ⏳ |
+| AP-23 | FastAPI (nur lesend) + WebSocket-Aktualisierung; Modi BACKTEST / DEMO / LIVE (deaktiviert) | API-Tests | ✅ D-020 |
+| AP-24 | Web-Oberfläche: Kapital, Positionen, P&L, Kapitalkurve, Drawdown, Kennzahlen, Agenten/Strategien, Blockaden, Systemstatus, Fehler; **Kosten**: KI je Agent/Modell/Tag/Monat, Budgetstand, Betriebskosten, Nettoergebnis nach allen Kosten | lokal mit synthetischen Daten geprüft | ✅ D-020 (Chromium, Bildschirmfoto `docs/img/dashboard.png`) |
 
 ### Phase H – Betrieb und Server (vorbereitet, nicht ausgeführt)
 | AP | Inhalt | Abnahme | Status |

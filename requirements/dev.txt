@@ -4,3 +4,9 @@ pytest==9.0.3
 ruff==0.17.0
 mypy==2.4.0
 psycopg[binary]==3.3.6
+fastapi==0.141.1
+uvicorn==0.54.0
+wsproto==1.3.2  # WebSocket-Unterstuetzung fuer uvicorn (klein, reines Python)
+starlette==1.7.0  # bewusst nicht die erst wenige Tage alte 1.8.0
+pydantic==2.13.5  # bewusst nicht die erst wenige Tage alte 2.14.x
+httpx==0.28.1  # nur fuer Tests des Dashboards (TestClient)

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trading-Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>KI-Trading-System</h1>
+      <span class="sub">nur lesend · keine Orders · Echtgeld deaktiviert</span>
+    </div>
+    <div class="modes" aria-label="Modus">
+      <span class="mode" data-mode="BACKTEST">BACKTEST</span>
+      <span class="mode" data-mode="DEMO">DEMO</span>
+      <span class="mode off" data-mode="LIVE" title="Echtgeld-Handel ist deaktiviert">LIVE · deaktiviert</span>
+    </div>
+    <div class="conn" id="conn" role="status">verbinde …</div>
+  </header>
+
+  <main>
+    <section class="status" id="status" aria-label="Systemstatus"></section>
+
+    <section class="tiles" id="tiles" aria-label="Kennzahlen"></section>
+
+    <section class="panel wide">
+      <h2>Kapitalkurve <small id="curve-note"></small></h2>
+      <div class="chart" id="equity-chart" role="img" aria-label="Kapitalkurve"></div>
+      <h3>Drawdown</h3>
+      <div class="chart small" id="drawdown-chart" role="img" aria-label="Drawdown"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Offene Positionen</h2>
+      <div id="positions"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Agenten</h2>
+      <div id="agents"></div>
+      <h3>Blockaden</h3>
+      <div id="blocked"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Kosten und Nettoergebnis <small>nach ALLEN Kosten</small></h2>
+      <div id="costs"></div>
+    </section>
+
+    <section class="panel wide" id="strategies-panel">
+      <h2>Strategien im Vergleich <small>gleicher Datensatz, gleiche Annahmen</small></h2>
+      <div id="strategies"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Abgeschlossene Trades <small id="trades-note"></small></h2>
+      <div id="trades"></div>
+    </section>
+
+    <section class="panel wide">
+      <h2>Fehler und Warnungen</h2>
+      <div id="errors"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span id="generated"></span> · Werte aus dem Backtest/Paper-Konto · synthetische Daten sagen nichts über echte Märkte aus
+  </footer>
+</body>
+</html>

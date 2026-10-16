@@ -78,6 +78,19 @@ def test_database_driver_is_only_imported_inside_the_persistence_package():
     assert offenders == []
 
 
+WEB_SERVER = {"fastapi", "starlette", "uvicorn"}
+
+
+def test_web_server_libraries_only_in_the_read_only_dashboard():
+    """Bewusste Ausnahme (AP-23, D-020): Das Dashboard nimmt lokale Anfragen an (nur lesend). Nirgends sonst ein Server."""
+    offenders = [
+        str(p.relative_to(ROOT))
+        for p in python_files()
+        if set(imported_modules(p)) & WEB_SERVER and "dashboard" not in p.parts
+    ]
+    assert offenders == []
+
+
 def test_persistence_package_connects_only_to_the_configured_database():
     # Kein fest eingetragener Host, kein Port, keine URL im Quelltext der Persistenzschicht.
     for p in (SRC / "persistence").glob("*.py"):

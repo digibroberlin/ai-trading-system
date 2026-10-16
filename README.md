@@ -24,7 +24,9 @@ Es gibt keinen Code, der eine echte Order senden könnte (keine Netzwerk-Bibliot
 | Sechs Agenten | RIN, SORA, AKI, **KIBO (Technik) und YUZU (Marktumfeld)** regelbasiert implementiert (KIBO/YUZU seit AP-17, optional mit KI-Zweitmeinung über den Kosten-Orchestrator) · MOMO: Strategie-Bibliothek (AP-16) |
 | Paper Executor, unabhängiger Risikomanager, Datenprüfung, Ereignisprotokoll (Hash-Kette) | funktionsfähig, getestet |
 | Austauschbare KI-Modelle | nur Schnittstelle (kein echter Anbieter, keine Kosten) |
-| Echte historische Daten, echte Strategien, Live-Marktdaten, Börsen-Adapter, Dashboard | **noch nicht gebaut** |
+| Strategie-Bibliothek (6 Strategien + Vergleichsmaßstäbe), Marktphasen | gebaut und getestet (AP-16/17), nur auf erfundenen Daten |
+| Dashboard (nur lesend, Browser) | gebaut und getestet (AP-23/24), siehe unten |
+| Echte historische Daten, Live-Marktdaten, Börsen-Adapter, Laufzeit-Engine | **noch nicht gebaut** |
 
 Testergebnis: **606 Tests bestanden, 0 übersprungen** auf Python 3.12 mit PostgreSQL 16 – auf dem Mac **und** im Docker-Container.
 Ohne Datenbank laufen 512 Tests, 94 Datenbank-Tests werden dann sichtbar als „skipped“ gemeldet.
@@ -172,7 +174,20 @@ Transaktion, und bricht ab, wenn eine bereits angewendete Datei nachträglich ve
 ```bash
 PYTHONPATH=src python3.12 -m trading.demo         # ein Paper-Durchlauf; oder: docker-compose --env-file ~/trading-secrets.env run --rm app
 PYTHONPATH=src python3.12 -m trading.backtest     # Backtest: alle Strategien gegen Kaufen-und-Halten und Nicht-Handeln
+PYTHONPATH=src python3.12 -m trading.dashboard    # Dashboard im Browser: http://127.0.0.1:8000 (nur lesend)
 ```
+
+### Dashboard (AP-23/24, D-020)
+
+`python3.12 -m trading.dashboard` rechnet alle Strategien als Backtest auf erfundenen Daten und zeigt sie unter
+**http://127.0.0.1:8000** an: Kapital, Netto-Ergebnis, Kapitalkurve und Drawdown, Kennzahlen, offene Positionen,
+abgeschlossene Trades, die sechs Agenten mit Zustimmungen/Ablehnungen, Blockaden nach Grund, Strategievergleich,
+Kosten (Handel, KI je Agent/Modell/Monat, Budget, Betriebskosten) und das Nettoergebnis nach allen Kosten, Fehler und
+Warnungen. Die Seite aktualisiert sich selbst (WebSocket). `--strategy momentum-20` wählt die angezeigte Strategie.
+**Nur lesend:** Kein Knopf und kein Endpunkt kann handeln, freigeben oder etwas ändern; LIVE ist gesperrt. Standardmäßig
+nur von diesem Rechner aus erreichbar (keine Anmeldung – nicht ins Internet stellen).
+
+![Dashboard mit synthetischen Daten](docs/img/dashboard.png)
 
 ### Globaler Not-Aus (Kill Switch)
 
@@ -292,6 +307,10 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
 * **KI ist noch nicht angeschlossen:** Orchestrierung, Budgets und Kostenmessung sind fertig und nur mit einer Attrappe getestet.
   Einen echten Anbieter gibt es erst mit AP-22 nach Budget-Freigabe (B-004); KIBO/YUZU entscheiden bis dahin rein regelbasiert.
   Ob eine KI-Analyse ihr Geld wert ist, ist **unbewiesen**, bis der Vergleich (AP-33) auf echten Daten gelaufen ist.
+* **Dashboard ohne Anmeldung:** gedacht für diesen Rechner (127.0.0.1). Für einen Server braucht es vorher Anmeldung und
+  verschlüsselte Verbindung (AP-28). Der DEMO-Modus (laufendes Paper-Konto) ist vorbereitet und getestet, wird aber erst
+  mit der Laufzeit-Engine (AP-21) live gespeist. Die Testhilfe von Starlette meldet eine Hinweis-Warnung (httpx → httpx2),
+  ohne Einfluss auf das Ergebnis.
 * **Strategien sind nicht erforscht:** Standard-Einstellungen aus der Fachliteratur, nur auf erfundenen Daten technisch
   geprüft. Ob eine davon nach allen Kosten einen Vorteil hat, klärt erst der Forschungsrahmen (AP-18) auf getrennten
   echten Daten (AP-20). Stop und Ziel werden auf 8 Nachkommastellen gerundet (zu Ungunsten); die echten Preis- und
