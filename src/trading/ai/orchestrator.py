@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -37,6 +38,7 @@ from trading.domain.numeric import is_finite_decimal
 
 ZERO = Decimal(0)
 ONE = Decimal(1)
+LOG = logging.getLogger("trading.ai.orchestrator")
 # Kompakte Prompts: strukturierte Daten, keine Romane. Liegt weit unter Preisgrenzen (z. B. 100 000 Tokens bei Haiku 5.5).
 MAX_PROMPT_BYTES = 32_000
 MAX_OUTPUT_TOKENS = 4_000
@@ -392,6 +394,7 @@ class AIOrchestrator:
         return rec
 
     def _block(self, reason: str) -> None:
+        LOG.error("KI-Budget gesperrt: %s", reason, extra={"component": "ai_budget", "alert": True})
         try:
             self._ledger.block(reason)
         except Exception:  # noqa: BLE001 - Sperre nicht schreibbar (z. B. Datenbank weg): wenigstens hier sperren

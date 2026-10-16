@@ -17,6 +17,7 @@ Server ohne Netz; der echte Zugang ist `public_ws.PublicWebSocket` (nur feste Ad
 
 from __future__ import annotations
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from collections import deque
@@ -33,6 +34,7 @@ from trading.marketdata.candles import candle_problems
 from trading.safety.kill_switch import HaltReason, KillSwitch
 
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+LOG = logging.getLogger("trading.marketdata.stream")
 FUTURE_TOLERANCE = timedelta(seconds=5)
 MAX_ISSUES = 50
 
@@ -297,6 +299,10 @@ class MarketStreamMonitor:
 
     # ------------------------------------------------------------------ oeffentlich
 
+    @property
+    def policy(self) -> MonitorPolicy:
+        return self._policy
+
     def candles(self, stop: Callable[[], bool] = lambda: False) -> Iterator[Candle]:
         """Geschlossene, gepruefte Kerzen in Zeitreihenfolge (je Instrument) - z. B. fuer `RuntimeEngine.run`."""
         while not stop():
@@ -475,6 +481,8 @@ class MarketStreamMonitor:
 
     def _issue(self, now: datetime, text: str) -> None:
         self.status.issues.append("%s %s" % (now.isoformat(), text))
+        LOG.log(logging.CRITICAL if text.startswith("Not-Aus") else logging.WARNING, text,
+                extra={"component": "marketdata", "exchange": self._protocol.url})
 
 
 __all__ = [

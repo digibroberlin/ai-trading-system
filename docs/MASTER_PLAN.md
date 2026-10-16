@@ -98,7 +98,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 ### Phase H – Betrieb und Server (vorbereitet, nicht ausgeführt)
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-25 | Strukturiertes Logging, Gesundheits-Endpunkte, Kennzahlen | Tests | ⏳ |
+| AP-25 | Strukturiertes Logging, Gesundheits-Endpunkte, Kennzahlen | Tests | ✅ D-027 |
 | AP-26 | Backups mit Rückspiel-Test (M14) | automatischer Rückspiel-Test | ⏳ |
 | AP-27 | Produktions-Compose, Start-/Stopp-Skripte, Neustartmechanismen, Prozessüberwachung | lokal geprüft | ⏳ |
 | AP-28 | Server-Härtung und Deployment-Skripte für Hetzner, Überwachung/Alarme (inkl. Alarm bei KI-Budget-Sperre); Serverkosten als Betriebskosten erfassen | Trockenlauf lokal | ⏳ (B-005 für echten Server) |

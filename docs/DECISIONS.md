@@ -430,3 +430,16 @@ auf Aufbau geprüft. `wsproto` braucht Python ≥ 3.10 – der Kern bleibt 3.9-f
 **Grenzen:** Nur mit simuliertem Server und lokalem WebSocket-Gegenstück geprüft; die Live-Probe wartet auf die
 Netzfreigabe (B-008). Futures-Funding im laufenden Betrieb kommt noch nicht über den Strom (die Engine blockiert Futures
 ohne bekannten Satz – fail closed).
+
+## D-027 · 2026-10-16 · Betriebsdaten: Logging, Gesundheit, Kennzahlen (AP-25)
+**Entscheidung:** Betriebs-Logging als JSON-Zeilen (`trading.ops.logs`, nur Standardbibliothek): Zeit (UTC), Stufe,
+Quelle, Meldung, Zusatzfelder, Fehlerablauf. **Jeder Text wird vor dem Schreiben geschwärzt** (Passwörter in Adressen,
+Zuweisungen an Key/Secret/Passwort/Passphrase/Token/Credential, Authorization/Cookie, Schlüssel im Format von
+KI-Anbietern). Es meldet: Marktüberwachung (Abbrüche, Lücken; Not-Aus als CRITICAL), Laufzeit-Engine (Fehler mit Ablauf,
+Not-Aus) und die KI-Budget-Sperre (ERROR mit `alert`). Das Ereignisprotokoll (Hash-Kette) bleibt der Nachweis; das
+Logging dient nur dem Betrieb.
+**Gesundheit:** `HealthProbe` fasst Not-Aus, Datenbank, Marktdaten, Engine und KI-Budget zu OK/WARN/CRITICAL zusammen
+(das Schlechteste zählt): Not-Aus aktiv/unlesbar, Datenbank weg oder Marktdaten älter als die Not-Aus-Frist = CRITICAL;
+Stille, Verbindungsverlust, offene Lücken, Engine-Fehler, KI-Budget-Sperre = WARN. Das Dashboard liefert sie unter
+`/api/health` (bei CRITICAL HTTP 503 – für Docker-Gesundheitsprüfung und Alarme) und alle Zahlen unter `/metrics`
+(Textformat von Prometheus, ohne zusätzliche Bibliothek). Weiterhin nur GET.

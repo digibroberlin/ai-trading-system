@@ -225,6 +225,15 @@ Zeigt jede geschlossene, geprüfte Kerze aus dem öffentlichen WebSocket-Strom u
 nachgeladene Lücken, verworfene Nachrichten). Bei Ausfall: neu verbinden, Lücken per REST nachladen; bleiben die Daten
 120 s aus, würde der Not-Aus ausgelöst (hier nur angezeigt).
 
+### Betrieb: Logging, Gesundheit, Kennzahlen (AP-25, D-027)
+
+* Logging: `trading.ops.logs.configure_logging("INFO")` schreibt eine JSON-Zeile je Meldung – Geheimnisse werden vorher
+  geschwärzt.
+* `GET /api/health` (Dashboard): OK / WARN / CRITICAL für Not-Aus, Datenbank, Marktdaten, Engine und KI-Budget; bei
+  CRITICAL antwortet der Dienst mit HTTP 503.
+* `GET /metrics`: dieselben Angaben als Zahlen im Prometheus-Textformat (Kerzen, Abbrüche, Lücken, Fehler, KI-Kosten,
+  Equity, Drawdown …).
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →

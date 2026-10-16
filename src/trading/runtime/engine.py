@@ -19,6 +19,7 @@ simulierter Uhr und erfundenen Daten benutzt.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -55,6 +56,7 @@ from trading.safety.limits import DEFAULT_LIMITS, SafetyLimits
 D = Decimal
 ZERO = D(0)
 APPROVAL_ENV = "TRADING_ENGINE_APPROVAL"
+LOG = logging.getLogger("trading.runtime.engine")
 APPROVAL_TEXT = "PAPER-HANDEL FREIGEGEBEN"
 Event = Union[Candle, FundingEvent]
 
@@ -336,9 +338,12 @@ class RuntimeEngine:
         self.stats.errors += 1
         self._consecutive_errors += 1
         self._aki.record_system_error("ENGINE", repr(exc))
+        LOG.error("Fehler bei der Verarbeitung eines Ereignisses (%d in Folge)", self._consecutive_errors,
+                  exc_info=exc, extra={"component": "engine"})
         note = "Fehler: %s" % type(exc).__name__
         if self._consecutive_errors >= self._config.max_consecutive_errors:
             self._executor.halt("Laufzeit-Engine: %d Fehler in Folge" % self._consecutive_errors)
+            LOG.critical("Not-Aus: %d Fehler in Folge", self._consecutive_errors, extra={"component": "engine"})
             note += " - Not-Aus ausgeloest"
         when = event.close_time if isinstance(event, Candle) else getattr(event, "time", self._clock.now())
         return EventOutcome("error", when, getattr(getattr(event, "instrument", None), "key", "?"), note=note)

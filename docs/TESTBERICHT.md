@@ -541,3 +541,17 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Preflight:** STABIL – **1655/1655** Tests, 0 übersprungen; Python 3.9: 1424 bestanden, 13 übersprungen (Dashboard und
   WebSocket-Zugang brauchen Python ≥ 3.10).
 * **Nicht geprüft:** echter Strom von Bitget und Coinbase (B-008).
+
+## Nachtrag 2026-10-16 – AP-25 Logging, Gesundheit, Kennzahlen (D-027)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
+
+* **Neu:** `ops/logs.py` (JSON-Logging mit Schwärzung), `ops/health.py` (OK/WARN/CRITICAL, Kennzahlen,
+  Prometheus-Text), Dashboard `/api/health` mit Prüfung (503 bei CRITICAL) und `/metrics`; Meldungen von Monitor,
+  Engine und KI-Budget-Sperre.
+* **Tests:** `test_ops` (16): Geheimnisse in 7 Schreibweisen geschwärzt, harmlose Texte unverändert, JSON-Zeilen mit
+  Zusatzfeldern und geschwärztem Fehlerablauf, keine Doppelzeilen; Gesundheit OK/WARN/CRITICAL je Baustein und das
+  Schlechteste zählt; Prometheus-Format inkl. Escaping und ohne NaN; Kennzahlen; Meldungen von Monitor und Budget-Sperre.
+  `test_dashboard`: Gesundheit mit Prüfung (200/503), `/metrics`, nur GET.
+* **Gegenprobe:** OP01–OP11 **11/11 entdeckt**.
+* **Preflight:** STABIL – **1683/1683** Tests, 0 übersprungen; Python 3.9: 1451 bestanden, 13 übersprungen (erwartet).

@@ -2,7 +2,9 @@
 
 Endpunkte (alle GET, nichts aendert das System):
   /                      Weboberflaeche (lokale Dateien, keine fremden Server)
-  /api/health            lebt der Dienst? Modus? (Echtgeld immer "deaktiviert")
+  /api/health            lebt der Dienst? Mit `probe`: Not-Aus, Datenbank, Marktdaten, Engine, KI-Budget
+                         (OK/WARN/CRITICAL; bei CRITICAL HTTP 503). Echtgeld immer "deaktiviert"
+  /metrics               Kennzahlen im Textformat von Prometheus (fuer Ueberwachung und Alarme)
   /api/state             gesamte Momentaufnahme
   /api/state/{abschnitt} ein Abschnitt (status, portfolio, positions, trades, equity, metrics, agents, blocked,
                          strategies, costs, errors)
@@ -18,10 +20,11 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from trading.clock import Clock, SystemClock
 from trading.dashboard.state import SECTIONS, DashboardSource, Mode
+from trading.ops.health import HealthProbe, Level, Metric, render_prometheus
 
 STATIC = Path(__file__).resolve().parent / "static"
 STATIC_FILES = {"app.js": "text/javascript; charset=utf-8", "style.css": "text/css; charset=utf-8"}
@@ -35,7 +38,8 @@ SECURITY_HEADERS = {
 }
 
 
-def create_app(source: DashboardSource, clock: Optional[Clock] = None, push_interval_s: float = 2.0) -> FastAPI:
+def create_app(source: DashboardSource, clock: Optional[Clock] = None, push_interval_s: float = 2.0,
+               probe: Optional[HealthProbe] = None) -> FastAPI:
     if not isinstance(source, DashboardSource):
         raise ValueError("source muss eine DashboardSource sein.")
     if source.mode is Mode.LIVE:
@@ -66,8 +70,17 @@ def create_app(source: DashboardSource, clock: Optional[Clock] = None, push_inte
         return FileResponse(STATIC / name, media_type=STATIC_FILES[name])
 
     @app.get("/api/health")
-    def health() -> Dict[str, Any]:
-        return {"ok": True, "mode": source.mode.value, "live_trading": "deaktiviert", "read_only": True}
+    def health() -> JSONResponse:
+        if probe is None:
+            return JSONResponse({"ok": True, "mode": source.mode.value, "live_trading": "deaktiviert", "read_only": True})
+        report = probe.report()
+        body = dict(report.as_dict(), mode=source.mode.value)
+        return JSONResponse(body, status_code=503 if report.level is Level.CRITICAL else 200)
+
+    @app.get("/metrics", include_in_schema=False)
+    def metrics() -> PlainTextResponse:
+        found = probe.metrics() if probe is not None else [Metric("trading_up", "gauge", "Dienst laeuft", 1)]
+        return PlainTextResponse(render_prometheus(found), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/api/state")
     def state() -> JSONResponse:

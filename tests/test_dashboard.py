@@ -228,3 +228,24 @@ def test_simulation_mode_shows_the_engine_as_demo():
     assert state["status"]["accounting_problem"] == "" and state["metrics"]["trades"] >= 0
     with pytest.raises(ValueError):
         simulation_source(synthetic(days=2), "gibt-es-nicht")
+
+
+def test_health_with_probe_and_prometheus_metrics(source):
+    from trading.ops.health import HealthProbe
+    from trading.safety.kill_switch import HaltReason, InMemoryKillSwitch
+
+    clock = FixedClock(T0)
+    switch = InMemoryKillSwitch(clock)
+    c = TestClient(create_app(source, clock, push_interval_s=0.05, probe=HealthProbe(clock, kill_switch=switch)))
+    ok = c.get("/api/health")
+    assert ok.status_code == 200 and ok.json()["status"] == "OK" and ok.json()["mode"] == "BACKTEST"
+    metrics = c.get("/metrics")
+    assert metrics.status_code == 200 and metrics.headers["content-type"].startswith("text/plain; version=0.0.4")
+    assert "trading_kill_switch_halted 0" in metrics.text and "# TYPE trading_up gauge" in metrics.text
+    switch.trip(HaltReason.MANUAL, "Wartung")
+    bad = c.get("/api/health")
+    assert bad.status_code == 503 and bad.json()["status"] == "CRITICAL" and bad.json()["ok"] is False
+    assert "trading_kill_switch_halted 1" in c.get("/metrics").text
+    assert c.post("/metrics").status_code == 405 and c.get("/metrics").headers["Cache-Control"] == "no-store"
+    plain = TestClient(create_app(source, clock, push_interval_s=0.05)).get("/metrics")
+    assert plain.text == "# HELP trading_up Dienst laeuft\n# TYPE trading_up gauge\ntrading_up 1\n"
