@@ -432,3 +432,15 @@ def test_aki_records_every_analysis_step_and_reports_net_profit_after_all_costs(
     assert report.net_after_all_costs == -(D("1") + summary.total_cost)  # ohne Trades: nur Kosten
     assert log.of_type(EventType.OPERATING_COST)[0].payload["category"] == "SERVER"
     assert log.verify().ok
+
+
+def test_violated_token_assumption_blocks_even_when_the_cost_stays_below_the_reservation():
+    """Mehr Eingabe-Tokens als Bytes + Zuschlag heisst: Die Obergrenze stimmt grundsaetzlich nicht - sperren, auch wenn
+    dieser eine Aufruf (wegen kurzer Antwort) noch unter seiner Reservierung blieb."""
+    env = Env(FakeProvider(input_tokens=1000))  # Prompt hier nur ~100 Bytes + 512 Zuschlag
+    a = env.orch.analyze(request())
+    rec = [r for r in env.records if r.source is Source.AI][0]
+    assert rec.cost < rec.reserved  # die Abrechnung allein haette NICHT gesperrt
+    assert a.source is Source.AI
+    status = env.ledger.status()
+    assert status.blocked and "Eingabe-Tokens" in status.note
