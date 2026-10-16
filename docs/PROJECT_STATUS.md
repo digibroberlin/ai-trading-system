@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Routine (stündlich) seit 2026-10-16 12:12 UTC für AP-12 (Pipeline-Reihenfolge). Vorherige Sperre der interaktiven Sitzung (AP-31…33, zuletzt 08:25 UTC) war älter als 3 Stunden und galt als verwaist; der Zweig `ap/31-kostenoptimierung` bleibt unangetastet.
+gesperrt von Cloud-Routine (stündlich, Lauf ab 12:09 UTC) seit 2026-10-16 14:08 UTC (erneuert, Beginn 12:12) für den Meilenstein `stable/004-safety-stage2` (volle Gegenprobe läuft).
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
@@ -20,7 +20,9 @@ gesperrt von Cloud-Routine (stündlich) seit 2026-10-16 12:12 UTC für AP-12 (Pi
 ## In Arbeit (Zwischenstand)
 
 * **Meilenstein `stable/004-safety-stage2`** (AP-06…12 alle erledigt): volle Gegenprobe `preflight.py --mutation --record`
-  läuft ab 2026-10-16 ca. 12:45 UTC in der Cloud-Routine (ca. 45–60 min). Nur bei STABIL: `develop` → `main`, Tag setzen.
+  erster Lauf 12:41–14:00 UTC: NICHT STABIL – K14 (Tagesverlust „>=“ → „>“) unentdeckt (Testlücke seit AP-07, Grenzfall
+  „genau 3 %“ fehlte). Behoben mit Grenzfall-Tests (Tagesverlust 3 %, Drawdown 10 %), K13/K14 2/2 entdeckt. Zweiter voller
+  Lauf ab ca. 14:10 UTC (ca. 80 min). Nur bei STABIL: `develop` → `main`, Tag setzen.
   Bricht der Lauf ab: nächster Lauf startet die volle Gegenprobe erneut auf `develop`.
 * Parallel offen (fremde Arbeit): Zweig `ap/31-kostenoptimierung` der interaktiven Sitzung (KI-Kostenoptimierung, D-016,
   noch nicht nach `develop`). Konflikte beim Zusammenführen möglich in AGENTS.md, DECISIONS.md, MASTER_PLAN.md (AP-12 nutzt D-017).
