@@ -4,6 +4,14 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Offen
 
+* **B-006 Geheimnis-Scan meldet Fehlalarme auf dem Zweig `ap/31-kostenoptimierung` (Hinweis, kein Eingriff des Eigners nötig).**
+  WAS: `python scripts/secret_scan.py --history` prüft alle Zweige. Zwei WIP-Commits der interaktiven AP-31-Sitzung (`965e701`,
+  `c4c36d2`) enthalten Variablen wie `input_tokens` – das sind Token-*Anzahlen* der KI-Kostenmessung, keine Zugangsdaten. Der
+  Scanner auf `develop` kennt die enge Ausnahme dafür noch nicht (sie liegt auf dem AP-31-Zweig, Commit `f4a98b1`).
+  WO: jede Sitzung, die alle Zweige holt (`git fetch --all`). WIE bis dahin: Die Cloud-Routine hat am 2026-10-16 geprüft, dass
+  die Funde nur auf dem AP-31-Zweig liegen, und für ihren eigenen Stand ohne den lokalen Verweis auf diesen Zweig gescannt
+  (auf GitHub bleibt er unverändert). WAS DANACH: Mit dem Zusammenführen von AP-31 nach `develop` ist der Punkt erledigt.
+
 ## Später (noch nicht nötig)
 
 * **B-003 Order-Anbindung für Börsen-Demokonten.** AGENTS.md §2 Regel 1 verbietet heute jede Order-Funktion an eine Börse.

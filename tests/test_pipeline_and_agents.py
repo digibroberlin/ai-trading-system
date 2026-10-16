@@ -95,10 +95,14 @@ def test_happy_path_executes_and_documents_every_step():
     pipe, _ = build(env)
     out = pipe.run_cycle(ctx(env))
     assert len(out) == 1 and out[0].executed and out[0].stage == "FILLED"
+    # Reihenfolge nach Vorgabe des Eigners (AP-12): MOMO -> RIN -> SORA (Vorpruefung) -> KIBO -> YUZU
+    # -> SORA (endgueltig, unter der Sperre) -> Executor; AKI protokolliert jeden Schritt.
     assert types(env) == [
-        "SETUP_PROPOSED", "AGENT_OPINION", "AGENT_OPINION", "AGENT_OPINION",
+        "SETUP_PROPOSED", "AGENT_OPINION", "SIZING_PRECHECK", "AGENT_OPINION", "AGENT_OPINION",
         "SIZING_PROPOSED", "ORDER_FILLED",
     ]
+    opinions = [e.payload["agent"] for e in env.log.of_type(EventType.AGENT_OPINION)]
+    assert opinions == ["RIN", "KIBO", "YUZU"]
     assert len(env.executor.open_positions) == 1
     assert env.log.verify().ok
 
@@ -145,6 +149,131 @@ def test_crashing_sora_blocks_with_agent_error_and_nothing_is_traded():
     assert len(env.log.of_type(EventType.SYSTEM_ERROR)) == 1 and not env.log.of_type(EventType.ORDER_REJECTED)
     assert env.executor.open_positions == ()
     assert env.order(out[0].setup.setup_id).status is OrderStatus.FILLED  # Sperre frei, ID unverbraucht
+
+
+class CallLog:
+    """Haelt fest, welcher Agent in welcher Reihenfolge gefragt wurde."""
+
+    def __init__(self):
+        self.calls = []
+
+
+def recording(env, log, sora_answers=None, rin_approve=True):
+    """Test-Agenten, die ihren Aufruf in `log.calls` eintragen. `sora_answers`: Liste je SORA-Aufruf
+    (True = zustimmen, False = ablehnen, "boom" = abstuerzen); danach immer zustimmen."""
+    answers = list(sora_answers or [])
+
+    class Rin(StubRin):
+        def validate(self, setup, context):
+            log.calls.append("RIN")
+            return super().validate(setup, context)
+
+    class Kibo(StubKibo):
+        def evaluate(self, setup, context):
+            log.calls.append("KIBO")
+            return super().evaluate(setup, context)
+
+    class Yuzu(StubYuzu):
+        def evaluate(self, setup, context):
+            log.calls.append("YUZU")
+            return super().evaluate(setup, context)
+
+    class Sora(StubSora):
+        def size(self, setup, context, portfolio):
+            log.calls.append("SORA")
+            answer = answers.pop(0) if answers else True
+            if answer == "boom":
+                raise RuntimeError("SORA abgestuerzt")
+            self.approve = answer
+            return super().size(setup, context, portfolio)
+
+    return dict(rin=Rin(approve=rin_approve), kibo=Kibo(), yuzu=Yuzu(), sora=Sora(env.risk.costs))
+
+
+def test_agents_are_asked_in_the_owners_order():
+    env, log = Env(), CallLog()
+    pipe, _ = build(env, **recording(env, log))
+    assert pipe.run_cycle(ctx(env))[0].executed
+    assert log.calls == ["RIN", "SORA", "KIBO", "YUZU", "SORA"]
+
+
+def test_rin_veto_stops_before_sora_kibo_and_yuzu():
+    env, log = Env(), CallLog()
+    pipe, _ = build(env, **recording(env, log, rin_approve=False))
+    out = pipe.run_cycle(ctx(env))
+    assert out[0].stage == "RIN" and log.calls == ["RIN"]
+    assert not env.log.of_type(EventType.SIZING_PRECHECK)
+
+
+def test_sora_precheck_rejection_stops_before_kibo_and_yuzu_and_is_documented():
+    """Ein Setup, das SORA schon verwirft, verbraucht keine (spaeter teure) Bewertung durch KIBO/YUZU."""
+    env, log = Env(), CallLog()
+    pipe, _ = build(env, **recording(env, log, sora_answers=[False]))
+    out = pipe.run_cycle(ctx(env))
+    assert not out[0].executed and out[0].stage == "SORA" and out[0].reasons == (R.AGENT_REJECTED,)
+    assert log.calls == ["RIN", "SORA"]
+    assert len(env.log.of_type(EventType.SIZING_PRECHECK)) == 1 and not env.log.of_type(EventType.SIZING_PROPOSED)
+    blocked = env.log.of_type(EventType.SETUP_BLOCKED)[0].payload
+    assert blocked["stage"] == "SORA" and blocked["details"] == "sora-stub: kein Trade"
+    assert env.executor.open_positions == ()
+
+
+def test_sora_precheck_crash_blocks_before_kibo_and_yuzu():
+    env, log = Env(), CallLog()
+    pipe, _ = build(env, **recording(env, log, sora_answers=["boom"]))
+    out = pipe.run_cycle(ctx(env))
+    assert out[0].stage == "SORA" and out[0].reasons == (R.AGENT_ERROR,) and log.calls == ["RIN", "SORA"]
+    assert len(env.log.of_type(EventType.SYSTEM_ERROR)) == 1 and env.executor.open_positions == ()
+
+
+def test_unreadable_portfolio_before_the_precheck_blocks_fail_closed():
+    env, log = Env(), CallLog()
+    pipe, _ = build(env, **recording(env, log))
+
+    def broken():
+        raise RuntimeError("Zustand nicht lesbar")
+
+    env.executor.portfolio_state = broken
+    out = pipe.run_cycle(ctx(env))
+    assert not out[0].executed and out[0].stage == "EXECUTOR" and out[0].reasons == (R.EXECUTION_ERROR,)
+    assert log.calls == ["RIN"] and env.executor.open_positions == ()
+    assert env.log.of_type(EventType.SYSTEM_ERROR)[0].payload["source"] == "EXECUTOR"
+
+
+def test_precheck_approval_is_no_permission_final_sizing_under_the_lock_decides():
+    """Stimmt die Vorpruefung zu, lehnt SORA aber unter der Sperre ab (z. B. Budget inzwischen verbraucht),
+    wird nicht gehandelt - die Vorpruefung ist nur ein Filter."""
+    env, log = Env(), CallLog()
+    pipe, _ = build(env, **recording(env, log, sora_answers=[True, False]))
+    out = pipe.run_cycle(ctx(env))
+    assert not out[0].executed and out[0].stage == "SORA" and out[0].reasons == (R.AGENT_REJECTED,)
+    assert log.calls == ["RIN", "SORA", "KIBO", "YUZU", "SORA"]
+    assert env.executor.open_positions == () and not env.log.of_type(EventType.ORDER_FILLED)
+
+
+def test_final_sizing_crash_under_the_lock_blocks_and_frees_the_order_id():
+    env, log = Env(), CallLog()
+    pipe, _ = build(env, **recording(env, log, sora_answers=[True, "boom"]))
+    out = pipe.run_cycle(ctx(env))
+    assert out[0].stage == "SORA" and out[0].reasons == (R.AGENT_ERROR,)
+    assert env.executor.open_positions == () and not env.log.of_type(EventType.ORDER_REJECTED)
+    assert env.order(out[0].setup.setup_id).status is OrderStatus.FILLED  # Sperre frei, ID unverbraucht
+
+
+def test_order_size_comes_from_the_final_sizing_not_the_precheck():
+    """Die Vorpruefung rechnet mit einem vorab gelesenen Zustand; die Order bekommt die Groesse von unter der Sperre."""
+    env = Env()
+    sizes = [D("0.5"), D("0.25")]
+
+    class TwoSizes(StubSora):
+        def size(self, setup, context, portfolio):
+            self.override_qty = sizes.pop(0)
+            return super().size(setup, context, portfolio)
+
+    pipe, _ = build(env, sora=TwoSizes(env.risk.costs))
+    out = pipe.run_cycle(ctx(env))
+    assert out[0].executed and env.executor.open_positions[0].quantity == D("0.25")
+    assert env.log.of_type(EventType.SIZING_PRECHECK)[0].payload["sizing"]["quantity"] == "0.5"
 
 
 def test_crashing_agent_blocks_instead_of_approving():

@@ -213,7 +213,7 @@ class SlowSora(RuleBasedSora):
         return super().size(setup, context, portfolio)
 
 
-def separate_pipelines(env, symbols, risk_per_trade):
+def separate_pipelines(env, symbols, risk_per_trade, executor=None):
     """Je Markt eine EIGENE Pipeline (eigene Sperre) - wie mehrere Prozesse, die sich nur den Executor teilen."""
     universe = TradingUniverse.of(futures=symbols)
     policy = SizingPolicy.from_limits(DEFAULT_LIMITS)
@@ -222,9 +222,47 @@ def separate_pipelines(env, symbols, risk_per_trade):
         TradingPipeline(momo, RuleBasedRin(universe, env.clock, RinConfig(), env.risk.costs),
                         StubKibo(), StubYuzu(),
                         SlowSora(policy, env.risk.costs, SoraConfig(risk_per_trade=risk_per_trade)),
-                        AkiAgent(env.log), env.executor)
+                        AkiAgent(env.log), executor or env.executor)
         for _ in symbols
     ]
+
+
+class InterleavingExecutor:
+    """Laesst UNMITTELBAR vor `submit_sized` einen anderen Teilnehmer handeln - genau das Zeitfenster zwischen
+    einem vorab gelesenen Zustand und dem Betreten der Sperre, deterministisch statt vom Zufall der Threads."""
+
+    def __init__(self, inner, before):
+        self._inner, self._before = inner, before
+
+    def submit_sized(self, *args, **kwargs):
+        before, self._before = self._before, None
+        if before is not None:
+            before()
+        return self._inner.submit_sized(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+def test_final_sizing_uses_the_state_under_the_lock_even_if_others_traded_just_before():
+    """Audit M8 / D-017: Die SORA-Vorpruefung sah noch ein leeres Konto. Kurz vor der Sperre eroeffnen andere vier
+    Positionen. Die endgueltige Groesse muss mit dem Zustand UNTER der Sperre rechnen -> verkleinert ins Restbudget,
+    der Risikomanager muss nichts ablehnen."""
+    env = Env()
+    symbols = ["RI%d-USD" % i for i in range(5)]
+    pipes = []
+
+    def others_trade():
+        for i, pipe in enumerate(pipes[:4]):
+            assert pipe.run_cycle([MarketContext(env.snap(symbol=symbols[i], mid=D(100), **FUT))])[0].executed
+
+    pipes.extend(separate_pipelines(env, symbols, D("0.0045"), InterleavingExecutor(env.executor, others_trade)))
+    out = pipes[4].run_cycle([MarketContext(env.snap(symbol=symbols[4], mid=D(100), **FUT))])[0]
+    assert len(env.log.of_type(EventType.SIZING_PRECHECK)) == 5  # Vorpruefung des Ziels vor den anderen
+    assert out.executed, out
+    assert D("0.001") < out.result.risk.risk_pct < D("0.0025")  # verkleinert, nicht mit dem alten Zustand gerechnet
+    assert env.log.of_type(EventType.ORDER_REJECTED) == ()
+    assert env.executor.portfolio_state().open_count == 5
 
 
 @pytest.mark.parametrize("run", range(N_PARALLEL_REPEATS))

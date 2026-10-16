@@ -19,10 +19,20 @@ gesperrt von Cloud-Routine (stündlich) seit 2026-10-16 12:12 UTC für AP-12 (Pi
 
 ## In Arbeit (Zwischenstand)
 
-* nichts. Nächstes Paket: **AP-12** (Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI).
-  Danach Meilenstein `stable/004-safety-stage2`: volle Gegenprobe (`preflight.py --mutation --record`, in der Cloud ca. 45–60 min).
+* **Meilenstein `stable/004-safety-stage2`** (AP-06…12 alle erledigt): volle Gegenprobe `preflight.py --mutation --record`
+  läuft ab 2026-10-16 ca. 12:45 UTC in der Cloud-Routine (ca. 45–60 min). Nur bei STABIL: `develop` → `main`, Tag setzen.
+  Bricht der Lauf ab: nächster Lauf startet die volle Gegenprobe erneut auf `develop`.
+* Parallel offen (fremde Arbeit): Zweig `ap/31-kostenoptimierung` der interaktiven Sitzung (KI-Kostenoptimierung, D-016,
+  noch nicht nach `develop`). Konflikte beim Zusammenführen möglich in AGENTS.md, DECISIONS.md, MASTER_PLAN.md (AP-12 nutzt D-017).
 
 ## Zuletzt erledigt
+
+* AP-12 Pipeline-Reihenfolge nach Vorgabe des Eigners (Cloud-Routine 2026-10-16 12:12–12:45 UTC, D-017): MOMO → RIN →
+  SORA-Vorprüfung → KIBO → YUZU → SORA endgültig unter der Sperre → Executor → AKI. Was RIN oder SORA schon verwerfen, erreicht
+  KIBO/YUZU (später ggf. teure KI) nicht mehr; die Größe der Order entsteht weiterhin unter der Sperre (Audit M8 bleibt erfüllt).
+  Preflight STABIL 886/886, 0 übersprungen; Python 3.9: 703 bestanden. Gegenprobe der Pipeline-Einträge 14/14 (dabei eine
+  Testlücke bei Q01 gefunden und mit einem deterministischen Test geschlossen). Hinweis B-006 (Geheimnis-Scan-Fehlalarme auf
+  dem AP-31-Zweig).
 
 * AP-11 Wiederverbindung zur Datenbank (Cloud-Routine 2026-10-16 06:13–06:40 UTC, Audit H7, D-015): Nach einem
   Verbindungsabbruch verbinden sich Executor, Protokoll und Not-Aus selbst neu (höchstens 4 Versuche mit 0,5/1/2 s Wartezeit,
