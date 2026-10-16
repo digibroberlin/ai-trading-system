@@ -50,7 +50,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 |---|---|---|---|
 | AP-06 | Zentraler Startpunkt mit PAPER-Schutz für jeden Prozess, breitere Schlüssel-Erkennung (M3) | jeder Einstieg prüft; Tests | ✅ (Gegenprobe E04–E10) |
 | AP-07 | Globaler Kill Switch: dauerhaft in der DB, manuell und automatisch (Datenfehler, Protokollfehler, Notbremsen), Freigabe nur bewusst | Tests inkl. Mehrprozess, Gegenprobe | ✅ D-011 |
-| AP-08 | Order-Wiederholung liefert ursprüngliches Ergebnis (M7) | Tests, auch nach Neustart | ⏳ |
+| AP-08 | Order-Wiederholung liefert ursprüngliches Ergebnis (M7) | Tests, auch nach Neustart | ✅ D-012 |
 | AP-09 | Größe unter Konkurrenz innerhalb der Sperre neu berechnen (M8) | exakte Mehrprozess-Erwartung | ⏳ |
 | AP-10 | Rechte der App-Rolle (M2-Rest), Konten nur administrativ | Schema-Tests | ⏳ |
 | AP-11 | Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen (H7) | Tests mit Verbindungsabbruch | ⏳ |

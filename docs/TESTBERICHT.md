@@ -130,7 +130,7 @@ Grenze der Methode: Die Gegenprobe zeigt nur, dass **diese 193** Fehler bemerkt 
 | **Stress-Limit ohne Datenbank-Gurt** | Nur in der Anwendung gerechnet (unter der Konto-Sperre). |
 | **Stress-Limit ist die engste Grenze** | Begrenzt die ungesicherte Gesamtgröße auf knapp 50 % des Kapitals. |
 | **Unter Konkurrenz Ablehnung statt Verkleinerung** (Audit M8) | Sicher, aber nicht optimal. |
-| **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | offen |
+| **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | **behoben** (AP-08, Nachtrag unten) |
 | **PAPER-Schutz nicht an einem zentralen Startpunkt** (Audit M3) | offen; ein Live-Modus existiert im Code nicht |
 | **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | offen |
 | **Wiederverbindung zur Datenbank, hängende Transaktionen** (Audit H7) | offen |

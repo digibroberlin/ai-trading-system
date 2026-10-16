@@ -239,6 +239,11 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
   er alle Konten und das Auslösen von außen, bis die Datenbank seine Sitzung beendet (spätestens nach rund 15 Sekunden).
 * **Not-Aus erkennt nur formal kaputte Daten**, keine plausibel aussehenden falschen Kurse. Ausbleibende Daten (veralteter Feed)
   lösen ihn noch nicht aus – das kommt mit der Marktüberwachung (AP-15).
+* **Wiederholte Order (AP-08):** Gleiche Order-ID mit **exakt** gleichem Inhalt liefert das ursprüngliche Ergebnis (Status,
+  Gründe, Position wie bei der Eröffnung) – ohne erneut zu handeln. Der Vergleich ist bewusst streng: Schon `100` statt `100.0`
+  oder eine andere Zeitzonen-Schreibweise gelten als anderer Inhalt und werden als Duplikat abgelehnt. Die Risikobewertung der
+  ersten Bearbeitung wird bei der Wiederholung nicht mitgeliefert (sie steht im Ereignisprotokoll). Orders aus der Zeit vor
+  Migration 004 haben keinen Fingerabdruck; ihre Wiederholung wird weiter als Duplikat abgelehnt.
 * **Python 3.13/3.14 und das neue GIL-freie Python** wurden nicht getestet (Ziel ist 3.12).
 * **Ein Konto = ein Flaschenhals:** Die Konto-Sperre reiht alle Aktionen eines Kontos hintereinander ein (bewusst, Sicherheit vor Tempo). Dauert eine Aktion länger als 10 Sekunden
   auf die Sperre, wird sie abgebrochen und gilt als blockiert (`EXECUTION_ERROR`). Auch `portfolio_state()` nimmt kurz die Sperre.
