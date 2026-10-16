@@ -85,6 +85,8 @@ MDH, MDP, MDC, MDB, MDR = ("src/trading/marketdata/history.py", "src/trading/mar
                            "src/trading/marketdata/ratelimit.py")
 WST = ["tests/test_market_stream.py", "tests/test_public_ws.py", "tests/test_no_real_trading.py"]  # AP-15
 WSS, WSP = "src/trading/marketdata/stream.py", "src/trading/marketdata/public_ws.py"
+OPT = ["tests/test_ops.py", "tests/test_dashboard.py"]  # Betrieb: Logging, Gesundheit, Kennzahlen (AP-25)
+OPH, OPL = "src/trading/ops/health.py", "src/trading/ops/logs.py"
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -465,6 +467,17 @@ BACKTEST: List[Mutant] = [
  ("WS13", "Ping des Servers unbeantwortet", [(WSP, "        elif isinstance(event, Ping):\n            self._write(self._ws.send(event.response()))", "        elif isinstance(event, Ping):\n            pass")], WST),
  ("WS14", "Keine Hoechstgroesse je Nachricht", [(WSP, "            if sum(len(p) for p in self._partial) > MAX_MESSAGE_BYTES:", "            if False:")], WST),
  ("WS15", "TLS ohne Zertifikatspruefung", [(WSP, "ssl.create_default_context().wrap_socket(", "ssl._create_unverified_context().wrap_socket(")], WST),
+ ("OP01", "Aktiver Not-Aus gilt als gesund", [(OPH, "        if status.halted:\n            return Check(\"kill_switch\", Level.CRITICAL", "        if False:\n            return Check(\"kill_switch\", Level.CRITICAL")], OPT),
+ ("OP02", "Unlesbarer Not-Aus gilt als gesund", [(OPH, "            return Check(\"kill_switch\", Level.CRITICAL, \"nicht lesbar", "            return Check(\"kill_switch\", Level.OK, \"nicht lesbar")], OPT),
+ ("OP03", "Datenbank weg gilt als gesund", [(OPH, "            return Check(\"database\", Level.CRITICAL,", "            return Check(\"database\", Level.OK,")], OPT),
+ ("OP04", "Veraltete Marktdaten nicht kritisch", [(OPH, "        if age is None or age >= policy.halt_after_s:", "        if age is None:")], OPT),
+ ("OP05", "Gesperrtes KI-Budget ohne Warnung", [(OPH, "        if status.blocked:\n            return Check(\"ai_budget\", Level.WARN", "        if False:\n            return Check(\"ai_budget\", Level.WARN")], OPT),
+ ("OP06", "Gesamtzustand nimmt das Beste statt das Schlechteste", [(OPH, "        level = max((c.level for c in checks), key=SEVERITY.__getitem__, default=Level.OK)", "        level = min((c.level for c in checks), key=SEVERITY.__getitem__, default=Level.OK)")], OPT),
+ ("OP07", "Kritischer Zustand mit HTTP 200", [("src/trading/dashboard/api.py", "status_code=503 if report.level is Level.CRITICAL else 200", "status_code=200")], OPT),
+ ("OP08", "Passwort in Adressen nicht geschwaerzt", [(OPL, "r\"\\1***@\"),  # Passwort in einer Adresse", "r\"\\g<0>\"),  # Passwort in einer Adresse")], OPT),
+ ("OP09", "Schluessel=Wert nicht geschwaerzt", [(OPL, "r\"\\1\\2***\"),\n    (re.compile(r\"\\bsk-", "r\"\\g<0>\"),\n    (re.compile(r\"\\bsk-")], OPT),
+ ("OP10", "Fehlerablauf ungeschwaerzt im Log", [(OPL, "            data[\"error\"] = redact(self.formatException(record.exc_info))", "            data[\"error\"] = self.formatException(record.exc_info)")], OPT),
+ ("OP11", "KI-Budget-Sperre nicht als Fehler gemeldet", [("src/trading/ai/orchestrator.py", "        LOG.error(\"KI-Budget gesperrt", "        LOG.debug(\"KI-Budget gesperrt")], OPT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),

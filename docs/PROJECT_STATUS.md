@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:20 UTC für AP-25 (Logging, Gesundheit, Kennzahlen)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:45 UTC für AP-26 (Backups mit Rückspiel-Test)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,12 +22,16 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-25** (Logging, Gesundheit, Kennzahlen), danach AP-26–28 (Betrieb, nur vorbereitet);
-  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–24 sind erledigt – jeweils mit eigener
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-26** (Backups mit Rückspiel-Test), danach AP-27/28 (Betrieb, nur vorbereitet);
+  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–25 sind erledigt – jeweils mit eigener
   Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-25 Logging, Gesundheit, Kennzahlen** (interaktive Cloud-Sitzung, 2026-10-16, D-027): JSON-Logging, das Geheimnisse
+  schwärzt; Gesundheit OK/WARN/CRITICAL (Not-Aus, Datenbank, Marktdaten, Engine, KI-Budget) unter `/api/health` (503 bei
+  CRITICAL) und Kennzahlen unter `/metrics` (Prometheus-Text). Preflight STABIL 1683/1683; Python 3.9: 1451 bestanden;
+  Gegenprobe OP01–OP11 11/11.
 * **AP-15 Marktüberwachung über WebSocket** (interaktive Cloud-Sitzung, 2026-10-16, D-026): geschlossene, geprüfte
   Kerzen aus dem öffentlichen Strom (Bitget-Kerzen, Coinbase aus Handel), Wiederverbindung mit wachsender Wartezeit,
   Lücken per REST nachgeladen und in Reihenfolge, 120 s ohne Daten → Not-Aus, Zeit aus der Zukunft/fehlerhafte Kerze →
