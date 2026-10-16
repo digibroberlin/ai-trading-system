@@ -388,3 +388,22 @@ Lückenprüfung) aufgenommen; bis dahin meldet `live_registry` ehrlich „nicht 
 Modul geladen – beides durch Tests abgesichert.
 **Grenzen:** Kein echter Aufruf, nur Attrappe der SDK-Antwortform. Ob die Preistabelle (Stand 2026-10-06) stimmt, muss vor
 echtem Einsatz gegen die Preisliste des Anbieters geprüft werden (die Altersprüfung erzwingt das spätestens nach 60 Tagen).
+
+## D-025 · 2026-10-16 · Marktdaten-Adapter: historische Kerzen und Funding, nur lesend (AP-14)
+**Entscheidung:** `CoinbaseHistorySource` (Spot) und `BitgetHistorySource` (Spot und USDT-Futures inkl. Funding)
+implementieren `HistoricalDataSource`. Gemeinsamer Ablauf in `ExchangeHistorySource`: Anfrage prüfen (Börse, Marktart,
+Intervall, Zeitzone, Ausrichtung, nicht in der Zukunft) → je UTC-Tag aus dem Zwischenspeicher oder von der Börse →
+strikte Zeilenprüfung (Form, exakte Zahlen, Ausrichtung; gleiche Doppelte aus Seiten-Überlappung einmal, widersprüchliche
+Doppelte = Fehler; laufende Kerzen nie) → Zeitraum muss vollständig abgedeckt sein; Lücken innerhalb meldet
+`MarketDataset.build`. Nichts wird aufgefüllt oder geglättet. Futures: Funding-Sätze der Börse, Anfangssatz aus der letzten
+Abrechnung vor dem Beginn; Pausen über 12 h oder fehlender Anfangssatz = Fehler. Kurs zur Abrechnung = Schluss der letzten
+bis dahin geschlossenen Kerze (Näherung für den Mark-Preis; wirkt nur auf den Funding-Betrag).
+**Netzzugang – einzige bewusste Ausnahme:** `marketdata/public_http.py` darf `urllib` benutzen: nur HTTPS-GET, nur
+`api.exchange.coinbase.com` und `api.bitget.com`, keine Weiterleitungen, keine Zugangs-Kopfzeilen, kein Inhalt,
+Zeitlimit, Größenlimit, Zahlen als Decimal. `tests/test_no_real_trading.py` erlaubt genau diese Datei und prüft ihren
+Aufbau (AGENTS.md §2 Regel 9 sieht diese sichtbare Anpassung vor). Ratenbegrenzung 5 Anfragen/s, höchstens 3
+Wiederholungen nur bei 429/5xx/Netzfehlern.
+**Zwischenspeicher:** eine JSON-Datei je Instrument/Art/Intervall/UTC-Tag unter `data/marketdata` (nicht im Repository),
+nur abgeschlossene Tage, mit SHA-256 des Inhalts; Abweichungen → Datei verworfen und neu geladen; atomar geschrieben.
+**Grenzen:** Antwortformen nach der Schnittstellenbeschreibung nachgebildet – der echte Abruf steht aus (B-008: Netzregel
+der Cloud-Umgebung). Bitget nur bis 4-h-Kerzen (größere beginnen teils zu UTC+8). Coinbase-Futures nicht enthalten.

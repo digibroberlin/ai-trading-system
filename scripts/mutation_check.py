@@ -79,6 +79,10 @@ RST = ["tests/test_research.py"]  # Forschungsrahmen (AP-18/19)
 BRT = ["tests/test_exchange_rules.py"]  # Boersenregeln (AP-13)
 BXR = "src/trading/domain/exchange_rules.py"
 ANT, ANP = ["tests/test_ai_provider.py"], "src/trading/ai/anthropic_provider.py"  # KI-Anschluss (AP-22)
+MDT = ["tests/test_marketdata_adapters.py", "tests/test_no_real_trading.py"]  # Marktdaten-Adapter (AP-14)
+MDH, MDP, MDC, MDB, MDR = ("src/trading/marketdata/history.py", "src/trading/marketdata/public_http.py",
+                           "src/trading/marketdata/daycache.py", "src/trading/marketdata/bitget.py",
+                           "src/trading/marketdata/ratelimit.py")
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -429,6 +433,21 @@ BACKTEST: List[Mutant] = [
  ("AN08", "Fehlender Verbrauch wird erfunden", [(ANP, "    if usage is None:\n        return NO_USAGE", "    if usage is None:\n        return TokenUsage(1, 1)")], ANT),
  ("AN09", "Fremder Anbieter in den Modellstufen erlaubt", [(ANP, "    if any(t.provider != PROVIDER for t in routing.models.values()):", "    if False:")], ANT),
  ("AN10", "Kein Zeitlimit je Aufruf", [(ANP, "            timeout=self._timeout,\n", "")], ANT),
+ ("MD01", "Netzzugang zu beliebigen Hosts", [(MDP, "parts.hostname not in ALLOWED_HOSTS or ", "False or ")], MDT),
+ ("MD02", "Weiterleitungen werden verfolgt", [(MDP, "        return None  # urllib meldet", "        return super().redirect_request(req, fp, code, msg, headers, newurl)  # urllib meldet")], MDT),
+ ("MD03", "Kurse ueber float gelesen", [(MDP, "json.loads(body.decode(\"utf-8\"), parse_float=Decimal)", "json.loads(body.decode(\"utf-8\"))")], MDT),
+ ("MD04", "Zeitraum in der Zukunft erlaubt", [(MDH, "        if end > self._clock.now():", "        if False:")], MDT),
+ ("MD05", "Unvollstaendiger Zeitraum wird hingenommen", [(MDH, "if not candles or candles[0].open_time != start or candles[-1].close_time != end:", "if not candles:")], MDT),
+ ("MD06", "Widerspruechliche Doppelte werden hingenommen", [(MDH, "        if t in seen and seen[t] != row:", "        if False:")], MDT),
+ ("MD07", "Laufende Kerze wird uebernommen", [(MDH, "if not lo <= t < hi or (kind == \"candles\" and t + interval_s > hi):", "if not lo <= t < hi:")], MDT),
+ ("MD08", "Laufender Tag wird zwischengespeichert", [(MDH, "                if self._cache is not None and day + DAY <= now:\n                    self._cache.put", "                if self._cache is not None:\n                    self._cache.put")], MDT),
+ ("MD09", "Beschaedigter Zwischenspeicher wird benutzt", [(MDC, " and data.get(\"sha256\") == rows_digest(rows)", "")], MDT),
+ ("MD10", "Funding-Luecken werden hingenommen", [(MDH, "        if not before or holes:", "        if not before:")], MDT),
+ ("MD11", "Anfangs-Funding aus dem Zeitraum selbst", [(MDH, "        before = [r for r in funding if int(r[0]) <= lo]", "        before = [r for r in funding if int(r[0]) <= hi]")], MDT),
+ ("MD12", "Dauerhafte Fehler werden wiederholt", [(MDH, "                if not exc.retryable or attempt == len(RETRY_DELAYS_S):", "                if attempt == len(RETRY_DELAYS_S):")], MDT),
+ ("MD13", "Bitget-Fehlercode wird uebergangen", [(MDB, "    if response.get(\"code\") != \"00000\":", "    if False:")], MDT),
+ ("MD14", "Keine Ratenbegrenzung", [(MDR, "            self._next = start + self._interval", "            self._next = start")], MDT),
+ ("MD15", "Falsch ausgerichtete Kerzen werden hingenommen", [(MDH, "        if kind == \"candles\" and t % interval_s:", "        if False:")], MDT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),

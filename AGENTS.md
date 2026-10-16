@@ -41,8 +41,9 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
    beschädigtes Protokoll → **nicht handeln**. Im Zweifel blockieren.
 8. **Alles wird protokolliert.** Jeder Trade **und jedes blockierte Setup** wird mit Stufe und Gründen im
    unveränderlichen Ereignisprotokoll festgehalten. Das Protokoll hat nur `append` – keine Änderungs- oder Löschfunktion.
-9. **Keine Netzwerk-Bibliotheken** im Kern (`tests/test_no_real_trading.py` prüft das). Wer später Marktdaten-Adapter ergänzt,
-   passt diesen Test bewusst und sichtbar an.
+9. **Keine Netzwerk-Bibliotheken** im Kern (`tests/test_no_real_trading.py` prüft das). Einzige, bewusst eingetragene Ausnahme
+   (AP-14, D-025): `marketdata/public_http.py` liest öffentliche Marktdaten – nur GET, nur feste Hosts, keine Zugangsdaten.
+   Jede weitere Ausnahme wird genauso sichtbar im Test eingetragen.
 10. **KI-Kosten sind hart begrenzt** (D-016). Jede KI-Analyse läuft ausschließlich über `trading.ai.orchestrator.AIOrchestrator`:
     Regeln zuerst, Cache, ereignisbasierte Aktivierung, Modellstufen mit Wertschranke, und vor jedem Aufruf wird eine echte
     Kosten-Obergrenze gegen die Budgets je Aufruf/Tag/Monat reserviert. **Standard-Budget 0** – ohne Freigabe des Eigners kein
@@ -100,7 +101,9 @@ src/trading/
                          kill_switch.py (globaler Not-Aus)
   execution/             costs.py (Gebühren, Slippage, Rundung), fees.py (Gebührenstufen), paper_executor.py, protocol.py
                          (Executor-Schnittstelle); domain/exchange_rules.py: Börsenregeln je Instrument (AP-13)
-  marketdata/            candles.py (Kerzen- und Reihenprüfung), synthetic.py (erfundene Daten), feed.py (Schnittstelle)
+  marketdata/            candles.py (Kerzen- und Reihenprüfung), synthetic.py (erfundene Daten), feed.py (Schnittstelle),
+                         history.py/coinbase.py/bitget.py (historische Kerzen + Funding, nur lesend, AP-14), daycache.py
+                         (Zwischenspeicher), ratelimit.py, public_http.py (EINZIGER Netzzugang: HTTPS-GET an feste Hosts)
   agents/                base.py, contracts.py, momo/rin/sora/kibo/yuzu (abstrakt), aki (implementiert),
                          rin_rules.py (RuleBasedRin), sora_rules.py (RuleBasedSora), kibo_rules.py, yuzu_rules.py (AP-17),
                          ai_review.py (KI-Zweitmeinung über den Orchestrator), neutral.py (Platzhalter nur auf Wunsch)
