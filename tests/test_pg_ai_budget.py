@@ -402,6 +402,14 @@ def test_cost_above_reservation_blocks_the_budget_for_every_process(pg):
                   " VALUES ('x', now(), current_date, 'KIBO', 'm', 0.01)")
 
 
+def test_a_new_reservation_can_never_arrive_already_settled(pg):
+    """Sonst koennte eine Reservierung gleich mit 0 USD 'abgerechnet' angelegt werden und zaehlte nie voll."""
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("1")), "Eigner")
+    with app(pg) as c, pytest.raises(E.CheckViolation, match="noch nicht abgerechnet"):
+        c.execute("INSERT INTO ai_budget_entries (reservation_id, created_at, day, agent, model, reserved, actual,"
+                  " settled_at) VALUES ('x', now(), current_date, 'KIBO', 'm', 0.5, 0, now())")
+
+
 def test_failed_call_keeps_the_full_reservation(pg):
     set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("1")), "Eigner")
     led = ledger(pg)

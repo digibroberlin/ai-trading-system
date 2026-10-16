@@ -76,6 +76,14 @@ def test_period_costs_across_a_daylight_saving_change_are_prorated_by_real_time(
     assert march.share(march.start, march.end) == D("743")
     halves = march.share(march.start, first_day + 15 * DAY) + march.share(first_day + 15 * DAY, march.end)
     assert halves == D("743")
+    # Abfrage in Ortszeit: Der Tag der Umstellung hat nur 23 Stunden
+    assert march.share(datetime(2025, 3, 30, tzinfo=local), datetime(2025, 3, 31, tzinfo=local)) == D("23")
+    with pytest.raises(ValueError):  # ohne Zeitzone nie still als Ortszeit des Rechners deuten
+        march.share(datetime(2025, 3, 1), datetime(2025, 3, 2))  # noqa: DTZ001
+    ledger = CostLedger()
+    ledger.add(march)
+    with pytest.raises(ValueError):
+        ledger.total(datetime(2025, 3, 1), datetime(2025, 3, 2))  # noqa: DTZ001
 
 
 @pytest.mark.parametrize("bad", [dict(amount=D(-1)), dict(amount=D("NaN")), dict(end=T0 - DAY),
@@ -133,6 +141,18 @@ def test_analyses_before_the_period_count_for_trades_closed_in_the_period():
     r = build_net_profit_report(trades, records, CostLedger(), T0 + DAY, T0 + 2 * DAY)
     assert r.attribution.ai_cost_of_traded_setups == D("0.5") and r.attribution.direct_cost_per_trade == D("0.5")
     assert r.ai_cost == D("0.1") and r.attribution.ai_cost_without_trade_in_period == 0
+    assert r.attribution.fully_loaded_cost_per_trade == D("0.5")  # nie kleiner als der direkte Wert
+
+
+def test_fully_loaded_cost_per_trade_includes_unmeasured_ai_costs_of_the_ledger():
+    ledger = CostLedger()
+    ledger.add(OperatingCost(CostCategory.AI_API, D("1"), T0, T0 + 10 * DAY, "Grundgebuehr"))  # 0,1 je Tag
+    trades = [trade("s1", "5"), trade("s2", "5")]
+    records = [rec("A1", cost="0.2", setup="s1"), rec("A2", cost="0.1")]  # A2: Marktbeobachtung ohne Trade
+    r = build_net_profit_report(trades, records, ledger, T0, T0 + DAY)
+    assert r.ai_cost == D("0.4")
+    assert r.attribution.direct_cost_per_trade == D("0.1")  # 0,2 / 2
+    assert r.attribution.fully_loaded_cost_per_trade == D("0.2")  # (0,2 + 0,1 + 0,1) / 2 = alle KI-Kosten / Trades
 
 
 def test_net_profit_after_all_costs():
@@ -151,7 +171,7 @@ def test_net_profit_after_all_costs():
     assert r.ai_cost == D("1.1")  # 1,00 gemessen + 0,10 Grundgebuehr anteilig
     assert r.server_cost == D("2") and r.market_data_cost == D("2") and r.other_cost == 0
     assert r.operating_cost == D("5.1") and r.net_after_all_costs == D("0.9")
-    assert r.attribution.fully_loaded_cost_per_trade == D("0.5")
+    assert r.attribution.fully_loaded_cost_per_trade == D("0.55")  # (0,25 + 0,75 + 0,10 Grundgebuehr) / 2
     with pytest.raises(ValueError):
         build_net_profit_report(trades, records, ledger, T0, T0)
 

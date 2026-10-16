@@ -285,6 +285,12 @@ def test_not_activated_means_no_call_and_the_rules_decide():
     a = env.orch.analyze(request(trigger=TriggerEvent.SCHEDULED_REVIEW), rules)
     assert env.provider.calls == [] and a.source is Source.RULES and a.answer == {"approve": False}
     assert a.reason == "REGELN_ERSATZ:NICHT_AKTIVIERT"
+    # Vorpruefung: nicht zustaendig -> nicht einmal eine Reservierung, und als NICHT_AKTIVIERT (nicht BUDGET) gezaehlt
+    assert env.ledger._entries == {}
+    assert [(r.source, r.reason) for r in env.records] == [(Source.SKIPPED, "NICHT_AKTIVIERT"),
+                                                          (Source.RULES, "REGELN_ERSATZ:NICHT_AKTIVIERT")]
+    without_budget = Env(budget=NO_BUDGET)
+    assert without_budget.orch.analyze(request(trigger=TriggerEvent.SCHEDULED_REVIEW)).reason == "NICHT_AKTIVIERT"
 
 
 def test_without_budget_nothing_is_called():
@@ -466,6 +472,23 @@ class ScriptedProvider(FakeProvider):
                           self.usage if self.usage is not None else base.usage)
 
 
+def test_usage_with_output_only_is_treated_as_missing_usage():
+    env = Env(ScriptedProvider(usage=TokenUsage(output_tokens=40)))  # Eingabe fehlt in der Meldung
+    env.orch.analyze(request())
+    rec = [r for r in env.records if r.source is Source.AI][0]
+    assert rec.cost == rec.reserved > 0 and env.ledger.status().blocked
+    assert env.ledger.status().spent_today == rec.reserved
+
+
+def test_zero_output_for_a_non_empty_answer_is_charged_in_full_and_blocks():
+    env = Env(ScriptedProvider(usage=TokenUsage(input_tokens=100, output_tokens=0)))
+    env.orch.analyze(request())
+    rec = [r for r in env.records if r.source is Source.AI][0]
+    assert rec.cost == rec.reserved > 0
+    status = env.ledger.status()
+    assert status.spent_today == rec.reserved and status.blocked and "0 Ausgabe-Tokens" in status.note
+
+
 def test_missing_usage_is_charged_with_the_full_reservation_and_blocks():
     env = Env(ScriptedProvider(usage=TokenUsage()))
     env.orch.analyze(request())
@@ -481,6 +504,7 @@ def test_other_model_than_requested_is_charged_in_full_and_blocks():
     rec = [r for r in env.records if r.source is Source.AI][0]
     assert rec.cost == rec.reserved and env.ledger.status().blocked
     assert "anderes Modell" in env.ledger.status().note
+    assert env.ledger.status().spent_today == rec.reserved  # auch im Budget voll gebucht, nicht nur gemessen
 
 
 def test_output_above_max_tokens_blocks_the_budget():

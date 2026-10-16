@@ -62,6 +62,8 @@ class OperatingCost:
 
     def share(self, start: datetime, end: datetime) -> Decimal:
         """Anteil dieser Kosten, der in [start, end) faellt (zeitanteilig, aufgerundet)."""
+        if not (is_aware(start) and is_aware(end)):  # sonst deutete astimezone() sie still als Ortszeit des Rechners
+            raise ValueError("Zeitraum ohne Zeitzone.")
         start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
         if self.start == self.end:
             return self.amount if start <= self.start < end else ZERO
@@ -183,18 +185,21 @@ class TradeCostAttribution:
     ai_cost_without_trade_in_period: Decimal  # Analysen dieses Zeitraums ohne hier geschlossenen Trade
     # (abgelehnte Setups, Marktbeobachtung - oder Positionen, die noch offen sind bzw. spaeter geschlossen werden)
     direct_cost_per_trade: Optional[Decimal]  # nur zugeordnete Analysen
-    fully_loaded_cost_per_trade: Optional[Decimal]  # ALLE KI-Kosten des Zeitraums / Trades - der ehrliche Betriebswert
+    # ALLE KI-Kosten der Trades und des Zeitraums / Trades - der ehrliche Betriebswert: zugeordnete Analysen (auch aus
+    # frueheren Zeitraeumen) + Analysen ohne Trade + nicht je Aufruf gemessene KI-Kosten (Kostenbuch). Nie kleiner als
+    # der direkte Wert.
+    fully_loaded_cost_per_trade: Optional[Decimal]
 
 
 def attribute_ai_costs(
     period_records: Iterable[AICallRecord], trades: Sequence[ClosedTrade],
-    earlier_records: Iterable[AICallRecord] = (),
+    earlier_records: Iterable[AICallRecord] = (), unmeasured_ai_cost: Decimal = ZERO,
 ) -> TradeCostAttribution:
     traded = {t.setup_id for t in trades}
     period = list(period_records)
     on_trades = sum((r.cost for r in list(earlier_records) + period if r.setup_id and r.setup_id in traded), ZERO)
     without = sum((r.cost for r in period if not (r.setup_id and r.setup_id in traded)), ZERO)
-    total = sum((r.cost for r in period), ZERO)
+    total = on_trades + without + unmeasured_ai_cost
     return TradeCostAttribution(
         len(trades), on_trades, without, _div(on_trades, len(trades)), _div(total, len(trades)),
     )
@@ -233,14 +238,15 @@ def build_net_profit_report(
     fees = sum((t.fees for t in period_trades), ZERO)
     funding = sum((t.funding for t in period_trades), ZERO)
     net = sum((t.net_pnl for t in period_trades), ZERO)
-    ai_cost = ai.total_cost + ledger.total(start, end, CostCategory.AI_API)
+    unmeasured_ai = ledger.total(start, end, CostCategory.AI_API)  # z. B. Grundgebuehren, nicht je Aufruf gemessen
+    ai_cost = ai.total_cost + unmeasured_ai
     server = ledger.total(start, end, CostCategory.SERVER)
     data = ledger.total(start, end, CostCategory.MARKET_DATA)
     other = ledger.total(start, end, CostCategory.OTHER)
     operating = ai_cost + server + data + other
     return NetProfitReport(
         start, end, len(period_trades), gross, fees, funding, net, ai_cost, server, data, other, operating,
-        net - operating, ai, attribute_ai_costs(records, period_trades, earlier),
+        net - operating, ai, attribute_ai_costs(records, period_trades, earlier, unmeasured_ai),
     )
 
 

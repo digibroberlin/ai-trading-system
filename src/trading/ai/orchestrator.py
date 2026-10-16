@@ -349,18 +349,22 @@ class AIOrchestrator:
         problems: List[str] = []
         wrong_model = response.provider != target.provider or response.model != target.model
         no_usage = usage.total_input == 0 and (price.input_per_mtok > 0 or price.cache_write_per_mtok > 0)
+        # Eine nicht leere Antwort hat mindestens ein Ausgabe-Token: 0 ist sicher eine falsche Meldung.
+        no_output = usage.output_tokens == 0 and bool(response.text) and price.output_per_mtok > 0
         if wrong_model:
             problems.append("Anbieter meldet anderes Modell (%s/%s statt %s/%s)"
                             % (response.provider, response.model, target.provider, target.model))
         if no_usage:
             problems.append("Anbieter meldet keinen Verbrauch")
+        if no_output:
+            problems.append("Anbieter meldet 0 Ausgabe-Tokens fuer eine nicht leere Antwort")
         if usage.total_input > prompt_bytes + REQUEST_OVERHEAD_TOKENS:
             problems.append("mehr Eingabe-Tokens (%d) als Bytes plus Zuschlag (%d)"
                             % (usage.total_input, prompt_bytes + REQUEST_OVERHEAD_TOKENS))
         if usage.output_tokens > request.max_output_tokens:
             problems.append("mehr Ausgabe-Tokens (%d) als max_tokens (%d)" % (usage.output_tokens, request.max_output_tokens))
         # Verbrauch unbekannt oder falsches Modell: Kosten nicht bestimmbar -> volle Reservierung (im Zweifel teurer).
-        charge: Optional[Decimal] = None if wrong_model or no_usage else price.cost(usage)
+        charge: Optional[Decimal] = None if wrong_model or no_usage or no_output else price.cost(usage)
         answer, confidence = parse_answer(response.text)
         self._note(run, request, Source.AI, "KI" if answer is not None else "ANTWORT_UNBRAUCHBAR", usage=usage,
                    cost=reservation.amount if charge is None else charge, reserved=reservation.amount,
