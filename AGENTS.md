@@ -63,8 +63,10 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
 | **YUZU** | Bewertet alternative Signale und Marktbedingungen | `evaluate(setup, ctx) -> AgentOpinion` | Schnittstelle + **neutraler Platzhalter** `NeutralYuzu` |
 | **AKI** | Dokumentiert alles, führt Kapitalkurve und Performance-Bericht | `record_*`, `record_equity`, `report()` | **implementiert** (Sicherheitsfunktion) |
 
-Ablauf (`src/trading/pipeline.py`): MOMO → RIN → KIBO → YUZU → SORA → Executor (mit Risikomanager). Jede Stufe darf blockieren;
-AKI dokumentiert jeden Schritt. Aktuelle Freigaberegel: **RIN, KIBO und YUZU müssen alle zustimmen**, SORA muss eine Größe vorschlagen.
+Ablauf (`src/trading/pipeline.py`, D-017): MOMO → RIN → SORA (Vorprüfung) → KIBO → YUZU → SORA (endgültige Größe unter der
+Sperre des Executors) → Executor (mit Risikomanager) → AKI. Jede Stufe darf blockieren; AKI dokumentiert jeden Schritt.
+Aktuelle Freigaberegel: **RIN, KIBO und YUZU müssen alle zustimmen**, SORA muss in der Vorprüfung **und** unter der Sperre eine
+Größe vorschlagen. Die Vorprüfung ist nur ein Filter (keine Größe, keine Erlaubnis).
 Vorschlagen (`propose`) und Ausführen (`process_setup`) sind getrennte Schritte mit eigenen Marktdaten: Entschieden wird mit dem,
 was bekannt ist; ausgeführt wird zum nächsten verfügbaren Kurs. Ausstiege laufen über `propose_exits` / `process_exit` und
 `Executor.close_position` – ohne gültige, aktuelle Marktdaten wird nicht geschlossen (die Position behält ihren Stop).

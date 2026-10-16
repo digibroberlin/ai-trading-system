@@ -25,8 +25,8 @@ Backups · keine Server-Konfiguration.
 **Technische Schulden / bekannte Sicherheitspunkte** (Audit, `AUDIT.md`): M3 PAPER-Schutz nicht zentral · M7 Order-Wiederholung ·
 M8 Ablehnung statt Verkleinerung unter Konkurrenz · M2 Rest (App-Rolle schreibt Kontostand, legt Konten an) · H7 keine
 Wiederverbindung zur Datenbank · M9 `verify()` lädt alles · M12 Pakete ohne Prüfsummen · M14 keine Backups · Test-Hook im
-Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht von der Vorgabe des Eigners ab
-(heute RIN → KIBO → YUZU → SORA; gewünscht RIN → SORA → KIBO/YUZU).
+Produktivcode · Stress-Limit ohne Datenbank-Gurt · ~~Pipeline-Reihenfolge weicht von der Vorgabe des Eigners ab~~
+(seit AP-12 / D-017: RIN → SORA-Vorprüfung → KIBO/YUZU → SORA unter der Sperre).
 
 **Nicht getestet:** Linux/amd64 und Docker Desktop · Python 3.13+ · Dauerbetrieb/Last · echte Marktdaten · echte Börsen.
 
@@ -54,7 +54,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP-09 | Größe unter Konkurrenz innerhalb der Sperre neu berechnen (M8) | exakte Mehrprozess-Erwartung | ✅ D-013 |
 | AP-10 | Rechte der App-Rolle (M2-Rest), Konten nur administrativ | Schema-Tests | ✅ D-014 |
 | AP-11 | Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen (H7) | Tests mit Verbindungsabbruch | ✅ D-015 |
-| AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ⏳ |
+| AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ✅ D-017 |
 
 ### Phase D – Marktdaten und Börsen (nur lesend)
 | AP | Inhalt | Abnahme | Status |

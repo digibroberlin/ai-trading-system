@@ -264,6 +264,8 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **Kein Orderbuch-Modell:** Slippage ist ein fester Wert, unabhängig von der Ordergröße.
 * **Keine Teilausführungen, keine Teilschließungen, keine Limit-Einstiegsorders, kein Trailing-Stop.**
 * **Pipeline-Freigaberegel ist bewusst simpel** (alle müssen zustimmen); eine gewichtete Entscheidung braucht Belege aus Backtests.
+* **SORA wird zweimal gefragt** (D-017): als Vorprüfung nach RIN und endgültig unter der Sperre des Executors. KIBO und YUZU
+  sehen die vorgeschlagene Größe noch nicht (Schnittstelle unverändert).
 * **Python 3.9-Kompatibilität** wurde in Phase 1/2 geprüft; ab Phase 3 laufen die offiziellen Tests unter Python 3.12. Der Kern (ohne Datenbank) ist weiter 3.9-kompatibel, `trading.persistence` getestet nur unter 3.12.
 * **Risiko-Limit gilt zum Zeitpunkt der Freigabe.** Fällt das Eigenkapital später (Verluste, ungünstige Kurse), kann das *geplante* Risiko offener Positionen
   rechnerisch über 2 % des dann kleineren Kapitals steigen. Es werden dann keine neuen Trades zugelassen, bestehende laufen mit ihrem Stop weiter.
