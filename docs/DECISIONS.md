@@ -270,3 +270,21 @@ Prozesse dasselbe Restbudget verplanen.
 * KIBO und YUZU behalten ihre Schnittstelle (`evaluate(setup, ctx)`); sie sehen die vorgeschlagene Größe noch nicht.
 **Bewusst nicht umgesetzt:** Weitergabe der SORA-Größe an KIBO/YUZU (Schnittstellenänderung erst, wenn eine echte Bewertung sie
 braucht). Der Risikomanager im Executor bleibt unverändert die letzte Instanz.
+
+## D-018 · 2026-10-16 · Strategie-Bibliothek (AP-16)
+**Entscheidung:** Sechs regelbasierte Strategien in `trading.strategies` auf einem gemeinsamen Rahmen (`RuleStrategy`):
+je Instrument in fester Reihenfolge, mit offener Position nur Ausstiegsentscheidung, Short nur bei Futures (und nur mit
+`allow_short`), zu kurze Historie = kein Signal. Stop-Abstand = max(stop_atr × ATR, min_stop_pct × Kurs), Ziel =
+reward_risk × Stop-Abstand (Standard 2,5, damit RIN nach Kosten ≥ 1,5 sieht) oder ein fachliches Ziel (Mean Reversion:
+Bollinger-Mitte). Stop und Ziel werden auf 8 Nachkommastellen **zu Ungunsten** gerundet (Stop weiter weg, Ziel näher).
+**Warum so:** Strategien bleiben reine Vorschlaggeber – sie sehen nur `MarketView` (abgeschlossene Kerzen, eigene
+Positionen) und können Sicherheitslimits weder sehen noch ändern. Indikatoren liefern bei zu wenig Daten `None` statt
+eines geschätzten Werts.
+**Vergleichsmaßstäbe:** Nicht-Handeln läuft durch dieselbe Engine; Kaufen-und-Halten wird analytisch gerechnet (gleiche
+Gewichte, Kauf zum ersten Eröffnungskurs mit Spread/Slippage/Gebühr, Funding abgezogen, Verkauf zum letzten Schluss),
+weil ein Dauer-Long ohne Stop mit den Sicherheitsregeln nicht handelbar wäre. Kennzahlen aus derselben Funktion wie
+Backtests.
+**Geprüft:** Indikatoren gegen Handrechnungen; Signale je Strategie an gebauten Kursverläufen; für alle Strategien über
+lange synthetische Läufe: Stop/Ziel auf der richtigen Seite, kein Short auf Spot, kein zweiter Einstieg; volle Pipeline:
+alles vor einem Schnitt ist identisch, ob danach Daten folgen oder nicht (kein Blick in die Zukunft), zwei Läufe bitgleich.
+**Grenzen:** Nicht optimiert, nicht als profitabel belegt (AP-18/20); Preis-/Mengenschritte je Börse folgen mit AP-13.

@@ -367,3 +367,24 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 
 * **Nicht geprüft:** echter KI-Anbieter (bewusst, Budget 0, B-004); ob KI-Analysen ihr Geld wert sind (AP-33 mit echten Daten
   in AP-20); Monatswechsel im Datenbank-Budget nur mit vorab eingefügten Einträgen (die Datenbank-Uhr lässt sich nicht
   verstellen); volle Gegenprobe aller Einträge (erst vor `stable/005`); Docker-Image-Bau.
+
+## Nachtrag 2026-10-16 – AP-16 Strategie-Bibliothek (D-018)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Nur erfundene Daten.
+
+* **Neu:** `strategies/indicators.py` (SMA, EMA, Standardabweichung, wahre Spanne/ATR, RSI nach Wilder, Veränderungsrate,
+  Donchian, Bollinger, Bandbreite, Kaufman-Effizienz), `strategies/library.py` (sechs Strategien auf gemeinsamem Rahmen),
+  `strategies/benchmarks.py` (Nicht-Handeln, Kaufen-und-Halten), Register `build_strategy`/`default_strategies`;
+  Vorführung `python -m trading.backtest` vergleicht jetzt alle Strategien mit Kaufen-und-Halten.
+* **Tests:** `test_strategies` (45): Indikatoren gegen Handrechnungen; Signale je Strategie an gebauten Kursverläufen
+  (frisches Kreuzen, Kanal ohne aktuelle Kerze, Ziel = Bollinger-Mitte, Squeeze nur nach Ruhephase, Haltedauer beim
+  Scalping); je Strategie ein langer synthetischer Lauf (Stop/Ziel auf der richtigen Seite, kein Short auf Spot, kein
+  zweiter Einstieg); je Strategie die volle Pipeline mit Schnitt-Vergleich (kein Blick in die Zukunft) und Bitgleichheit;
+  Kaufen-und-Halten mit Spread, Slippage, Gebühren, Funding und Aufteilung.
+* **Gegenprobe:** ST01–ST09 **9/9 entdeckt**.
+* **Beobachtung (kein Ergebnis!):** Auf 60 Tagen Zufallsdaten liegen die Strategien zwischen −4,8 % und +4,2 %,
+  Kaufen-und-Halten −0,3 % – auf Zufallsdaten ist das Rauschen, keine Aussage über einen Vorteil.
+* **Preflight:** STABIL – **1417/1417** Tests, 0 übersprungen (mit PostgreSQL 16); Python 3.9 (ohne Datenbank): 1207
+  bestanden, 10 Datenbank-Module übersprungen (erwartet). Angepasst: Der Test der Vorführung erwartet jetzt alle Strategien
+  und Kaufen-und-Halten statt der zwei alten SMA-Varianten.
+* **Nicht geprüft:** echte Marktdaten (AP-14/20); Optimierung und Überanpassung (AP-18); Börsen-Schritte (AP-13).

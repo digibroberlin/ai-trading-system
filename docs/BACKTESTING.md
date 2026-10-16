@@ -53,6 +53,10 @@ Vorführung auf erfundenen Daten:
 PYTHONPATH=src python3.12 -m trading.backtest
 ```
 
+Fertige Strategien (AP-16): `trading.strategies` – Trendfolge, Momentum, Mean Reversion, Breakout, Volatilität,
+Scalping, dazu `NoTradeStrategy` und `buy_and_hold(...)` als Vergleichsmaßstäbe. `default_strategies()` liefert je eine
+mit Standardeinstellungen, `build_strategy("breakout")` eine bestimmte.
+
 Eigene Strategie (Beispiel in `src/trading/backtest/reference.py`):
 
 ```python

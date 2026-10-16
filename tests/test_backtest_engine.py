@@ -462,7 +462,10 @@ def test_demo_program_runs_in_paper_mode_and_prints_a_comparison(capsys, monkeyp
     monkeypatch.setattr("sys.argv", ["trading.backtest"])
     runpy.run_module("trading.backtest", run_name="__main__")
     out = capsys.readouterr().out
-    assert "sma8-24" in out and "sma12-48" in out and "PAPER" in out.upper()
+    from trading.strategies import default_strategies
+
+    assert "PAPER" in out.upper() and "buy-and-hold" in out
+    assert all(s.name in out for s in default_strategies())  # jede Strategie der Bibliothek im Vergleich
 
 
 def test_demo_program_refuses_any_mode_other_than_paper(monkeypatch):

@@ -171,7 +171,7 @@ Transaktion, und bricht ab, wenn eine bereits angewendete Datei nachträglich ve
 
 ```bash
 PYTHONPATH=src python3.12 -m trading.demo         # ein Paper-Durchlauf; oder: docker-compose --env-file ~/trading-secrets.env run --rm app
-PYTHONPATH=src python3.12 -m trading.backtest     # Backtest: zwei Varianten einer Referenz-Strategie im Vergleich
+PYTHONPATH=src python3.12 -m trading.backtest     # Backtest: alle Strategien gegen Kaufen-und-Halten und Nicht-Handeln
 ```
 
 ### Globaler Not-Aus (Kill Switch)
@@ -236,6 +236,19 @@ MOMO (Idee) → RIN (prüft Kurse/Entry/SL/TP) → KIBO (Technik) → YUZU (Umfe
 AKI protokolliert jeden Schritt, auch jede Blockade.
 ```
 
+### Strategie-Bibliothek (AP-16, D-018)
+
+`src/trading/strategies/`: Trendfolge (EMA-Kreuzung), Momentum (Veränderungsrate), Mean Reversion (Bollinger + RSI),
+Breakout (Donchian-Kanal), Volatilität (Ausbruch nach enger Phase), Scalping (RSI(2) im Trend) sowie die Vergleichsmaßstäbe
+**Nicht-Handeln** und **Kaufen-und-Halten** (nach Spread, Slippage, Gebühren und Funding). Jede Strategie **schlägt nur vor**
+(mit Stop-Loss und Ziel aus der ATR); RIN, SORA, Risikomanager und Executor entscheiden. Keine ist optimiert oder als
+profitabel belegt – auf erfundenen Daten ist nach Kosten ein leichtes Minus normal.
+
+```python
+from trading.strategies import build_strategy, default_strategies, buy_and_hold
+ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig()).run()
+```
+
 ## Bekannte Grenzen (ehrlich)
 
 * **Keine Strategie, kein Profitnachweis.** Es existiert noch keine echte Handelslogik. Die Referenz-Strategie des Backtests
@@ -278,6 +291,11 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **KI ist noch nicht angeschlossen:** Orchestrierung, Budgets und Kostenmessung sind fertig und nur mit einer Attrappe getestet.
   Einen echten Anbieter gibt es erst mit AP-22 nach Budget-Freigabe (B-004); KIBO/YUZU sind weiter neutrale Platzhalter.
   Ob eine KI-Analyse ihr Geld wert ist, ist **unbewiesen**, bis der Vergleich (AP-33) auf echten Daten gelaufen ist.
+* **Strategien sind nicht erforscht:** Standard-Einstellungen aus der Fachliteratur, nur auf erfundenen Daten technisch
+  geprüft. Ob eine davon nach allen Kosten einen Vorteil hat, klärt erst der Forschungsrahmen (AP-18) auf getrennten
+  echten Daten (AP-20). Stop und Ziel werden auf 8 Nachkommastellen gerundet (zu Ungunsten); die echten Preis- und
+  Mengenschritte je Börse folgen mit AP-13. Kaufen-und-Halten wird analytisch gerechnet (ohne Stop – mit den
+  Sicherheitsregeln wäre ein Dauer-Long nicht handelbar).
 * **KI-Budget – bewusst offene, kleinere Punkte:** Ein hängender KI-Anbieter hält gleiche Analysen bis zu 120 s auf (dann
   Regel-Ersatz); echte Zeitlimits gehören in den Anbieter-Adapter (AP-22). Meldet ein Anbieter einen *zu kleinen*, aber nicht
   leeren Verbrauch, lässt sich das ohne eigene Token-Zählung nicht erkennen (erkannt werden: kein Verbrauch, nur Ausgabe,

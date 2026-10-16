@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 17:40 UTC für AP-16 (Strategie-Bibliothek, Zweig `ap/16-strategien`)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 17:46 UTC für AP-17 (Marktphasen, regelbasierte KIBO/YUZU)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,11 +22,16 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Nächstes Paket in Plan-Reihenfolge: **AP-13** (Börsenregeln je Instrument). Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-16** (Zweig `ap/16-strategien`), danach AP-17,
-  AP-23/24, AP-21 – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-17** (danach AP-23/24, AP-21);
+  AP-16 ist erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-16 Strategie-Bibliothek** (interaktive Cloud-Sitzung, 2026-10-16, D-018): Indikatoren (Decimal), sechs Strategien
+  (Trendfolge, Momentum, Mean Reversion, Breakout, Volatilität, Scalping) auf gemeinsamem Rahmen mit ATR-Stops, Vergleich
+  mit Nicht-Handeln und Kaufen-und-Halten (nach allen Handelskosten). Alle laufen durch die volle Pipeline; kein Blick in
+  die Zukunft (Schnitt-Vergleich), bitgleich reproduzierbar. Preflight STABIL 1417/1417, 0 übersprungen; Python 3.9: 1207
+  bestanden. Gegenprobe ST01–ST09 9/9. Nicht optimiert, nicht als profitabel belegt (AP-18/20).
 * **AP-31/32/33 KI-Kostenoptimierung und Nettogewinn nach allen Kosten** (interaktive Cloud-Sitzung, Eigner-Vorgabe,
   2026-10-16, D-016): Kosten-Orchestrator (Regeln zuerst, Cache, ereignisbasierte Aktivierung, Modellstufen mit Wertschranke
   je Analyse), harte KI-Budgets je Aufruf/Tag/Monat (Standard 0; im Betrieb zusätzlich Datenbank-Gurt, Migration 006, Tag

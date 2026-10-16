@@ -71,6 +71,9 @@ S6 = "db/migrations/006_ai_budget.sql"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
+STT = ["tests/test_strategies.py"]  # Strategie-Bibliothek (AP-16)
+SI, SL, SB = ("src/trading/strategies/indicators.py", "src/trading/strategies/library.py",
+              "src/trading/strategies/benchmarks.py")
 BT_PG = BT + ["tests/test_backtest_pg.py"]
 # Schnelle Dateien zuerst: pytest bricht beim ersten Fehlschlag ab (-x), die Mehrprozess-Tests dauern am laengsten.
 PG = ["tests/test_pg_accounts.py", "tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
@@ -352,6 +355,15 @@ BACKTEST: List[Mutant] = [
  ("B14", "Spread des Datensatzes wird ignoriert", [(EN, "instrument, clock.now(), price, spread[instrument], funding_rate[instrument]", "instrument, clock.now(), price, Decimal(0), funding_rate[instrument]")], BT),
  ("B15", "Ergebnis-Fingerabdruck ohne Kapitalkurve und Trades", [(EN, '"trades": trades, "curve": curve, "open": open_positions,', '"trades": len(trades), "curve": len(curve), "open": open_positions,')], BT),
  ("B16", "Defektes Protokoll wird hingenommen", [(EN, "        if not check.ok:", "        if False:")], BT),
+ ("ST01", "Donchian-Kanal enthaelt die aktuelle Kerze", [(SI, "    window = candles[-(n + 1):-1]", "    window = candles[-n:]")], STT),
+ ("ST02", "Short-Vorschlaege auch auf Spot", [(SL, "        return self.allow_short and instrument.market_type is MarketType.FUTURES", "        return self.allow_short")], STT),
+ ("ST03", "Stop und Ziel zu Gunsten gerundet", [(SL, "        rounding = ROUND_FLOOR if signal.side is Side.LONG else ROUND_CEILING", "        rounding = ROUND_CEILING if signal.side is Side.LONG else ROUND_FLOOR")], STT),
+ ("ST04", "Zweiter Einstieg trotz offener Position", [(SL, "                    exits.append(ExitProposal(instrument, reason))\n                continue\n", "                    exits.append(ExitProposal(instrument, reason))\n")], STT),
+ ("ST05", "Trendfolge ohne frisches Kreuzen", [(SL, "        if now_up is None or was_up is None or slow is None or now_up == was_up:", "        if now_up is None or was_up is None or slow is None:")], STT),
+ ("ST06", "Wahre Spanne ohne Kursluecken", [(SI, "            tr = max(tr, abs(c.high - prev_close), abs(c.low - prev_close))", "            tr = tr")], STT),
+ ("ST07", "Kaufen-und-Halten ohne Funding", [(SB, "                h.funding += h.quantity * value", "                h.funding += 0")], STT),
+ ("ST08", "Kaufen-und-Halten ohne Ausstiegsgebuehr", [(SB, "        fee = proceeds * costs.taker_fee\n", "        fee = ZERO\n")], STT),
+ ("ST09", "Scalping ohne Grenze der Haltedauer", [(SL, "        if held >= self.max_hold:", "        if False:")], STT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
