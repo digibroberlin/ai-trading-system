@@ -304,3 +304,18 @@ Regel-Ergebnis (Sicherheit 0,5 + Abstand zur Schwelle), nur mit konfiguriertem N
 Budget; eine Antwort zählt nur mit eindeutigem `approve` und höherer Sicherheit als die Regeln.
 **Backtest-Standard:** KIBO und YUZU regelbasiert; neutrale Platzhalter nur noch ausdrücklich (im Ergebnis ausgewiesen).
 **Grenzen:** Schwellen aus Fachliteratur und Plausibilität, nicht optimiert; Nutzen erst mit AP-18/20 belegbar.
+
+## D-020 · 2026-10-16 · Dashboard nur lesend (AP-23/24)
+**Entscheidung:** FastAPI **0.141.1** mit uvicorn 0.54.0 und wsproto 1.3.2 (WebSocket), Starlette 1.7.0, Pydantic 2.13.5 –
+alle mit Prüfsummen in `requirements/*.lock`, Lückenprüfung ohne Befund. Bewusst nicht die neueste FastAPI (ab 0.142
+kommt OpenTelemetry als Pflicht-Abhängigkeit) und nicht die erst wenige Tage alten Starlette/Pydantic-Versionen. httpx
+nur für Tests. FastAPI braucht Python ≥ 3.10: Auf 3.9 (Kern-Prüfung) werden die Dashboard-Tests sichtbar übersprungen.
+**Sicherheit:** nur GET-Endpunkte und ein WebSocket, der nur sendet (alles andere 405); Modus LIVE lässt sich gar nicht
+starten; feste Liste ausgelieferter Dateien; Content-Security-Policy ohne fremde Quellen, kein Einbetten, kein Cache;
+keine Anmeldung, daher Standard 127.0.0.1. Strukturtests: Webserver-Bibliotheken nur im Paket `dashboard`; der
+Dashboard-Code ruft keine ändernden Methoden (Order, Schließen, Not-Aus, Budget, Protokoll) auf.
+**Anzeige:** Momentaufnahme mit Prüfsumme (`version`); der WebSocket sendet nur bei Änderung. Zahlen als Text
+(Decimal-genau). Kapitalkurve für die Anzeige auf ≤ 500 Punkte ausgedünnt, tiefster Punkt bleibt immer erhalten; der
+Drawdown wird an allen Punkten gemessen. Paper-Modus: aktueller Kontostand als letzter Punkt (nur für die Anzeige);
+widersprüchliche Buchhaltung wird angezeigt statt falscher Zahlen.
+**Abweichung vom Plan:** keine. **Grenzen:** keine Anmeldung (für Server: AP-28); DEMO wird erst mit AP-21 live gespeist.

@@ -407,3 +407,26 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Gegenprobe:** KY01–KY10 **10/10 entdeckt**.
 * **Preflight:** STABIL – **1451/1451** Tests, 0 übersprungen; Python 3.9: 1241 bestanden, 10 Datenbank-Module übersprungen.
 * **Nicht geprüft:** Nutzen der Filter auf echten Daten (AP-18/20); echte KI (B-004).
+
+## Nachtrag 2026-10-16 – AP-23/24 Dashboard (D-020)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16, Chromium (headless) für die Sichtprüfung.
+
+* **Neu:** `dashboard/state.py` (Momentaufnahme aus Backtest oder Paper-Konto), `dashboard/api.py` (FastAPI, nur lesend,
+  WebSocket), `dashboard/static/` (Oberfläche ohne fremde Server), `python -m trading.dashboard`. Neue Abhängigkeiten mit
+  Prüfsummen (FastAPI 0.141.1, uvicorn 0.54.0, wsproto 1.3.2, Starlette 1.7.0, Pydantic 2.13.5; httpx 0.28.1 nur für
+  Tests); `scripts/dependency_audit.py`: keine unbegründeten Lücken.
+* **Tests:** `test_dashboard` (16): ausgedünnte Kurve behält Start/Ende/Tiefpunkt; Drawdown aus allen Punkten;
+  Backtest-Momentaufnahme vollständig und reines JSON, Agenten-Zählung (MOMO nur Vorschläge, SORA Vorprüfung + Größe),
+  Prüfsumme ändert sich nur mit dem Inhalt; Paper-Konto mit Position, Not-Aus und KI-Budget; API (Zustand, Abschnitte,
+  unbekannter Abschnitt 404, POST/PUT/PATCH/DELETE 405, Sicherheits-Header, keine fremden Dateien, keine API-Doku),
+  WebSocket sendet nur bei Änderung, LIVE nicht startbar, Dashboard-Code ruft nichts Änderndes auf, Startbefehl nur PAPER.
+  Neu in `test_no_real_trading`: Webserver-Bibliotheken nur im Dashboard.
+* **Sichtprüfung:** Server lokal gestartet, Seite in Chromium geöffnet (Bildschirmfoto `docs/img/dashboard.png`): alle
+  Bereiche gefüllt, WebSocket „live“. Dabei gefunden und behoben: verschachtelte Listen wurden als Text ausgegeben
+  („[object …]“), uvicorn ohne WebSocket-Bibliothek (wsproto ergänzt), irreführende Agenten-Zählung bei MOMO/SORA,
+  Stil-Attribute gegen die eigene Sicherheitsrichtlinie.
+* **Gegenprobe:** DA01–DA06 **6/6 entdeckt** (DA06 erst nach einem strengeren WebSocket-Test).
+* **Preflight:** STABIL – **1477/1477** Tests, 0 übersprungen (mit PostgreSQL 16). Python 3.9 (ohne Datenbank): 1251 bestanden,
+  11 Module übersprungen (10 Datenbank + Dashboard; FastAPI braucht ≥ 3.10 – erwartet).
+* **Nicht geprüft:** Anmeldung/Server-Betrieb (AP-28); DEMO mit laufender Engine (AP-21).

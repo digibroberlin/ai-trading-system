@@ -1,3 +1,9 @@
 # Laufzeit-Abhaengigkeiten des Images `runtime` (Dienste `app` und `migrate`).
-# Der Kern braucht keine Pakete; nur die Datenbank-Anbindung. Version gleich wie in dev.txt.
+# Der Kern braucht keine Pakete; nur die Datenbank-Anbindung und das Dashboard (nur lesend). Versionen gleich wie in
+# dev.txt. FastAPI 0.141.1 bewusst: ab 0.142 kommt OpenTelemetry als Pflicht-Abhaengigkeit hinzu (D-020).
 psycopg[binary]==3.3.6
+fastapi==0.141.1
+uvicorn==0.54.0
+wsproto==1.3.2  # WebSocket-Unterstuetzung fuer uvicorn (klein, reines Python)
+starlette==1.7.0  # bewusst nicht die erst wenige Tage alte 1.8.0
+pydantic==2.13.5  # bewusst nicht die erst wenige Tage alte 2.14.x

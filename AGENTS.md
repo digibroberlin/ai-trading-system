@@ -111,6 +111,9 @@ src/trading/
                          (Vorführung: python -m trading.backtest) – siehe docs/BACKTESTING.md
   analysis/              indicators.py (SMA/EMA/ATR/RSI/Bollinger/Donchian …, Decimal), regime.py (Marktphasen: Trend/Seitwärts,
                          Volatilitätsrang) – ohne Handelslogik, genutzt von Strategien und KIBO/YUZU
+  dashboard/             state.py (Momentaufnahme aus Backtest/Paper), api.py (FastAPI nur lesend, WebSocket), static/
+                         (Weboberfläche ohne fremde Server), __main__.py (python -m trading.dashboard) – einziges Paket mit
+                         Webserver-Bibliotheken (Test stellt das sicher)
   strategies/            library.py (Trendfolge, Momentum,
                          Mean Reversion, Breakout, Volatilität, Scalping), benchmarks.py (Nicht-Handeln, Kaufen-und-Halten)
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,

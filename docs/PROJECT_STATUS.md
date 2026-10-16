@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 17:59 UTC für AP-23 (Dashboard: API und Weboberfläche, AP-23/24)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 18:16 UTC für AP-21 (Ereignisgesteuerte Laufzeit-Engine, bleibt deaktiviert)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,11 +22,16 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Nächstes Paket in Plan-Reihenfolge: **AP-13** (Börsenregeln je Instrument). Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-23/24** (Dashboard, danach AP-21);
-  AP-16 und AP-17 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-21** (Laufzeit-Engine, bleibt deaktiviert);
+  AP-16, AP-17 und AP-23/24 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-23/24 Dashboard** (interaktive Cloud-Sitzung, 2026-10-16, D-020): `python3.12 -m trading.dashboard` →
+  http://127.0.0.1:8000. FastAPI nur lesend mit WebSocket, Modi BACKTEST/DEMO, LIVE gesperrt; Oberfläche mit Kapital,
+  Kurve, Drawdown, Kennzahlen, Positionen, Trades, Agenten, Blockaden, Strategievergleich, Kosten und Netto nach allen
+  Kosten. In Chromium geprüft (`docs/img/dashboard.png`). Neue Abhängigkeiten mit Prüfsummen, Lückenprüfung sauber.
+  Preflight STABIL 1477/1477; Python 3.9: 1251 bestanden; Gegenprobe DA01–DA06 6/6.
 * **AP-17 Marktphasen und regelbasierte KIBO/YUZU** (interaktive Cloud-Sitzung, 2026-10-16, D-019): Trend/Seitwärts und
   Volatilitätsrang; KIBO prüft Technik (Stop im Rauschen, gegen klaren Trend, Momentum, RSI, Volumen), YUZU das Umfeld
   (Volatilität, Funding, Spread/Volumen, Stimmung); KI nur als Zweitmeinung über den Kosten-Orchestrator. Alle sechs

@@ -73,6 +73,8 @@ ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 STT = ["tests/test_strategies.py"]  # Strategie-Bibliothek (AP-16)
 KYT = ["tests/test_kibo_yuzu.py", "tests/test_backtest_engine.py"]  # Marktphasen, KIBO, YUZU (AP-17)
+DBT = ["tests/test_dashboard.py"]  # Dashboard (AP-23/24)
+DSH_API, DSH_STATE = "src/trading/dashboard/api.py", "src/trading/dashboard/state.py"
 KB, YZ, RG, AR = ("src/trading/agents/kibo_rules.py", "src/trading/agents/yuzu_rules.py",
                   "src/trading/analysis/regime.py", "src/trading/agents/ai_review.py")
 SI, SL, SB = ("src/trading/analysis/indicators.py", "src/trading/strategies/library.py",
@@ -377,6 +379,12 @@ BACKTEST: List[Mutant] = [
  ("KY08", "Trend ohne Effizienz-Schwelle", [(RG, "    if efficiency >= config.trend_efficiency and slope > 0 and price > now:", "    if slope > 0 and price > now:")], KYT),
  ("KY09", "Gleichstaende im Volatilitaets-Rang nicht beruecksichtigt", [(RG, " + D(sum(1 for v in earlier if v == current)) / 2)", ")")], KYT),
  ("KY10", "Backtest nutzt wieder neutrale Platzhalter", [("src/trading/backtest/engine.py", "        kibo = self._kibo or RuleBasedKibo()", "        kibo = self._kibo or NeutralKibo()")], KYT),
+ ("DA01", "Dashboard laesst Modus LIVE zu", [(DSH_API, "    if source.mode is Mode.LIVE:", "    if False:")], DBT),
+ ("DA02", "Dashboard liefert beliebige Dateien aus", [(DSH_API, "        if name not in STATIC_FILES:  # feste Liste - kein Zugriff auf andere Dateien", "        if not (STATIC / name).is_file():")], DBT),
+ ("DA03", "Dashboard ohne Sicherheits-Header", [(DSH_API, "            response.headers[key] = value", "            pass")], DBT),
+ ("DA04", "Ausgeduennte Kapitalkurve verliert den tiefsten Punkt", [(DSH_STATE, "    keep = {round(i * step) for i in range(limit - 1)} | {0, len(points) - 1, lowest}", "    keep = {round(i * step) for i in range(limit - 1)} | {0, len(points) - 1}")], DBT),
+ ("DA05", "Drawdown nur aus den angezeigten Punkten", [(DSH_STATE, "    return [{\"time\": p.time.isoformat(), \"equity\": str(p.equity), \"drawdown_pct\": str(drawdown[p.time])}\n            for p in thin_curve(points)]", "    return [{\"time\": p.time.isoformat(), \"equity\": str(p.equity), \"drawdown_pct\": \"0\"}\n            for p in thin_curve(points)]")], DBT),
+ ("DA06", "WebSocket sendet unveraenderte Zustaende erneut", [(DSH_API, "                if body[\"version\"] != last:", "                if True:")], DBT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
