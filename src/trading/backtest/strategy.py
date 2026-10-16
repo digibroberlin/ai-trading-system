@@ -19,6 +19,7 @@ from typing import Callable, List, Mapping, Optional, Sequence, Tuple
 from trading.agents.contracts import ExitSignal, MarketContext
 from trading.agents.momo import MomoAgent
 from trading.clock import Clock
+from trading.domain.exchange_rules import ExchangeRules
 from trading.domain.instrument import InstrumentId
 from trading.domain.models import Candle, Horizon, Position, Side, TradeSetup
 
@@ -72,13 +73,23 @@ class Strategy(ABC):
         """Wird nach jedem Zeitpunkt aufgerufen, an dem mindestens eine Kerze geschlossen hat."""
 
 
+def on_ticks(rules: Optional[ExchangeRules], p: EntryProposal) -> Tuple[Decimal, Decimal]:
+    """Stop und Ziel auf den Preisschritt der Boerse (AP-13), zu Ungunsten: Stop weiter weg, Ziel naeher dran.
+    Ohne Regeln fuer das Instrument unveraendert (der Risikomanager lehnt dann ab, wenn ein Regelwerk gilt)."""
+    found = rules.for_instrument(p.instrument) if rules is not None else None
+    if found is None:
+        return p.stop_loss, p.take_profit
+    return found.protective_stop(p.side, p.stop_loss), found.conservative_target(p.side, p.take_profit)
+
+
 class StrategyMomo(MomoAgent):
     """Macht aus einer Strategie den Agenten MOMO: Vorschlaege werden zu Setups und Ausstiegssignalen
     mit fortlaufenden, reproduzierbaren Kennungen und dem Zeitstempel der Entscheidung."""
 
-    def __init__(self, strategy: Strategy, clock: Clock, view: Callable[[], MarketView]) -> None:
+    def __init__(self, strategy: Strategy, clock: Clock, view: Callable[[], MarketView],
+                 rules: Optional[ExchangeRules] = None) -> None:
         super().__init__()
-        self._strategy, self._clock, self._view = strategy, clock, view
+        self._strategy, self._clock, self._view, self._rules = strategy, clock, view, rules
         self._decided_at: Optional[datetime] = None
         self._decision = StrategyDecision()
         self._entry_no = self._exit_no = 0
@@ -95,13 +106,14 @@ class StrategyMomo(MomoAgent):
         setups: List[TradeSetup] = []
         for p in self._decide().entries:
             self._entry_no += 1
+            stop, target = on_ticks(self._rules, p)
             setups.append(TradeSetup(
                 setup_id="%s-%06d" % (self._strategy.name, self._entry_no),
                 instrument=p.instrument,
                 side=p.side,
                 entry=reference.get(p.instrument, p.stop_loss),  # ohne aktuellen Kurs blockiert die Pipeline ohnehin
-                stop_loss=p.stop_loss,
-                take_profit=p.take_profit,
+                stop_loss=stop,
+                take_profit=target,
                 horizon=p.horizon,
                 strategy=self._strategy.name,
                 created_at=self._clock.now(),

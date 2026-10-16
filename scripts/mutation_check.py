@@ -76,6 +76,8 @@ KYT = ["tests/test_kibo_yuzu.py", "tests/test_backtest_engine.py"]  # Marktphase
 DBT = ["tests/test_dashboard.py"]  # Dashboard (AP-23/24)
 RTT = ["tests/test_runtime_engine.py"]  # Laufzeit-Engine (AP-21)
 RST = ["tests/test_research.py"]  # Forschungsrahmen (AP-18/19)
+BRT = ["tests/test_exchange_rules.py"]  # Boersenregeln (AP-13)
+BXR = "src/trading/domain/exchange_rules.py"
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -123,7 +125,7 @@ m("K20","Spot mit Hebel erlaubt",OR,"if leverage != 1:","if False:")
 m("K21","Short: 'jenseits' nie erkannt (Stop/Liquidation)",OR,"return price <= level if side is Side.LONG else price >= level","return price <= level if side is Side.LONG else False")
 m("K22","Gesamtrisiko ohne Abzug der bezahlten Gebuehr (zu streng) ",OR,"(portfolio.open_risk + worst - entry_fee) / equity_after","(portfolio.open_risk + worst) / equity_after")
 m("K23","Exposure danach gegen Equity vor Kosten",OR,"exposure_after = (portfolio.gross_exposure + quantity * mark) / equity_after","exposure_after = (portfolio.gross_exposure + quantity * mark) / portfolio.equity")
-m("K24","Hebel ueber Limit erlaubt",OR,"if leverage > limits.max_leverage:","if False:")
+m("K24","Hebel ueber Limit erlaubt",OR,"    if leverage > limits.max_leverage or (rules","    if False or (rules")
 m("K25","Spot-Short erlaubt (Risikomanager)",OR,"        if side is Side.SHORT:\n            reasons.append(RejectReason.SPOT_SHORT_NOT_ALLOWED)","        if False:\n            reasons.append(RejectReason.SPOT_SHORT_NOT_ALLOWED)")
 m("K26","NaN/Infinity wird nicht abgefangen",OR,"    if not all(is_finite_decimal(x) for x in numbers):","    if False:")
 # ---- Executor
@@ -407,6 +409,15 @@ BACKTEST: List[Mutant] = [
  ("RS07", "Freigabe ohne bestandenen Test", [(RSR, "            if entry[\"status\"] != Status.TESTED.value or not (entry[\"test\"] or {}).get(\"passed\"):", "            if entry[\"status\"] != Status.TESTED.value:")], RST),
  ("RS08", "Zeitfenster mit Funding aus dem Zeitraum selbst", [("src/trading/backtest/data.py", "            known = [f.rate for f in s.funding if f.time <= candles[0].open_time]", "            known = [f.rate for f in s.funding if f.time <= candles[-1].close_time]")], RST),
  ("RS09", "Marktphase beim Einstieg mit Zukunftsdaten", [(RSV, "    candles = [c for c in series.candles if c.close_time <= time][-history:]", "    candles = list(series.candles)[-history:]")], RST),
+ ("BR01", "Mengenschritt der Boerse nicht geprueft", [(OR, "        if not rules.on_quantity_step(quantity):", "        if False:")], BRT),
+ ("BR02", "Mindestwert der Boerse nicht geprueft", [(OR, "        if quantity * fill < rules.min_notional:", "        if False:")], BRT),
+ ("BR03", "Preisschritt der Boerse nicht geprueft", [(OR, "        if not (rules.on_price_tick(stop) and rules.on_price_tick(tp)):", "        if False:")], BRT),
+ ("BR04", "Fehlende Boersenregeln werden geraten", [("src/trading/safety/risk_manager.py", "            if rules is None:  # Regelwerk vorhanden", "            if False:  # Regelwerk vorhanden")], BRT),
+ ("BR05", "Hoechsthebel der Boerse ignoriert", [(OR, "(rules is not None and leverage > rules.max_leverage):", "(False):")], BRT),
+ ("BR06", "SORA rundet nicht auf den Mengenschritt der Boerse", [(SO, "        step = rules.quantity_step if rules is not None else cfg.quantity_step", "        step = cfg.quantity_step")], BRT),
+ ("BR07", "Stop zu Gunsten auf den Preisschritt gerundet", [(BXR, "aufrunden).\"\"\"\n        rounding = ROUND_FLOOR if side is Side.LONG else ROUND_CEILING\n        return (stop", "aufrunden).\"\"\"\n        rounding = ROUND_CEILING if side is Side.LONG else ROUND_FLOOR\n        return (stop")], BRT),
+ ("BR08", "Falsche Gebuehrenstufe", [("src/trading/execution/fees.py", "        return [t for t in self.tiers if t.min_volume_30d <= volume_30d][-1]", "        return [t for t in self.tiers if t.min_volume_30d <= volume_30d][0]")], BRT),
+ ("BR09", "SORA ignoriert den Hoechsthebel der Boerse", [(SO, "                      if rules is None or lv <= rules.max_leverage]", "                      if True]")], BRT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
@@ -574,7 +585,10 @@ def check(mutant: Mutant, copy: Path, with_db: bool) -> Tuple[bool, str]:
             target.write_text(text.replace(old, new, 1), encoding="utf-8")
         env = {k: v for k, v in os.environ.items() if with_db or not k.startswith("TEST_")}
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        run = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *tests],
+        # Die Pruefung der Textstellen selbst (test_mutation_entries) zaehlt nie: Jeder eingebaute Fehler veraendert
+        # seine eigene Textstelle und liesse sie sonst scheitern - jeder Eintrag gaelte faelschlich als "entdeckt".
+        run = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
+                              "--ignore=tests/test_mutation_entries.py", *tests],
                              cwd=copy, capture_output=True, text=True, env=env)
     finally:
         for path, text in originals.items():  # Fehler wieder ausbauen

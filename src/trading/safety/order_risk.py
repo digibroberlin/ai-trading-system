@@ -27,6 +27,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Optional, Protocol
 
+from trading.domain.exchange_rules import InstrumentRules
 from trading.domain.instrument import MarketType, is_instrument
 from trading.domain.models import PortfolioState, RiskDecision, Side, TradeSetup
 from trading.domain.numeric import is_finite_decimal
@@ -129,9 +130,10 @@ def evaluate_order(
     leverage: Decimal,
     quote: FillQuote,
     portfolio: PortfolioState,
+    rules: Optional[InstrumentRules] = None,
 ) -> RiskDecision:
     """Prueft eine Order. Alle verletzten Regeln werden gesammelt (nicht nur die erste), damit das
-    Protokoll vollstaendig erklaert, warum ein Setup blockiert wurde."""
+    Protokoll vollstaendig erklaert, warum ein Setup blockiert wurde. `rules`: Boersenregeln des Instruments (AP-13)."""
     reasons: List[RejectReason] = []
     fill, mark, funding = quote.fill_price, quote.mark_price, quote.funding_rate
 
@@ -173,8 +175,17 @@ def evaluate_order(
             reasons.append(RejectReason.SPOT_SHORT_NOT_ALLOWED)
         if leverage != 1:
             reasons.append(RejectReason.SPOT_LEVERAGE_NOT_ALLOWED)
-    if leverage > limits.max_leverage:
+    if leverage > limits.max_leverage or (rules is not None and leverage > rules.max_leverage):
         reasons.append(RejectReason.LEVERAGE_TOO_HIGH)
+    if rules is not None:  # was eine echte Boerse ablehnen wuerde, geht auch im Paper-Betrieb nicht durch
+        if not rules.on_quantity_step(quantity):
+            reasons.append(RejectReason.QUANTITY_NOT_ON_STEP)
+        if quantity < rules.min_quantity:
+            reasons.append(RejectReason.QUANTITY_TOO_SMALL)
+        if quantity * fill < rules.min_notional:
+            reasons.append(RejectReason.NOTIONAL_TOO_SMALL)
+        if not (rules.on_price_tick(stop) and rules.on_price_tick(tp)):
+            reasons.append(RejectReason.PRICE_NOT_ON_TICK)
     if leverage < 1:
         reasons.append(RejectReason.LEVERAGE_TOO_LOW)
         return RiskDecision(False, tuple(reasons))  # Weiterrechnen waere sinnlos

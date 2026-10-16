@@ -75,3 +75,9 @@ class RejectReason(str, Enum):
     FUNDING_UNFAVORABLE = "FUNDING_UNFAVORABLE"  # Funding stark gegen die Position
     LIQUIDITY_TOO_LOW = "LIQUIDITY_TOO_LOW"  # Spread zu gross fuer den Stop oder Volumen eingebrochen
     CONDITIONS_UNFAVORABLE = "CONDITIONS_UNFAVORABLE"  # Umfeld-Bewertung zu schwach
+
+    # --- Boersenregeln je Instrument, AP-13 ---
+    EXCHANGE_RULES_MISSING = "EXCHANGE_RULES_MISSING"  # keine Regeln fuer das Instrument: nicht raten, ablehnen
+    QUANTITY_NOT_ON_STEP = "QUANTITY_NOT_ON_STEP"
+    NOTIONAL_TOO_SMALL = "NOTIONAL_TOO_SMALL"  # Orderwert unter dem Mindestwert der Boerse
+    PRICE_NOT_ON_TICK = "PRICE_NOT_ON_TICK"  # Stop oder Ziel nicht auf dem Preisschritt

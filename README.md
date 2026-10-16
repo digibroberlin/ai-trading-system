@@ -335,6 +335,10 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
   verschlüsselte Verbindung (AP-28). Der DEMO-Modus (laufendes Paper-Konto) ist vorbereitet und getestet, wird aber erst
   mit der Laufzeit-Engine (AP-21) live gespeist. Die Testhilfe von Starlette meldet eine Hinweis-Warnung (httpx → httpx2),
   ohne Einfluss auf das Ergebnis.
+* **Börsenregeln (AP-13) nur für die Test-Börse hinterlegt:** Preis-/Mengenschritte, Mindestgrößen und Höchsthebel
+  echter Börsen kommen mit den Adaptern (AP-14) aus deren Instrument-Angaben. Ein Backtest nutzt Regeln nur, wenn
+  `BacktestConfig(rules=...)` gesetzt ist; ist ein Regelwerk gesetzt, wird ein Instrument ohne Regeln abgelehnt.
+  Gebührenstufen nach Volumen gibt es als `FeeSchedule`; negative Maker-Gebühren (Rabatte) werden bewusst abgelehnt.
 * **Strategien sind nicht erforscht:** Standard-Einstellungen aus der Fachliteratur, nur auf erfundenen Daten technisch
   geprüft. Ob eine davon nach allen Kosten einen Vorteil hat, klärt erst der Forschungsrahmen (AP-18) auf getrennten
   echten Daten (AP-20). Stop und Ziel werden auf 8 Nachkommastellen gerundet (zu Ungunsten); die echten Preis- und

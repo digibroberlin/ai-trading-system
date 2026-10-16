@@ -38,9 +38,10 @@ from trading.agents.yuzu_rules import RuleBasedYuzu
 from trading.ai.activation import TriggerEvent
 from trading.ai.orchestrator import AnalysisRequest
 from trading.analysis.regime import DEFAULT_REGIME, MarketRegime, RegimeConfig, detect_regime
-from trading.backtest.strategy import MarketView, Strategy, StrategyDecision
+from trading.backtest.strategy import MarketView, Strategy, StrategyDecision, on_ticks
 from trading.clock import Clock, FixedClock
 from trading.config import load_settings
+from trading.domain.exchange_rules import ExchangeRules
 from trading.domain.instrument import InstrumentId
 from trading.domain.models import Candle, FundingEvent, MarketSnapshot, Position, TradeSetup
 from trading.domain.universe import TradingUniverse
@@ -126,9 +127,9 @@ class EventOutcome:
 class DecisionMomo(MomoAgent):
     """MOMO der Laufzeit: fragt die Strategie fuer EIN Instrument und vergibt Kennungen aus der Entscheidungszeit."""
 
-    def __init__(self, strategy: Strategy, clock: Clock) -> None:
+    def __init__(self, strategy: Strategy, clock: Clock, rules: Optional[ExchangeRules] = None) -> None:
         super().__init__()
-        self._strategy, self._clock = strategy, clock
+        self._strategy, self._clock, self._rules = strategy, clock, rules
         self.decision = StrategyDecision()
 
     def decide(self, view: MarketView) -> StrategyDecision:
@@ -143,7 +144,8 @@ class DecisionMomo(MomoAgent):
             if p.instrument not in reference:
                 continue
             setup_id = "%s|%s|%s|%s" % (self._strategy.name, p.instrument.key, p.side.value, now.strftime("%Y%m%dT%H%M%SZ"))
-            out.append(TradeSetup(setup_id, p.instrument, p.side, reference[p.instrument], p.stop_loss, p.take_profit,
+            stop, target = on_ticks(self._rules, p)
+            out.append(TradeSetup(setup_id, p.instrument, p.side, reference[p.instrument], stop, target,
                                   p.horizon, self._strategy.name, now, p.rationale))
         return out
 
@@ -171,14 +173,15 @@ class RuntimeEngine:
         config: Optional[EngineConfig] = None,
         regime_review: Optional[AIReview] = None,
         funding_rates: Optional[Mapping[InstrumentId, Decimal]] = None,
+        rules: Optional[ExchangeRules] = None,
     ) -> None:
         self._executor, self._aki, self._clock = executor, aki, clock
         self._config = config or EngineConfig()
         self._costs = costs or CostModel()
-        self._momo = DecisionMomo(strategy, clock)
+        self._momo = DecisionMomo(strategy, clock, rules)
         self._pipeline = TradingPipeline(
             self._momo, RuleBasedRin(universe, clock, rin_config, self._costs), kibo or RuleBasedKibo(),
-            yuzu or RuleBasedYuzu(), RuleBasedSora(SizingPolicy.from_limits(limits), self._costs, sora_config), aki,
+            yuzu or RuleBasedYuzu(), RuleBasedSora(SizingPolicy.from_limits(limits), self._costs, sora_config, rules=rules), aki,
             executor)
         self._regime_review = regime_review
         self._funding: Dict[InstrumentId, Decimal] = dict(funding_rates or {})
