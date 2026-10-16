@@ -90,6 +90,8 @@ OPH, OPL = "src/trading/ops/health.py", "src/trading/ops/logs.py"
 BKT, BKS = ["tests/test_pg_backup.py"], "scripts/backup.py"  # Sicherung mit Rueckspiel-Test (AP-26)
 BET = ["tests/test_runtime_service.py", "tests/test_ops_scripts.py"]  # Betrieb (AP-27)
 BES, BEC = "src/trading/runtime/service.py", "docker-compose.prod.yml"
+DPT, DPH, DPI, DPA = (["tests/test_deploy.py"], "deploy/server/harden.sh", "deploy/server/install.sh",
+                      "scripts/ops/alert_check.py")  # Server, Alarme, Kosten (AP-28)
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -492,6 +494,17 @@ BACKTEST: List[Mutant] = [
  ("BE09", "Passwort-Datei im Projektordner erlaubt", [("scripts/ops/common.sh", "\"$ROOT\"/*) fail", "\"$ROOT\"/nie/*) fail")], BET),
  ("BE10", "Handel standardmaessig eingeschaltet", [(BEC, "TRADING_ENGINE_ENABLED: ${TRADING_ENGINE_ENABLED:-0}", "TRADING_ENGINE_ENABLED: ${TRADING_ENGINE_ENABLED:-1}")], BET),
  ("BE11", "Dashboard von aussen erreichbar", [(BEC, "      - \"127.0.0.1:8000:8000\"", "      - \"8000:8000\"")], BET),
+ ("DP01", "SSH erlaubt root", [(DPH, "PermitRootLogin no", "PermitRootLogin yes")], DPT),
+ ("DP02", "SSH erlaubt Passwoerter", [(DPH, "PasswordAuthentication no", "PasswordAuthentication yes")], DPT),
+ ("DP03", "Firewall laesst alles herein", [(DPH, "run ufw default deny incoming", "run ufw default allow incoming")], DPT),
+ ("DP04", "Aussperr-Schutz fehlt", [(DPH, "  [ \"$keys\" = \"1\" ] || { echo \"FEHLER: kein SSH", "  true || { echo \"FEHLER: kein SSH")], DPT),
+ ("DP05", "Passwort-Datei mit offenen Rechten erlaubt", [(DPI, "  [ \"$(stat -c '%a %U' \"$ENV_FILE\")\" = \"600 $OPS_USER\" ] || {", "  true || {")], DPT),
+ ("DP06", "Schlechter Zustand wird nie erneut gemeldet", [(DPA, "    if last is None or now - datetime.fromisoformat(last) >= repeat:", "    if last is None:")], DPT),
+ ("DP07", "Neue Einzelmeldung (z. B. KI-Budget-Sperre) wird verschluckt", [(DPA, "    if new:\n        return", "    if False:\n        return")], DPT),
+ ("DP08", "Erholung wird nicht gemeldet", [(DPA, "            return \"Wieder in Ordnung (vorher %s).\" % before", "            return None")], DPT),
+ ("DP09", "Alarm-Kanal ohne Verschluesselung erlaubt", [(DPA, "    if not url.startswith(\"https://\"):", "    if False:")], DPT),
+ ("DP10", "Alarm-Adresse erscheint im Protokoll", [(DPA, "        out(\"ALARM: %s\" % text)", "        out(\"ALARM: %s (%s)\" % (text, webhook))")], DPT),
+ ("DP11", "Serverkosten nicht monatsweise verteilt", [("src/trading/audit/costs.py", "            year, month = (year + 1, 1) if month == 12 else (year, month + 1)", "            year, month = year, month")], DPT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
@@ -637,7 +650,7 @@ def copy_project(workdir: Path) -> Path:
     copy.mkdir()
     # Alles, was die Tests lesen (auch Sperrdateien, Dockerfile, CI-Datei) - sonst schlagen Tests in der Kopie schon ohne
     # eingebauten Fehler fehl, und jeder Eintrag gaelte faelschlich als "entdeckt".
-    for folder in ("src", "tests", "db", "scripts", "requirements", ".github"):
+    for folder in ("src", "tests", "db", "scripts", "requirements", ".github", "deploy"):
         shutil.copytree(ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__"))
     for name in ("pyproject.toml", "Dockerfile", "docker-compose.prod.yml"):
         shutil.copy(ROOT / name, copy)

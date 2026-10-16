@@ -40,7 +40,9 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
   **nur** auf dem Server als `ANTHROPIC_API_KEY` hinterlegen (nie in den Chat oder ins Repository), (3) Freigabetext
   `TRADING_AI_APPROVAL="KI-AUFRUFE FREIGEGEBEN"` setzen. Danach nimmt die Entwicklung das Paket `anthropic` mit Prüfsummen
   auf und prüft die Preistabelle gegen die aktuelle Preisliste.
-* **B-005 Server.** Hetzner-VPS erst, wenn Betrieb ansteht (AP-26). Anleitung mit Kosten folgt dann.
+* **B-005 Server.** Erst, wenn der Paper-Betrieb auf einem Server laufen soll. Seit AP-28 (D-030) ist alles
+  vorbereitet: Schritt-für-Schritt-Anleitung mit Kosten (ca. 4–6 €/Monat) in `docs/DEPLOYMENT.md`. Zu entscheiden:
+  Anbieter/Server, ob ein Alarm-Kanal (z. B. ntfy) und ob eine Sicherungskopie außerhalb des Servers gewünscht ist.
 
 ## Erledigt
 

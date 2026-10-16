@@ -245,7 +245,9 @@ python scripts/backup.py prune --keep 14                          # ältere Sich
 Braucht die PostgreSQL-Client-Werkzeuge (`pg_dump`, `pg_restore`) mindestens in der Server-Version (auf dem Mac z. B.
 `brew install libpq`). Ohne sie werden die Sicherungs-Tests sichtbar übersprungen (dann NICHT STABIL).
 
-### Betrieb auf einem Server (AP-27, D-029) – vorbereitet, nicht gestartet
+### Betrieb auf einem Server (AP-27/28, D-029/D-030) – vorbereitet, nicht gestartet
+
+Schritt-für-Schritt-Anleitung für einen eigenen Server (Härtung, Installation, Alarme, Kosten): `docs/DEPLOYMENT.md`.
 
 ```bash
 chmod 600 ~/trading-secrets.env                       # Passwörter, AUSSERHALB des Projekts

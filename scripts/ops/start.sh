@@ -8,6 +8,7 @@ load_env_file "${1:-}"
 echo "1/4 Datenbank starten"
 dc up -d --build --wait db
 echo "2/4 Sicherung vor jeder Aenderung (mit Rueckspiel-Test)"
+prepare_backup_dir
 dc run --rm --build backup
 echo "3/4 Schema aktualisieren"
 dc run --rm --build migrate

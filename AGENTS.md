@@ -140,6 +140,7 @@ db/                      migrations/ (nummerierte Schema-Schritte), 00_roles.sh 
 scripts/                 restart_check.py (Neustart-Prüfung von Hand), mutation_check.py (Gegenprobe der Tests),
                          backup.py (Sicherung mit Rückspiel-Test, AP-26), ops/*.sh (Start/Stopp/Status/Sicherung, AP-27)
 docs/                    TESTBERICHT.md, AUDIT.md, BACKTESTING.md, STUFE1_STATUS.md
+deploy/                  server/harden.sh, server/install.sh (Trockenlauf als Standard), systemd/ (Zeitpläne; AP-28)
 backups/                 Sicherungen vor riskanten Änderungen (Archive werden nicht eingecheckt)
 ```
 

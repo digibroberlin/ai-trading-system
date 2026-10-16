@@ -1,0 +1,10 @@
+[Unit]
+Description=KI-Trading-System - taegliche Sicherung (03:17 UTC)
+
+[Timer]
+OnCalendar=*-*-* 03:17:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

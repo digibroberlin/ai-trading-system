@@ -30,6 +30,7 @@ from typing import Any, Callable, List, Mapping, Optional, Sequence, Tuple
 
 from trading.agents.aki import AkiAgent
 from trading.ai.budget import BudgetLedger
+from trading.audit.costs import CostLedger, operating_costs_from_env
 from trading.audit.event_log import EventLog
 from trading.backtest.data import HistoricalDataSource
 from trading.clock import Clock, SystemClock
@@ -176,13 +177,14 @@ class PaperService:
                  extra={"component": "service"})
         return stats
 
-    def dashboard_source(self, started_at: datetime) -> Any:
+    def dashboard_source(self, started_at: datetime, costs: Optional[CostLedger] = None) -> Any:
+        """Paper-Konto fuer das Dashboard - Netto nach allen Kosten inkl. Server/Marktdaten (`costs`, AP-28)."""
         from trading.dashboard.state import PaperSource
 
         portfolio = self.parts.executor.portfolio_state()
         return PaperSource(self.parts.executor, self.parts.aki, portfolio.equity, started_at, self.parts.clock.now,
-                           log=self.parts.log, budget=self.parts.budget, halt=self.parts.kill_switch.status,
-                           strategy=self.config.strategy)
+                           log=self.parts.log, costs=costs, budget=self.parts.budget,
+                           halt=self.parts.kill_switch.status, strategy=self.config.strategy)
 
 
 def production_parts(config: ServiceConfig, env: Mapping[str, str], clock: Clock,
@@ -245,6 +247,7 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
         print("Paper-Dienst startet nicht: %s" % exc)
         return 0  # kein Fehler: Docker startet ihn nicht neu
     config = ServiceConfig.from_env(env)
+    operating_costs_from_env(env, SystemClock().now())  # ungueltige Kostenangaben: lieber kein Start
     clock = SystemClock()
     parts = parts_factory(config, env, clock)
     service = PaperService(config, parts, engine_config)
@@ -263,8 +266,9 @@ def main(argv: Optional[Sequence[str]] = None, environ: Optional[Mapping[str, st
     try:
         from trading.dashboard.server import DashboardServer
 
-        server = DashboardServer(service.dashboard_source(clock.now()), service.probe, config.dashboard_host,
-                                 config.dashboard_port)
+        started = clock.now()
+        source = service.dashboard_source(started, operating_costs_from_env(env, started))
+        server = DashboardServer(source, service.probe, config.dashboard_host, config.dashboard_port)
         server.start()
         service.run(stop, env)
     finally:

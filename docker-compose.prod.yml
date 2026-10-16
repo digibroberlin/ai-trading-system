@@ -57,6 +57,7 @@ services:
       context: .
       target: ops
     profiles: ["tools"]
+    user: "${OPS_UID:-10001}:${OPS_GID:-10001}"  # schreibt als Betriebsbenutzer in ./backups (Skripte setzen die Kennung)
     depends_on:
       db:
         condition: service_healthy
@@ -93,6 +94,9 @@ services:
       AI_BUDGET_PER_CALL_USD: ${AI_BUDGET_PER_CALL_USD:-0}
       AI_BUDGET_DAILY_USD: ${AI_BUDGET_DAILY_USD:-0}
       AI_BUDGET_MONTHLY_USD: ${AI_BUDGET_MONTHLY_USD:-0}
+      COST_SERVER_MONTHLY_USD: ${COST_SERVER_MONTHLY_USD:-0}  # Serverkosten (AP-28) - fuer das Netto nach allen Kosten
+      COST_MARKET_DATA_MONTHLY_USD: ${COST_MARKET_DATA_MONTHLY_USD:-0}
+      COST_OTHER_MONTHLY_USD: ${COST_OTHER_MONTHLY_USD:-0}
       DASHBOARD_HOST: 0.0.0.0  # im Container; nach aussen nur 127.0.0.1 (siehe ports)
       DASHBOARD_PORT: "8000"
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

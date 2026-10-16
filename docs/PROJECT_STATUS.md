@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:05 UTC für AP-28 (Server-Härtung, Deployment, nur Trockenlauf)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:19 UTC für AP-30 (Abschlussprüfung)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,12 +22,16 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-28** (Server-Härtung und Deployment, nur Trockenlauf), danach AP-30 (Abschlussprüfung);
-  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–27 sind erledigt – jeweils mit eigener
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-30** (Abschlussprüfung: volle Gegenprobe, Abschlussbericht);
+  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–28 sind erledigt – jeweils mit eigener
   Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-28 Server vorbereitet** (interaktive Cloud-Sitzung, 2026-10-16, D-030): Härtung (SSH nur Schlüssel, Firewall nur
+  SSH, Updates, fail2ban) mit Aussperr-Schutz, Installation mit systemd (Start, tägliche Sicherung, Alarm alle 5 min),
+  Alarm-Prüfung inkl. KI-Budget-Sperre, Serverkosten im Netto. Nur Trockenlauf; Anleitung `docs/DEPLOYMENT.md` (B-005).
+  Preflight STABIL 1759/1759; Python 3.9: 1514 bestanden; Gegenprobe DP01–DP11 11/11.
 * **AP-27 Betrieb vorbereitet** (interaktive Cloud-Sitzung, 2026-10-16, D-029): Paper-Dienst `python -m trading.runtime`
   (Monitor → Engine mit allen sechs Agenten → Paper-Executor in PostgreSQL, Dashboard mit Gesundheit), doppelte
   Freigabe, Wächter mit Neustart, Produktions-Compose (Datenbank ohne Port, Dashboard nur lokal) und Skripte

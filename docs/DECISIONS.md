@@ -475,3 +475,19 @@ außerhalb des Projekts und mit Rechten 600; Start = Datenbank → Sicherung →
 blockiert); Börsenregeln echter Börsen fehlen (eigene Limits gelten). Die Images wurden in der Cloud nicht gebaut
 (Proxy lässt aus Containern kein HTTP zu); geprüft sind Compose-Schema (`docker compose config`), Skripte im
 Trockenlauf und der Dienst mit simuliertem Server und echter Datenbank.
+
+## D-030 · 2026-10-16 · Server-Härtung, Deployment, Alarme, Serverkosten (AP-28)
+**Entscheidung:** `deploy/server/harden.sh` (Ubuntu 24.04): automatische Sicherheitsupdates, Firewall nur SSH herein
+(begrenzt), SSH nur mit Schlüssel und ohne root (nur Benutzer `trading`), fail2ban, UTC-Zeit, begrenzte Protokolle,
+Docker aus den Ubuntu-Paketen. Kein Port für Datenbank oder Dashboard (Dashboard per SSH-Tunnel; Docker umgeht die
+Firewall für veröffentlichte Ports – deshalb veröffentlicht die Compose-Datei nur 127.0.0.1). **Aussperr-Schutz:**
+ohne hinterlegten SSH-Schlüssel bricht `--apply` ab, bevor SSH geändert wird. `deploy/server/install.sh`: Code auf
+festen Stand, Prüfung der Passwort-Datei (600, Betriebsbenutzer), systemd-Einheiten (Start beim Hochfahren, tägliche
+Sicherung mit Rückspiel-Test, Alarm-Prüfung alle 5 min, Alarm bei gescheiterter Sicherung). Beide Skripte: Standard
+Trockenlauf, `--check` nur Vorprüfungen, `--apply` nur als root.
+**Alarme (`scripts/ops/alert_check.py`, nur Standardbibliothek):** meldet Zustandswechsel, neue Einzelmeldungen (z. B.
+KI-Budget-Sperre), Erholung und wiederholt einen schlechten Zustand alle 6 h; immer ins Systemprotokoll, zusätzlich an
+einen vom Eigner gewählten HTTPS-Kanal (`ALERT_WEBHOOK_URL`, nie im Protokoll). Kanal-Ausfall wird gemeldet.
+**Serverkosten:** `COST_SERVER_MONTHLY_USD` (sowie Marktdaten/Sonstiges) → monatliche Einträge im Kostenbuch → Netto nach
+allen Kosten im Dashboard. Ungültige Angaben verhindern den Start.
+**Grenzen:** nur Trockenlauf; Server, Konto, Kosten und Alarm-Kanal entscheidet der Eigner (B-005).

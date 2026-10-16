@@ -1,0 +1,20 @@
+# Betrieb starten/anhalten (AP-28). Der Handel selbst laeuft nur mit Freigabe in /etc/ai-trading/secrets.env.
+[Unit]
+Description=KI-Trading-System (Paper) - Datenbank, Sicherung, Migration, Dienst
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=trading
+Group=trading
+WorkingDirectory=/opt/ai-trading-system
+ExecStart=/opt/ai-trading-system/scripts/ops/start.sh /etc/ai-trading/secrets.env
+ExecStop=/opt/ai-trading-system/scripts/ops/stop.sh /etc/ai-trading/secrets.env
+TimeoutStartSec=1800
+TimeoutStopSec=180
+
+[Install]
+WantedBy=multi-user.target
