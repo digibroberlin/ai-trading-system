@@ -3,6 +3,7 @@
   python scripts/backup.py create  --out backups/            # Sicherung (braucht ADMIN_DATABASE_URL)
   python scripts/backup.py verify  backups/trading-....dump  # Rueckspiel-Test in eine Wegwerf-Datenbank
   python scripts/backup.py prune   --out backups/ --keep 14  # aeltere Sicherungen loeschen (die neuesten bleiben)
+  python scripts/backup.py cycle   --out backups/            # alles drei nacheinander (Zeitplan, AP-27/28)
 
 Was "create" tut:
   * `pg_dump` im eigenen Format (komprimiert, mit Rechten); das Passwort geht ueber die Umgebung (PGPASSWORD), nie
@@ -207,6 +208,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p = sub.add_parser("prune")
     p.add_argument("--out", type=Path, default=ROOT / "backups")
     p.add_argument("--keep", type=int, default=14)
+    y = sub.add_parser("cycle")
+    y.add_argument("--out", type=Path, default=ROOT / "backups")
+    y.add_argument("--keep", type=int, default=int(os.environ.get("BACKUP_KEEP", "14")))
     args = parser.parse_args(argv)
     try:
         if args.command == "prune":
@@ -219,6 +223,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             path = create(admin_url, args.out)
             print("SICHERUNG: %s" % path)
             return 0
+        if args.command == "cycle":
+            args.dump = create(admin_url, args.out)
+            print("SICHERUNG: %s" % args.dump)
         findings = verify(args.dump, admin_url)
     except BackupError as exc:
         print("FEHLER: %s" % exc)
@@ -229,6 +236,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print("  - %s" % finding)
         return 1
     print("RUECKSPIEL-TEST: BESTANDEN (%s)" % args.dump.name)
+    if args.command == "cycle":  # erst nach bestandenem Test alte Sicherungen entfernen
+        print("Entfernt: %d Dateien" % len(prune(args.out, args.keep)))
     return 0
 
 

@@ -127,7 +127,8 @@ src/trading/
                          nach allen Kosten, je Marktphase, Stabilität, Nutzen von KIBO/YUZU) – AP-18/19
   ops/                   logs.py (JSON-Logging, schwärzt Geheimnisse), health.py (OK/WARN/CRITICAL, Kennzahlen für
                          /api/health und /metrics; AP-25)
-  runtime/               engine.py (ereignisgesteuerte Laufzeit-Engine, AP-21; standardmäßig AUS, Start nur mit Freigabe)
+  runtime/               engine.py (ereignisgesteuerte Laufzeit-Engine, AP-21; standardmäßig AUS, Start nur mit Freigabe),
+                         service.py + __main__.py (Paper-Dienst für den Betrieb, AP-27: doppelte Freigabe, Wächter)
   strategies/            library.py (Trendfolge, Momentum,
                          Mean Reversion, Breakout, Volatilität, Scalping), benchmarks.py (Nicht-Handeln, Kaufen-und-Halten)
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,
@@ -136,7 +137,8 @@ src/trading/
                          (einziges Paket, das `psycopg` importieren darf)
 tests/                   pytest; helpers.py, bt_helpers.py, stubs.py, pg_workers.py = Test-Hilfen (keine echte Strategie)
 db/                      migrations/ (nummerierte Schema-Schritte), 00_roles.sh (Anwendungsrolle), Dockerfile (PostgreSQL-Image)
-scripts/                 restart_check.py (Neustart-Prüfung von Hand), mutation_check.py (Gegenprobe der Tests)
+scripts/                 restart_check.py (Neustart-Prüfung von Hand), mutation_check.py (Gegenprobe der Tests),
+                         backup.py (Sicherung mit Rückspiel-Test, AP-26), ops/*.sh (Start/Stopp/Status/Sicherung, AP-27)
 docs/                    TESTBERICHT.md, AUDIT.md, BACKTESTING.md, STUFE1_STATUS.md
 backups/                 Sicherungen vor riskanten Änderungen (Archive werden nicht eingecheckt)
 ```

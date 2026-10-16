@@ -245,6 +245,20 @@ python scripts/backup.py prune --keep 14                          # ältere Sich
 Braucht die PostgreSQL-Client-Werkzeuge (`pg_dump`, `pg_restore`) mindestens in der Server-Version (auf dem Mac z. B.
 `brew install libpq`). Ohne sie werden die Sicherungs-Tests sichtbar übersprungen (dann NICHT STABIL).
 
+### Betrieb auf einem Server (AP-27, D-029) – vorbereitet, nicht gestartet
+
+```bash
+chmod 600 ~/trading-secrets.env                       # Passwörter, AUSSERHALB des Projekts
+scripts/ops/start.sh  ~/trading-secrets.env           # Datenbank → Sicherung → Migration → Paper-Dienst
+scripts/ops/status.sh ~/trading-secrets.env           # Zustand und /api/health
+scripts/ops/stop.sh   ~/trading-secrets.env [--all]   # sauber anhalten
+DRY_RUN=1 scripts/ops/start.sh ~/trading-secrets.env  # nur anzeigen, was passieren würde
+```
+Ohne `TRADING_ENGINE_ENABLED=1` **und** `TRADING_ENGINE_APPROVAL="PAPER-HANDEL FREIGEGEBEN"` in der Passwort-Datei
+beendet sich der Dienst sofort – es wird nicht gehandelt. Das Dashboard ist nur auf dem Server selbst erreichbar
+(127.0.0.1:8000, von außen per SSH-Tunnel). Einstellungen: `TRADING_EXCHANGE`, `TRADING_SYMBOLS`, `TRADING_INTERVAL_S`,
+`TRADING_STRATEGY` (siehe `docker-compose.prod.yml`).
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →

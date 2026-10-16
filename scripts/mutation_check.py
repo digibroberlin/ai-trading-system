@@ -88,6 +88,8 @@ WSS, WSP = "src/trading/marketdata/stream.py", "src/trading/marketdata/public_ws
 OPT = ["tests/test_ops.py", "tests/test_dashboard.py"]  # Betrieb: Logging, Gesundheit, Kennzahlen (AP-25)
 OPH, OPL = "src/trading/ops/health.py", "src/trading/ops/logs.py"
 BKT, BKS = ["tests/test_pg_backup.py"], "scripts/backup.py"  # Sicherung mit Rueckspiel-Test (AP-26)
+BET = ["tests/test_runtime_service.py", "tests/test_ops_scripts.py"]  # Betrieb (AP-27)
+BES, BEC = "src/trading/runtime/service.py", "docker-compose.prod.yml"
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -479,6 +481,17 @@ BACKTEST: List[Mutant] = [
  ("OP09", "Schluessel=Wert nicht geschwaerzt", [(OPL, "r\"\\1\\2***\"),\n    (re.compile(r\"\\bsk-", "r\"\\g<0>\"),\n    (re.compile(r\"\\bsk-")], OPT),
  ("OP10", "Fehlerablauf ungeschwaerzt im Log", [(OPL, "            data[\"error\"] = redact(self.formatException(record.exc_info))", "            data[\"error\"] = self.formatException(record.exc_info)")], OPT),
  ("OP11", "KI-Budget-Sperre nicht als Fehler gemeldet", [("src/trading/ai/orchestrator.py", "        LOG.error(\"KI-Budget gesperrt", "        LOG.debug(\"KI-Budget gesperrt")], OPT),
+ ("BE01", "Paper-Dienst laeuft ohne Freigabe", [(BES, "        check_start_allowed(self.engine_config, environ)  # VOR jedem", "        pass  # VOR jedem")], BET),
+ ("BE02", "Programm baut alles trotz fehlender Freigabe", [(BES, "        check_start_allowed(engine_config, env)\n    except EngineDisabledError", "        pass\n    except EngineDisabledError")], BET),
+ ("BE03", "Einschalt-Schalter wird ignoriert", [(BES, "    engine_config = EngineConfig(enabled=env.get(\"TRADING_ENGINE_ENABLED\") == \"1\")", "    engine_config = EngineConfig(enabled=True)")], BET),
+ ("BE04", "Waechter erkennt keine haengende Schleife", [(BES, "        elif not self.stalled and now - self._last_change >= self._timeout:", "        elif False:")], BET),
+ ("BE05", "Waechter loest wiederholt aus", [(BES, "        elif not self.stalled and now - self._last_change >= self._timeout:", "        elif now - self._last_change >= self._timeout:")], BET),
+ ("BE06", "Aufwaermen handelt", [(BES, "            taken += self.engine.warm_up(series.candles)", "            taken += sum(1 for c in series.candles if self.engine.process(c))")], BET),
+ ("BE07", "Start ohne Sicherung vor der Migration", [("scripts/ops/start.sh", "dc run --rm --build backup", "true")], BET),
+ ("BE08", "Passwort-Datei fuer alle lesbar erlaubt", [("scripts/ops/common.sh", "[ \"$mode\" = \"600\" ] || [ \"$mode\" = \"400\" ] || fail", "true || fail")], BET),
+ ("BE09", "Passwort-Datei im Projektordner erlaubt", [("scripts/ops/common.sh", "\"$ROOT\"/*) fail", "\"$ROOT\"/nie/*) fail")], BET),
+ ("BE10", "Handel standardmaessig eingeschaltet", [(BEC, "TRADING_ENGINE_ENABLED: ${TRADING_ENGINE_ENABLED:-0}", "TRADING_ENGINE_ENABLED: ${TRADING_ENGINE_ENABLED:-1}")], BET),
+ ("BE11", "Dashboard von aussen erreichbar", [(BEC, "      - \"127.0.0.1:8000:8000\"", "      - \"8000:8000\"")], BET),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
@@ -605,6 +618,8 @@ DATENBANK: List[Mutant] = [
  ("BK08", "Anderer Schema-Stand nicht erkannt", [(BKS, "        if restored[\"schema_version\"] != meta[\"schema_version\"]:", "        if False:")], BKT),
  ("BK09", "Aufraeumen loescht die neuesten Sicherungen", [(BKS, "    for dump in dumps[:-keep]:", "    for dump in dumps[keep:]:")], BKT),
  ("BK10", "Vorhandene Sicherung wird ueberschrieben", [(BKS, "    if final.exists():\n        raise BackupError", "    if False:\n        raise BackupError")], BKT),
+ ("BE12", "Marktueberwachung mit eigenem statt gemeinsamem Not-Aus", [(BES, "config.interval_s, clock, kill_switch,", "config.interval_s, clock, __import__(\"trading.safety.kill_switch\", fromlist=[\"x\"]).InMemoryKillSwitch(clock),")], ["tests/test_pg_runtime_service.py"]),
+ ("BE13", "Alte Sicherungen vor dem Rueckspiel-Test geloescht", [(BKS, "        if args.command == \"cycle\":\n            args.dump = create(admin_url, args.out)", "        if args.command == \"cycle\":\n            prune(args.out, 1)\n            args.dump = create(admin_url, args.out)")], BKT),
 ]
 
 
@@ -624,7 +639,7 @@ def copy_project(workdir: Path) -> Path:
     # eingebauten Fehler fehl, und jeder Eintrag gaelte faelschlich als "entdeckt".
     for folder in ("src", "tests", "db", "scripts", "requirements", ".github"):
         shutil.copytree(ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__"))
-    for name in ("pyproject.toml", "Dockerfile"):
+    for name in ("pyproject.toml", "Dockerfile", "docker-compose.prod.yml"):
         shutil.copy(ROOT / name, copy)
     return copy
 

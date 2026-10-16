@@ -573,3 +573,22 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16,
   wiederholt.
 * **Nicht geprüft:** der Bau des Test-Images mit `postgresql-client` (der Proxy der Cloud lässt aus Containern kein HTTP
   zu) – beim nächsten `docker-compose ... run --rm tests` auf dem Mac.
+
+## Nachtrag 2026-10-16 – AP-27 Betrieb: Paper-Dienst, Compose, Start/Stopp, Überwachung (D-029)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16, Docker-Kommandozeile 29 (ohne Bau).
+
+* **Neu:** `runtime/service.py` + `python -m trading.runtime`, `dashboard/server.py`, `docker-compose.prod.yml`,
+  Image-Ziel `ops`, `scripts/ops/{start,stop,status,backup,common}.sh`, `backup.py cycle`.
+* **Tests:** `test_runtime_service` (6): sichere Voreinstellungen und Prüfung der Einstellungen; ohne Freigabe weder
+  Datenbank noch Netz; Aufwärmen ohne Handel, dann Live-Kerzen durch alle Agenten, Gesundheit OK; gescheitertes Aufwärmen;
+  Paper-Konto im Dashboard; Wächter. `test_pg_runtime_service` (2, echte Datenbank): Verdrahtung, gemeinsamer Not-Aus von
+  Monitor und Executor, Gesundheit CRITICAL bei Not-Aus. `test_ops_scripts` (10): Skripte gültig und streng, Reihenfolge
+  Sicherung → Migration → Dienst, Passwort-Datei geschützt, keine Geheimnisse in der Ausgabe, Compose sicher (Handel aus,
+  Ports nur lokal, Datenbank ohne Port, KI-Budget 0, nur Variablen statt Passwörtern) und gültig nach dem offiziellen
+  Schema (`docker compose config`). `test_pg_backup`: `cycle` räumt erst nach bestandenem Rückspiel-Test auf.
+  `test_dashboard`: Server im Hintergrund-Thread startet und endet sauber.
+* **Gegenprobe:** BE01–BE13 **13/13 entdeckt** (BE13 erst nach einem schärferen Test mit zwei alten Sicherungen).
+* **Preflight:** STABIL – **1737/1737** Tests, 0 übersprungen; Python 3.9: 1492 bestanden, 16 übersprungen (erwartet).
+* **Nicht geprüft:** Bau der Images und ein echter Start der Dienste (Cloud-Proxy; außerdem gilt: kein Betrieb ohne
+  Freigabe des Eigners).

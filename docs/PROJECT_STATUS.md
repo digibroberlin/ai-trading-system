@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 20:36 UTC für AP-27 (Betrieb: Compose, Start/Stopp, Überwachung)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:05 UTC für AP-28 (Server-Härtung, Deployment, nur Trockenlauf)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,12 +22,17 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-27** (Betrieb: Compose, Start/Stopp, Überwachung), danach AP-28 (Server, nur Trockenlauf);
-  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–26 sind erledigt – jeweils mit eigener
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-28** (Server-Härtung und Deployment, nur Trockenlauf), danach AP-30 (Abschlussprüfung);
+  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–27 sind erledigt – jeweils mit eigener
   Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-27 Betrieb vorbereitet** (interaktive Cloud-Sitzung, 2026-10-16, D-029): Paper-Dienst `python -m trading.runtime`
+  (Monitor → Engine mit allen sechs Agenten → Paper-Executor in PostgreSQL, Dashboard mit Gesundheit), doppelte
+  Freigabe, Wächter mit Neustart, Produktions-Compose (Datenbank ohne Port, Dashboard nur lokal) und Skripte
+  start/stop/status/backup. **Nicht gestartet.** Preflight STABIL 1737/1737; Python 3.9: 1492 bestanden; Gegenprobe
+  BE01–BE13 13/13.
 * **AP-26 Sicherungen mit Rückspiel-Test** (interaktive Cloud-Sitzung, 2026-10-16, D-028, Audit M14):
   `scripts/backup.py create|verify|prune` – pg_dump mit Prüfsumme und Beschreibung, Rückspiel-Test in eine
   Wegwerf-Datenbank mit Prüfung von Zeilen, Schema und Ereigniskette. Preflight STABIL 1701/1701; Python 3.9: 1461
