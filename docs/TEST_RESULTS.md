@@ -12,6 +12,7 @@ STABIL heißt: Geheimnis-Scan (inkl. Geschichte), ruff, mypy --strict und alle T
 | `stable/001-phase1-3-foundation` | geprüft 2026-10-15 | 354/354 Tests (Python 3.12.14, PostgreSQL 16.15), in separater Arbeitskopie erneut ausgeführt |
 | `stable/002-stage1-core-backtesting` | geprüft 2026-10-14 | 606/606 Tests (Mac 3.12.14 und Container 3.12.15, PostgreSQL 16.15), Gegenprobe 193/193, mypy/ruff ohne Befund |
 | `stable/003-autonomy-baseline` | geprüft 2026-10-15 | Preflight STABIL: 633/633 Tests (Mac 3.12.14; Container 3.12.15 ebenfalls 633/633), Gegenprobe 193/193, Geheimnis-Scan inkl. Geschichte sauber |
+| `stable/004-safety-stage2` | geprüft 2026-10-16 | Preflight STABIL in der Cloud (Python 3.12.3, PostgreSQL 16): 886/886 Tests, 0 übersprungen, Gegenprobe 278/278 (mit Datenbank), Geheimnis-Scan inkl. Geschichte sauber (ohne fremden Zweig `ap/31-…`, B-006); Python 3.9: 703 bestanden |
 
 ## Läufe
 
@@ -76,3 +77,12 @@ Git: `de19043` auf `develop` · Python 3.12.3 · Linux
   Ursache: Seit AP-07 wird der Tagesverlust nach der Order (inkl. Gebühr) gemessen; der angepasste Test prüfte den exakten
   Grenzfall „genau 3 %“ nicht mehr. Behoben durch Grenzfall-Tests für Tagesverlust (genau 3 %) und Drawdown (genau 10 %);
   Gegenprobe K13/K14 danach 2/2 entdeckt. Volle Gegenprobe wird wiederholt.
+
+### 2026-10-16 15:29 UTC - STABIL
+Git: `0cd1204` auf `develop` · Python 3.12.3 · Linux (Cloud-Routine) · PostgreSQL 16 · Grundlage für `stable/004-safety-stage2`
+
+- ✅ Geheimnis-Scan (inkl. Geschichte): GEHEIMNIS-SCAN: keine Funde (Arbeitsstand und gesamte Geschichte).
+- ✅ ruff: All checks passed!
+- ✅ mypy --strict: Success: no issues found in 58 source files
+- ✅ Tests: 886 bestanden, 0 uebersprungen, 0 fehlgeschlagen (223 s)
+- ✅ Gegenprobe: ERGEBNIS: 278 entdeckt, 0 nicht entdeckt, 0 nicht geprueft (4609 s)

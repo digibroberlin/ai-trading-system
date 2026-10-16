@@ -5,13 +5,13 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Routine (stündlich, Lauf ab 12:09 UTC) seit 2026-10-16 14:08 UTC (erneuert, Beginn 12:12) für den Meilenstein `stable/004-safety-stage2` (volle Gegenprobe läuft).
+frei
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
 ## Aktueller Stand (2026-10-16)
 
-* **Letzter stabiler Stand:** `stable/003-autonomy-baseline` (633 Tests, Gegenprobe 193/193, Preflight STABIL).
+* **Letzter stabiler Stand:** `stable/004-safety-stage2` (2026-10-16, 886 Tests, Gegenprobe 278/278 mit Datenbank, Preflight STABIL).
 * **Zweige:** `main` (stabil), `develop` (Integration).
 * **GitHub:** Repository `digibroberlin/ai-trading-system` (privat). `main`, `develop`, `stable/001`–`003` hochgeladen (2026-10-15).
 * **Arbeitsort:** künftig die Cloud (D-008); der Mac-Ordner bleibt danach nur Sicherung.
@@ -19,15 +19,16 @@ gesperrt von Cloud-Routine (stündlich, Lauf ab 12:09 UTC) seit 2026-10-16 14:08
 
 ## In Arbeit (Zwischenstand)
 
-* **Meilenstein `stable/004-safety-stage2`** (AP-06…12 alle erledigt): volle Gegenprobe `preflight.py --mutation --record`
-  erster Lauf 12:41–14:00 UTC: NICHT STABIL – K14 (Tagesverlust „>=“ → „>“) unentdeckt (Testlücke seit AP-07, Grenzfall
-  „genau 3 %“ fehlte). Behoben mit Grenzfall-Tests (Tagesverlust 3 %, Drawdown 10 %), K13/K14 2/2 entdeckt. Zweiter voller
-  Lauf ab ca. 14:10 UTC (ca. 80 min). Nur bei STABIL: `develop` → `main`, Tag setzen.
-  Bricht der Lauf ab: nächster Lauf startet die volle Gegenprobe erneut auf `develop`.
+* nichts. Nächstes Paket: **AP-13** (Börsenregeln je Instrument: Preis-/Mengenschritt, Mindestgröße, Gebührenstufen).
 * Parallel offen (fremde Arbeit): Zweig `ap/31-kostenoptimierung` der interaktiven Sitzung (KI-Kostenoptimierung, D-016,
-  noch nicht nach `develop`). Konflikte beim Zusammenführen möglich in AGENTS.md, DECISIONS.md, MASTER_PLAN.md (AP-12 nutzt D-017).
+  noch nicht nach `develop`). Konflikte beim Zusammenführen möglich in AGENTS.md, DECISIONS.md, MASTER_PLAN.md, TESTBERICHT.md
+  (AP-12 nutzt D-017). Geheimnis-Scan-Fehlalarme auf diesem Zweig: B-006.
 
 ## Zuletzt erledigt
+
+* **Meilenstein `stable/004-safety-stage2`** (Cloud-Routine 2026-10-16, 12:41–15:29 UTC): erste volle Gegenprobe fand eine
+  Testlücke (K14: Tagesverlust-Grenzfall „genau 3 %“ seit AP-07 ungetestet) → Grenzfall-Tests für Tagesverlust und Drawdown
+  ergänzt; zweite volle Gegenprobe 278/278, 886/886 Tests, STABIL. `develop` → `main`, Tag `stable/004-safety-stage2`.
 
 * AP-12 Pipeline-Reihenfolge nach Vorgabe des Eigners (Cloud-Routine 2026-10-16 12:12–12:45 UTC, D-017): MOMO → RIN →
   SORA-Vorprüfung → KIBO → YUZU → SORA endgültig unter der Sperre → Executor → AKI. Was RIN oder SORA schon verwerfen, erreicht
