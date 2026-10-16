@@ -19,7 +19,7 @@ import psycopg
 
 from trading.audit.events import EventType, to_jsonable
 from trading.clock import Clock, SystemClock
-from trading.persistence.db import connect
+from trading.persistence.db import ConnectionKeeper
 from trading.persistence.pg_event_log import append_raw
 from trading.safety.kill_switch import (
     RELEASE_CONFIRMATION,
@@ -88,33 +88,37 @@ class PostgresKillSwitch(KillSwitch):
     """Not-Aus ueber die Datenbank. `release` funktioniert nur mit einer Administrator-Verbindung."""
 
     def __init__(self, url: str, clock: Optional[Clock] = None) -> None:
-        self._conn = connect(url)
+        self._db = ConnectionKeeper(url)  # verbindet nach einem Abbruch beim naechsten Aufruf neu (Audit H7)
         self._clock = clock if clock is not None else SystemClock()
 
     def close(self) -> None:
-        self._conn.close()
+        self._db.close()
 
     def status(self) -> HaltStatus:
         try:
-            with self._conn.transaction(), self._conn.cursor() as cur:
+            conn = self._db.get()
+            with conn.transaction(), conn.cursor() as cur:
                 return read_halt(cur)
         except Exception as exc:  # Datenbank nicht erreichbar -> gestoppt (fail closed)
             return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)
 
     def trip(self, reason: HaltReason, note: str = "", attempts: int = 3) -> bool:
         """Von aussen ausloesen. Haelt gerade ein Prozess die Not-Aus-Zeile, wird bis zu `attempts`-mal neu versucht
-        (je bis zu 10 s Sperr-Wartezeit; eine haengende Sitzung beendet der Server nach 15 s)."""
+        (je bis zu 10 s Sperr-Wartezeit; eine haengende Sitzung beendet der Server nach 15 s).
+        Ist die Verbindung abgerissen, wird ebenfalls neu verbunden und wiederholt - ein Not-Aus doppelt zu setzen schadet nie."""
         for attempt in range(attempts):
             try:
-                return trip_in_new_transaction(self._conn, self._clock, reason, note)
-            except psycopg.errors.LockNotAvailable:
-                if attempt == attempts - 1:
+                return trip_in_new_transaction(self._db.get(), self._clock, reason, note)
+            except psycopg.OperationalError as exc:
+                retry = isinstance(exc, psycopg.errors.LockNotAvailable) or self._db.is_lost()
+                if not retry or attempt == attempts - 1:
                     raise
         return False  # nicht erreichbar
 
     def release(self, operator: str, confirmation: str) -> None:
         name = check_release(operator, confirmation)
-        with self._conn.transaction(), self._conn.cursor() as cur:
+        conn = self._db.get()
+        with conn.transaction(), conn.cursor() as cur:
             before = read_halt(cur, lock=True)
             if not before.halted:
                 return

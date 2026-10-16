@@ -67,6 +67,7 @@ BT_PG = BT + ["tests/test_backtest_pg.py"]
 # Schnelle Dateien zuerst: pytest bricht beim ersten Fehlschlag ab (-x), die Mehrprozess-Tests dauern am laengsten.
 PG = ["tests/test_pg_accounts.py", "tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
       "tests/test_pg_kill_switch.py", "tests/test_backtest_pg.py", "tests/test_pg_multiprocess.py"]
+RC = ["tests/test_db_keeper.py", "tests/test_pg_reconnect.py"]  # Wiederverbindung (AP-11)
 
 KERN: List[Mutant] = []
 
@@ -307,7 +308,7 @@ DATENBANK: List[Mutant] = [
  ("G05","DB prueft den Hash neuer Protokolleintraege nicht",[(S1,"IF NEW.hash <> expected THEN","IF false THEN")], PG),
  ("G06","Order-IDs nach Neustart vergessen",[(EX,"known = self._known_order(cur, order_id) if order_id is not None else None","known = None")], PG),
  ("G07","Hoechststand wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(), after.peak_equity, after.day,",'new_vals = (after.balance, engine.equity(), account["peak_equity"], after.day,')], PG),
- ("G08","Kein Rollback (autocommit statt Transaktion)",[(EX,"with self._conn_lock, self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:\n            yield cur","with self._conn_lock, self._conn.cursor(row_factory=dict_row) as cur:\n            self._conn.autocommit = True\n            yield cur")], PG),
+ ("G08","Kein Rollback (autocommit statt Transaktion)",[(EX,"            with conn.transaction(), conn.cursor(row_factory=dict_row) as cur:\n                yield cur","            conn.autocommit = True\n            with conn.cursor(row_factory=dict_row) as cur:\n                yield cur")], PG),
  ("G09","Offene Positionen werden nach Neustart nicht geladen",[(EX,"AND status = 'OPEN' ORDER BY position_id","AND status = 'NEVER' ORDER BY position_id")], PG),
  ("G10","Protokoll ohne Reihenfolge-Sperre",[(PL,'c.execute("SELECT pg_advisory_xact_lock(%s)", (CHAIN_LOCK_KEY,))',"pass")], PG),
  ("G11","Marktzustand (Kurs, letzte Kerze) wird nicht gespeichert",[(EX,"            if new_row != old_row:","            if False:")], PG),
@@ -334,7 +335,7 @@ DATENBANK: List[Mutant] = [
  ("G32","DB-Gurt: neue Position trotz Not-Aus",[(S3,"    IF COALESCE((SELECT halted FROM trading_halt WHERE id = 1), true) THEN","    IF false THEN")], PG),
  ("G33","Erster Grund des Not-Aus ueberschreibbar",[(S3,"IF NEW.reason IS DISTINCT FROM OLD.reason OR NEW.since IS DISTINCT FROM OLD.since\n           OR NEW.note IS DISTINCT FROM OLD.note THEN","IF false THEN")], PG),
  ("G34","Vom Programm ausgeloester Not-Aus wird nicht gespeichert",[(EX,"            write_trip(cur, halt_after)\n","            pass\n")], PG),
- ("G35","Protokoll-Schreibfehler setzt keinen Not-Aus",[(EX,"                trip_in_new_transaction(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,\n                                        \"Protokoll nicht schreibbar","                (lambda *a: None)(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,\n                                        \"Protokoll nicht schreibbar")], PG),
+ ("G35","Protokoll-Schreibfehler setzt keinen Not-Aus",[(EX,"                    trip_in_new_transaction(self._db.get(), self._clock, HaltReason.PROTOCOL_ERROR,\n                                            \"Protokoll nicht schreibbar","                    (lambda *a: None)(self._db.get(), self._clock, HaltReason.PROTOCOL_ERROR,\n                                            \"Protokoll nicht schreibbar")], PG),
  ("G36","Executor liest den Not-Aus nicht aus der Datenbank",[(EX,"halt = read_halt(cur, lock=True)","halt = HaltStatus(False)")], PG),
  ("G37","Fehlende Not-Aus-Zeile gilt als frei",[(PK,'return HaltStatus(True, None, None, "Not-Aus-Zeile fehlt")',"return RUNNING")], PG),
  ("G38","Beschaedigtes Protokoll bei der Pruefung setzt keinen Not-Aus",[(EX,"        if not ok:\n            with self._conn_lock:","        if False:\n            with self._conn_lock:")], PG),
@@ -346,7 +347,7 @@ DATENBANK: List[Mutant] = [
  ("G44","Haengende Transaktionen ohne Zeitlimit",[(DB,'            " -c idle_in_transaction_session_timeout=15000"\n',"")], PG),
  ("G45","Freigabe setzt die Notbremsen der Konten nicht neu",[(PK,'"UPDATE accounts SET day = %s, day_start_equity = equity, peak_equity = equity,"\n                " version = version + 1, updated_at = now()",','"SELECT %s::date",')], PG),
  ("G46","Freigabe ohne Not-Aus-Zeile meldet Erfolg",[(PK,"            if cur.rowcount != 1:  # Zeile fehlt","            if False:  # Zeile fehlt")], PG),
- ("G47","Ausloesen von aussen ohne Wiederholung bei belegter Sperre",[(PK,"            except psycopg.errors.LockNotAvailable:\n","            except ZeroDivisionError:\n")], PG),
+ ("G47","Ausloesen von aussen ohne Wiederholung bei belegter Sperre",[(PK,"                retry = isinstance(exc, psycopg.errors.LockNotAvailable) or self._db.is_lost()","                retry = self._db.is_lost()")], PG),
  ("G48","Wiederholung aus der DB liefert die Position mit spaeterem Funding",[(EX,"            position = dataclasses.replace(opened, last_funding_ts=opened.opened_at, funding_paid=Decimal(0))","            position = opened")], PG),
  ("G49","Fingerabdruck wird nicht gespeichert",[(EX,"self._clock.now(), order_fingerprint(intent),","self._clock.now(), None,")], PG),
  ("G50","DB-Gurt: Fill ohne Position erlaubt",[(S4,"        fingerprint IS NULL OR ((status = 'filled') = (position_id IS NOT NULL))),","        true),")], PG),
@@ -361,10 +362,19 @@ DATENBANK: List[Mutant] = [
  ("G59","DB: Hoechststand darf sinken",[(S5,"    IF NEW.peak_equity < OLD.peak_equity OR NEW.peak_equity < NEW.equity THEN","    IF NEW.peak_equity < NEW.equity THEN")], PG),
  ("G60","DB: Hoechststand darf unter der Equity liegen",[(S5,"    IF NEW.peak_equity < OLD.peak_equity OR NEW.peak_equity < NEW.equity THEN","    IF NEW.peak_equity < OLD.peak_equity THEN")], PG),
  ("G61","DB: Plausibilitaetspruefung gilt nur fuer die Rolle trading_app",[(S5,"    IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN","    IF current_user <> 'trading_app' THEN")], PG),
- ("G62","Executor legt fehlendes Konto nicht an, startet aber trotzdem",[(EX,"            if cur.fetchone() is None:\n                raise AccountMissingError(","            if cur.fetchone() is None and False:\n                raise AccountMissingError(")], PG),
+ ("G62","Executor legt fehlendes Konto nicht an, startet aber trotzdem",[(EX,"        if not self._read(exists):\n            raise AccountMissingError(","        if False:\n            raise AccountMissingError(")], PG),
  ("G63","Kontoanlage ohne Protokolleintrag",[(AC,"            if created:  # in derselben Transaktion: ohne Protokolleintrag kein Konto","            if False:")], PG),
  ("G64","Kontoanlage prueft das Startkapital nicht",[(AC,"    if not is_positive_decimal(initial_equity):","    if initial_equity is None:")], PG),
  ("G65","Kontoanlage prueft den Kontonamen nicht",[(AC,"    if not isinstance(account_id, str) or not _ACCOUNT_ID.match(account_id):","    if not isinstance(account_id, str):")], PG),
+    # AP-11 Wiederverbindung (Audit H7)
+ ("G66","Abgerissene Verbindung wird nie neu aufgebaut",[(DB,"        if self.is_lost():\n            self._reconnect()","        if self._conn is None:\n            self._reconnect()")], PG + RC),
+ ("G67","Order wird nach Abbruch beim COMMIT still wiederholt",[(EX,"                if attempt == 0 and not decided and self._db.is_lost():","                if attempt == 0 and self._db.is_lost():")], RC),
+ ("G68","Wiederverbindung ohne Begrenzung der Versuche",[(DB,"        for attempt in range(len(self._delays) + 1):","        for attempt in iter(int, 1):")], RC),
+ ("G69","Wiederverbindung ohne Wartezeit",[(DB,"                self._sleep(self._delays[attempt - 1])","                pass")], RC),
+ ("G70","Geschlossene Verbindung verbindet sich selbst neu",[(DB,"        if self._closed:\n            raise","        if False:\n            raise")], PG + RC),
+ ("G71","Fehler ohne Verbindungsverlust (z. B. Sperr-Zeitlimit) wird wiederholt",[(EX,"                if attempt == 0 and not decided and self._db.is_lost():","                if attempt == 0 and not decided:")], RC),
+ ("G72","Lesen ohne Wiederverbindung",[(EX,"                if attempt == 0 and self._db.is_lost():\n                    continue\n                raise","                raise")], RC),
+ ("G73","Not-Aus von aussen scheitert an abgerissener Verbindung",[(PK,"                retry = isinstance(exc, psycopg.errors.LockNotAvailable) or self._db.is_lost()","                retry = isinstance(exc, psycopg.errors.LockNotAvailable)")], RC),
 ]
 
 
