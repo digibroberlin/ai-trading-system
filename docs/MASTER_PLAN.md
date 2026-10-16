@@ -77,7 +77,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 ### Phase E – Strategien und Forschung
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-16 | Strategie-Bibliothek: Trendfolge, Momentum, Mean Reversion, Breakout, Volatilität, Scalping; Benchmarks (Kaufen und Halten, Nicht-Handeln) | jede Strategie getestet, ohne Blick in die Zukunft | ⏳ |
+| AP-16 | Strategie-Bibliothek: Trendfolge, Momentum, Mean Reversion, Breakout, Volatilität, Scalping; Benchmarks (Kaufen und Halten, Nicht-Handeln) | jede Strategie getestet, ohne Blick in die Zukunft | ✅ D-018 |
 | AP-17 | Marktphasen-Erkennung (Trend/Seitwärts, Volatilität) – Grundlage für KIBO und YUZU (regelbasiert) | Tests | ⏳ |
 | AP-18 | Forschungsrahmen: Trainings-/Validierungs-/Testdaten strikt getrennt, Walk-forward, Kostenempfindlichkeit, Zählung aller Versuche gegen Überanpassung, Strategie-Register mit Freigabestatus | Tests; Test-Daten nur einmal je Strategie-Version | ⏳ |
 | AP-19 | AKI: Bewertung von Strategien und Agenten (Nettoergebnis **nach allen Kosten inkl. KI** (AP-31), Erwartungswert, Drawdown, Profit-Faktor, Stabilität über Marktphasen); Backtests rechnen Betriebs- und Analysekosten mit ein | Tests | ⏳ |

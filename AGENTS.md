@@ -108,6 +108,8 @@ src/trading/
                          costs.py (Betriebs-/KI-Kosten, Netto nach allen Kosten), ai_value.py (lohnt die teurere Analyse?)
   backtest/              data.py (geprüfter Datensatz, Datenquellen), strategy.py, engine.py, compare.py, reference.py
                          (Vorführung: python -m trading.backtest) – siehe docs/BACKTESTING.md
+  strategies/            indicators.py (SMA/EMA/ATR/RSI/Bollinger/Donchian …, Decimal), library.py (Trendfolge, Momentum,
+                         Mean Reversion, Breakout, Volatilität, Scalping), benchmarks.py (Nicht-Handeln, Kaufen-und-Halten)
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,
                          kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release), ai_budget.py (KI-Budget, DB-Gurt),
                          accounts.py (Konten anlegen – nur Administrator, Kommandozeile list/create)
