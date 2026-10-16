@@ -520,3 +520,24 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Preflight:** STABIL – **1618/1618** Tests, 0 übersprungen (erster Lauf: 2 ruff-Befunde in einem Test, behoben,
   Wiederholung STABIL); Python 3.9: 1390 bestanden, 12 übersprungen (erwartet).
 * **Nicht geprüft:** echte Antworten von Coinbase und Bitget (B-008).
+
+## Nachtrag 2026-10-16 – AP-15 Marktüberwachung über WebSocket (D-026)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Kein Netz (B-008).
+
+* **Neu:** `marketdata/stream.py` (Monitor, Kerzenbau, Lücken, Herzschlag, Not-Aus), `bitget_ws.py`, `coinbase_ws.py`,
+  `public_ws.py` (WebSocket an zwei feste Adressen), `python -m trading.marketdata.watch`.
+* **Tests:** `test_market_stream` (15, simulierter Server nach Drehbuch): Kerzen in Reihenfolge, Lücken werden nachgeladen
+  und spätere Kerzen warten, Unterbrechung → Wiederverbindung mit wachsender Wartezeit, nicht nachladbare Lücke bleibt
+  Lücke, Stille → Neuaufbau, 120 s ohne Daten → Not-Aus (einmal, bleibt), Zeit aus der Zukunft/fehlerhafte Kerze → Not-Aus
+  und Ersatz per REST, Coinbase-Kerzen aus Handel nur bei lückenloser Beobachtung, Lebenszeichen, Kerzen laufen durch
+  die Laufzeit-Engine, Beobachtungsprogramm. `test_public_ws` (3, echtes WebSocket-Gegenstück über ein lokales
+  Socket-Paar): Handshake, geteilte Nachrichten, Ping/Pong, Schließen, Stille, Größenlimit, nur erlaubte Adressen.
+  `test_no_real_trading`: zweite Netz-Ausnahme sichtbar eingetragen und geprüft (TLS mit Prüfung, keine Anmeldung).
+* **Gefunden und behoben:** Nach einer Wiederverbindung wurde auch eine vollständige Bitget-Kerze verworfen; eine
+  Nachricht im selben Paket wie die Verbindungsbestätigung ging verloren; Standard-Zeitlimit (30 s) kollidierte mit dem
+  30-s-Lebenszeichen (jetzt 45 s, vom Monitor erzwungen).
+* **Gegenprobe:** WS01–WS15 **15/15 entdeckt**.
+* **Preflight:** STABIL – **1655/1655** Tests, 0 übersprungen; Python 3.9: 1424 bestanden, 13 übersprungen (Dashboard und
+  WebSocket-Zugang brauchen Python ≥ 3.10).
+* **Nicht geprüft:** echter Strom von Bitget und Coinbase (B-008).

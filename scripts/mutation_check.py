@@ -83,6 +83,8 @@ MDT = ["tests/test_marketdata_adapters.py", "tests/test_no_real_trading.py"]  # 
 MDH, MDP, MDC, MDB, MDR = ("src/trading/marketdata/history.py", "src/trading/marketdata/public_http.py",
                            "src/trading/marketdata/daycache.py", "src/trading/marketdata/bitget.py",
                            "src/trading/marketdata/ratelimit.py")
+WST = ["tests/test_market_stream.py", "tests/test_public_ws.py", "tests/test_no_real_trading.py"]  # AP-15
+WSS, WSP = "src/trading/marketdata/stream.py", "src/trading/marketdata/public_ws.py"
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -448,6 +450,21 @@ BACKTEST: List[Mutant] = [
  ("MD13", "Bitget-Fehlercode wird uebergangen", [(MDB, "    if response.get(\"code\") != \"00000\":", "    if False:")], MDT),
  ("MD14", "Keine Ratenbegrenzung", [(MDR, "            self._next = start + self._interval", "            self._next = start")], MDT),
  ("MD15", "Falsch ausgerichtete Kerzen werden hingenommen", [(MDH, "        if kind == \"candles\" and t % interval_s:", "        if False:")], MDT),
+ ("WS01", "Veraltete Daten loesen keinen Not-Aus aus", [(WSS, "        if silent >= self._policy.halt_after_s and not self.status.halted_by_monitor:", "        if False:")], WST),
+ ("WS02", "Zeitstempel aus der Zukunft akzeptiert", [(WSS, "            if stamp > now + FUTURE_TOLERANCE:", "            if False:")], WST),
+ ("WS03", "Fehlerhafte Kerze der Boerse weitergegeben", [(WSS, "                    if problems:", "                    if False:")], WST),
+ ("WS04", "Spaetere Kerzen ueberholen eine offene Luecke", [(WSS, "                if not self._fill(instrument, head, now):\n                    break", "                if not self._fill(instrument, head, now) and False:\n                    break")], WST),
+ ("WS05", "Unterbrochene Handels-Kerze wird trotzdem benutzt", [(WSS, "        if self.forming is not None and self.from_trades:\n            self.tainted = True", "        if False:\n            self.tainted = True")], WST),
+ ("WS06", "Vollstaendige Boersen-Kerze nach Wiederverbindung verworfen", [(WSS, "        if self.forming is not None and self.from_trades:", "        if self.forming is not None:")], WST),
+ ("WS07", "Fehlende Handelsnummern nicht erkannt", [(WSS, "            if trade.trade_id != self.last_trade_id + 1:", "            if False:")], WST),
+ ("WS08", "Herzschlag verraet verpassten Handel nicht", [(WSS, "            elif beat.last_trade_id > self.last_trade_id:", "            elif False:")], WST),
+ ("WS09", "Keine Wiederverbindung bei Stille", [(WSS, "            if (now - last).total_seconds() >= self._policy.reconnect_after_s:", "            if False:")], WST),
+ ("WS10", "Keine wachsende Wartezeit", [(WSS, "        delay = self._policy.backoff_s[min(self._failures, len(self._policy.backoff_s) - 1)]", "        delay = self._policy.backoff_s[0]")], WST),
+ ("WS11", "Kein Lebenszeichen an die Boerse", [(WSS, "            message = self._protocol.keepalive()", "            message = None")], WST),
+ ("WS12", "WebSocket zu beliebigen Adressen", [(WSP, "    if url not in ALLOWED_ENDPOINTS:", "    if False:")], WST),
+ ("WS13", "Ping des Servers unbeantwortet", [(WSP, "        elif isinstance(event, Ping):\n            self._write(self._ws.send(event.response()))", "        elif isinstance(event, Ping):\n            pass")], WST),
+ ("WS14", "Keine Hoechstgroesse je Nachricht", [(WSP, "            if sum(len(p) for p in self._partial) > MAX_MESSAGE_BYTES:", "            if False:")], WST),
+ ("WS15", "TLS ohne Zertifikatspruefung", [(WSP, "ssl.create_default_context().wrap_socket(", "ssl._create_unverified_context().wrap_socket(")], WST),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
