@@ -117,14 +117,14 @@ m("P15","Doppelte/aeltere Kerze wird verarbeitet",PE,"if last_close is not None 
 m("P16","Veraltete Bewertungskurse nicht erkannt",PE,"if mark is None or (now - mark.time).total_seconds() > self._limits.max_mark_age_s:","if mark is None:")
 m("P17","Kein Zuruecksetzen nach Fehler (nicht atomar)",PE,"            except BaseException:\n                self._restore(backup)\n                raise","            except BaseException:\n                raise")
 m("P18","Doppelte Order-ID wird ausgefuehrt",PE,"if intent.client_order_id in self._seen_order_ids:","if False:")
-m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
+m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
 m("P20","Funding: auch Shorts zahlen bei positivem Satz",PE,"cost = cost_up(position.side.sign * event.rate * position.quantity * event.mark_price)","cost = cost_up(event.rate * position.quantity * event.mark_price)")
 m("P21","Funding auf Spot-Instrument akzeptiert",PE,"problems.append(RejectReason.BAD_FUNDING)  # Funding gibt es nur bei Futures","pass")
 m("P22","Schliessen mit beliebigem Grund (z. B. als Take-Profit)",PE,"if reason not in _REQUESTED_EXITS:","if False:")
 m("P23","Datenluecke wird nicht protokolliert",PE,"if last_close is not None and candle.open_time > last_close:","if False:")
 m("P24","Einstiegsgebuehr wird nicht abgebucht",PE,"        self._balance -= decision.entry_fee\n","")
 m("P25","Marktdaten fuer ein anderes Instrument akzeptiert (Order)",PE,"        if snapshot.instrument != setup.instrument:\n            return self._reject(intent, (RejectReason.SYMBOL_MISMATCH,), None)","")
-m("P26","Ungueltige Marktdaten bei Order akzeptiert",PE,"        if not validation.ok:\n            return self._reject(intent, validation.reasons, None)","")
+m("P26","Ungueltige Marktdaten bei Order akzeptiert",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return self._reject(intent, validation.reasons, None)\n","")
 m("P27","Ereignisse sofort statt am Ende (bei Fehler bleibt Protokoll stehen)",PE,"        self._pending.append((event_type, payload))","        self._log.append(event_type, payload)")
 m("P28","Zukuenftiges Funding wird gebucht",PE,"        if not problems and (event.time - self._clock.now()).total_seconds() > FUTURE_TOLERANCE_S:\n            problems.append(RejectReason.FUTURE_TIMESTAMP)","")
 m("P29","Auffaellige Kerze wird nicht protokolliert",PE,"            > self._limits.max_price_jump\n        ):","            > self._limits.max_price_jump * 1000\n        ):")
@@ -217,7 +217,7 @@ m("E02","Erkennung von Boersen-Schluesseln abgeschaltet",CF,"    if offending:\n
 m("E03","Anderer Modus als PAPER erlaubt",CF,"    if raw_mode != TradingMode.PAPER.value:","    if False:")
 # ---- Zentraler PAPER-Schutz (AP-06, Audit M3)
 m("E04","PAPER-Schutz beim Import abgeschaltet",IN,"\n_enforce_paper_process()\n","\n")
-m("E05","Schluessel-Namen nur in Grossschrift erkannt",CF,'return re.sub(r"[^A-Z0-9]+", "_", name.upper()).strip("_")','return re.sub(r"[^A-Z0-9]+", "_", name).strip("_")')
+m("E05","Schluessel-Namen nur in Grossschrift erkannt",CF,'return re.sub(r"[^A-Z0-9]+", "_", split.upper()).strip("_")','return re.sub(r"[^A-Z0-9]+", "_", split).strip("_")')
 m("E06","Boersen-Praefixe (CDP, Binance, CCXT ...) nicht erkannt",CF,"    return _mentions_exchange(norm.split(\"_\")) and any(p in norm for p in _SECRET_PARTS)","    return False")
 m("E11","Boersenname nur am Anfang des Namens erkannt",CF,"    return any(p in _EXCHANGE_PREFIXES or p.startswith(_LONG_EXCHANGE_PREFIXES) for p in parts)","    return parts[0] in _EXCHANGE_PREFIXES")
 m("E12","camelCase-Namen nicht zerlegt",CF,'    split = re.sub(r"([a-z0-9])([A-Z])", r"\\1_\\2", name)',"    split = name")
@@ -231,7 +231,7 @@ m("N02","Not-Aus nach der Bewertung nicht beachtet",PE,"        halted = self._h
 m("N03","Ausgeloester Not-Aus wird ignoriert",PE,"        if not status.halted:\n            return None","        if True:\n            return None")
 m("N04","Datenfehler loesen keinen Not-Aus aus",PE,"        if bad:\n            self._trip(HaltReason.DATA_ERROR","        if False:\n            self._trip(HaltReason.DATA_ERROR")
 m("N05","Wiederholte Kerzen loesen den Not-Aus aus",PE,"    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED,","    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED, RejectReason.DUPLICATE_CANDLE,")
-m("N06","Notbremsen loesen keinen Not-Aus aus",PE,"        for brake in brake_reasons(state, self._limits):","        for brake in ():")
+m("N06","Notbremsen loesen keinen Not-Aus aus",PE,"        for brake in brake_reasons_for(equity, day_start, peak, self._limits):","        for brake in ():")
 m("N07","Protokollfehler loest keinen Not-Aus aus",PE,'                    self._trip_silently(HaltReason.PROTOCOL_ERROR, "Protokoll nicht schreibbar: %s" % type(exc).__name__)',"                    pass")
 m("N08","Freigabe ohne Bestaetigungstext",KS,"    if confirmation != RELEASE_CONFIRMATION:","    if False:")
 m("N09","Freigabe ohne Namen",KS,"    if not name:\n","    if False:\n")
@@ -355,6 +355,19 @@ def copy_project(workdir: Path) -> Path:
     return copy
 
 
+def stale_entries() -> List[str]:
+    """Eintraege, deren Textstelle nicht genau einmal im Projekt steht. Vor dem Lauf geprueft, damit ein veralteter Eintrag
+    nicht erst nach langer Laufzeit auffaellt - und damit kein Fehler an einer unbeabsichtigten zweiten Stelle eingebaut wird."""
+    stale = []
+    for group in GROUPS.values():
+        for key, _, edits, _ in group:
+            for path, old, _ in edits:
+                count = (ROOT / path).read_text(encoding="utf-8").count(old)
+                if count != 1:
+                    stale.append("%s (%s: %d Fundstellen)" % (key, path, count))
+    return stale
+
+
 def check(mutant: Mutant, copy: Path, with_db: bool) -> Tuple[bool, str]:
     key, _, edits, tests = mutant
     originals = {}
@@ -395,6 +408,10 @@ def main(argv: Sequence[str]) -> int:
         raise SystemExit("Unbekannte Gruppe: %s (moeglich: %s)" % (", ".join(unknown), ", ".join(GROUPS)))
     keys = [mt[0] for group in GROUPS.values() for mt in group]
     assert len(keys) == len(set(keys)), "Kennungen muessen eindeutig sein"
+
+    stale = stale_entries()
+    if stale:
+        raise SystemExit("Veraltete Eintraege - bitte an den aktuellen Code anpassen:\n  " + "\n  ".join(stale))
 
     found = missed = skipped = 0
     survivors: List[str] = []
