@@ -371,17 +371,66 @@ def test_database_error_during_execution_blocks_the_trade_instead_of_crashing(pg
     pipe, ex, log = make_pipeline(pg, [make_setup("p1", tp=D("102.5"))], clock)
     calls = []
 
-    def boom(stage):  # 1. Aufruf = Portfolio-Abfrage durch SORA (ok), 2. Aufruf = die Ausfuehrung (faellt aus)
+    def boom(stage):  # SORA rechnet in DERSELBEN Transaktion wie die Ausfuehrung (Audit M8): ein einziger Aufruf
         calls.append(stage)
-        if len(calls) >= 2:
-            raise RuntimeError("DB weg")
+        raise RuntimeError("DB weg")
 
     ex._fault_hook = boom
     (o,) = pipe.run_cycle([MarketContext(snap(clock))])
     assert not o.executed and o.stage == "EXECUTOR" and o.reasons == (R.EXECUTION_ERROR,)
+    assert calls == ["before_commit"]
     ex._fault_hook = None
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT count(*) FROM positions").fetchone() == (0,)
     assert log.of_type(EventType.SYSTEM_ERROR) and log.verify().ok
 
 
+
+
+# ------------------------------------------------------------------ Groesse unter der Konto-Sperre (Audit M8)
+
+
+def test_sizer_sees_the_locked_state_and_the_sized_order_is_stored_like_a_normal_one(pg):
+    ex, clock = pg_exec(pg)
+    other, _ = pg_exec(pg)
+    assert other.submit(intent("first"), snap(clock)).status is OrderStatus.FILLED  # ein anderer Executor war schneller
+    seen = []
+
+    def sizer(state):
+        seen.append(state)
+        return intent("sized", symbol="ETH-USD")
+
+    res = ex.submit_sized("sized", snap(clock, symbol="ETH-USD"), sizer)
+    assert res.status is OrderStatus.FILLED and not res.replayed
+    assert len(seen) == 1 and seen[0].open_count == 1 and seen[0].open_risk > 0  # Zustand inkl. fremder Position
+    with psycopg.connect(pg.admin_url) as c:
+        row = c.execute("SELECT status, fingerprint, position_id FROM orders WHERE client_order_id = 'sized'").fetchone()
+    assert row == ("filled", order_fingerprint(intent("sized", symbol="ETH-USD")), res.position.position_id)
+    # Gleicher Auftrag noch einmal (auch aus einem anderen Executor): urspruengliches Ergebnis, nichts Neues.
+    again = other.submit_sized("sized", snap(clock, symbol="ETH-USD"), lambda st: intent("sized", symbol="ETH-USD"))
+    assert again.replayed and again.position == res.position and len(ex.open_positions) == 2
+
+
+def test_sizer_saying_no_leaves_no_order_and_the_id_stays_free(pg):
+    ex, clock = pg_exec(pg)
+    assert ex.submit_sized("later", snap(clock), lambda st: None) is None
+    with psycopg.connect(pg.admin_url) as c:
+        assert c.execute("SELECT count(*) FROM orders").fetchone() == (0,)
+        assert c.execute("SELECT count(*) FROM positions").fetchone() == (0,)
+    assert ex.submit(intent("later"), snap(clock)).status is OrderStatus.FILLED
+
+
+@pytest.mark.parametrize("bad", ["raises", "other_id"])
+def test_failing_sizer_rolls_back_the_whole_transaction(pg, bad):
+    ex, clock = pg_exec(pg)
+
+    def sizer(state):
+        if bad == "raises":
+            raise RuntimeError("SORA kaputt")
+        return intent("someone-else")
+
+    with pytest.raises((RuntimeError, ValueError)):
+        ex.submit_sized("mine", snap(clock), sizer)
+    with psycopg.connect(pg.admin_url) as c:
+        for table in ("positions", "orders", "event_log"):
+            assert c.execute("SELECT count(*) FROM " + table).fetchone() == (0,), table

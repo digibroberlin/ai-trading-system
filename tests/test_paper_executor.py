@@ -983,3 +983,25 @@ def test_closing_on_signal_updates_the_last_known_price():
     assert close(env, mid=D(101), half_spread=D("0.05")).closed
     mark = env.executor.export_state().marks[inst("BTC-USD", MarketType.SPOT)]
     assert (mark.price, mark.time) == (D(101), env.clock.now())
+
+
+# ------------------------------------------------------------------ Groesse unter der Sperre (Audit M8)
+
+
+def _intent(oid, symbol):
+    return OrderIntent(oid, make_setup(oid, symbol=symbol), D(9), D(1))
+
+
+def test_submit_sized_passes_the_current_state_and_rejects_a_foreign_order_id():
+    env = Env()
+    seen = []
+    first = _intent("a", "AAA-USD")
+    res = env.executor.submit_sized("a", env.snap(symbol="AAA-USD"), lambda st: seen.append(st) or first)
+    assert res.status is OrderStatus.FILLED and seen[0].open_count == 0
+    before = env.executor.export_state()
+    with pytest.raises(ValueError):
+        env.executor.submit_sized("b", env.snap(symbol="BBB-USD"),
+                                  lambda st: _intent("x", "BBB-USD"))
+    assert env.executor.export_state() == before and len(env.log.of_type(EventType.ORDER_FILLED)) == 1
+    assert env.executor.submit_sized("c", env.snap(symbol="CCC-USD"), lambda st: None) is None
+    assert env.executor.export_state() == before

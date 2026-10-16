@@ -124,6 +124,27 @@ def test_full_pipelines_in_separate_processes_share_the_risk_budget_and_one_log(
     assert log.verify().ok  # AKI-Eintraege und Executor-Eintraege liegen in EINER gueltigen Kette
 
 
+@pytest.mark.parametrize("run", range(REPEATS))
+def test_competing_processes_shrink_into_the_remaining_budget_instead_of_being_rejected(pg, run):
+    """Audit M8: Ziel 0,45 % je Trade. Vier passen voll, der fuenfte bekommt das Restbudget in KLEINERER Groesse -
+    weil SORA in der Transaktion mit gesperrter Konto-Zeile rechnet. (Vorher: 2 von 8 Pipelines fuehrten aus.)"""
+    init_account(pg)
+    res = run_workers("pipeline", [dict(url=pg.app_url, account="main", symbol="Q%d-USD" % i,
+                                        risk_per_trade="0.0045", slow_sora=0.05) for i in range(8)])
+    executed = [r for r in res if r["executed"]]
+    assert len(executed) == 5, res
+    risks = sorted(D(r["risk_pct"]) for r in executed)
+    assert all(x > D("0.0044") for x in risks[1:]) and D("0.001") < risks[0] < D("0.0025"), risks
+    blocked = [r for r in res if not r["executed"]]
+    assert all(r["stage"] == "SORA" and r["reasons"] == ["TOO_MANY_POSITIONS"] for r in blocked), blocked
+    f = db_facts(pg)
+    assert f["open"] == 5 and f["orders"] == 5  # keine abgelehnte Order mehr beim Risikomanager
+    assert f["remaining_risk"] <= f["cap"] * f["equity"]
+    log = PostgresEventLog(pg.app_url)
+    assert len(log.of_type(EventType.SIZING_PROPOSED)) == 8 and not log.of_type(EventType.ORDER_REJECTED)
+    assert log.verify().ok
+
+
 # ------------------------------------------------------------------ Absturz
 
 

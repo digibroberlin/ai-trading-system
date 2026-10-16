@@ -119,6 +119,10 @@ def order_fingerprint(intent: Any) -> Optional[str]:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+# Rechnet aus dem Portfolio-Zustand den Auftrag (oder None = nicht handeln). Wird unter der Sperre aufgerufen.
+Sizer = Callable[[PortfolioState], Optional[OrderIntent]]
+
+
 def _locked(fn: F) -> F:
     """Abfragen laufen nacheinander (ein Thread zur Zeit)."""
 
@@ -422,6 +426,26 @@ class PaperExecutor:
     @_atomic
     def submit(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
         """Fuehrt eine Order aus - oder lehnt sie begruendet ab. Beides wird protokolliert."""
+        return self._submit_intent(intent, snapshot)
+
+    @_atomic
+    def submit_sized(
+        self, client_order_id: str, snapshot: MarketSnapshot, sizer: Sizer
+    ) -> Optional[ExecutionResult]:
+        """Groesse UNTER DER SPERRE bestimmen und sofort ausfuehren (Audit M8).
+
+        `sizer` bekommt den Portfolio-Zustand, der in derselben unteilbaren Operation auch geprueft wird, und liefert
+        den Auftrag - oder None (dann wird nichts gehandelt, Rueckgabe None). So rechnet SORA nie mit einem Zustand,
+        den ein anderer Prozess inzwischen veraendert hat: Ein kleiner gewordenes Restbudget fuehrt zu einer
+        kleineren Position statt zu einer Ablehnung. Der unabhaengige Risikomanager prueft danach wie bei `submit`."""
+        intent = sizer(self.portfolio_state())
+        if intent is None:
+            return None
+        if not isinstance(intent, OrderIntent) or intent.client_order_id != client_order_id:
+            raise ValueError("Der Auftrag gehoert nicht zur angefragten Order-ID.")  # fail closed: alles zurueck
+        return self._submit_intent(intent, snapshot)
+
+    def _submit_intent(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
         # 1. Doppel-Order-Schutz: jede client_order_id wird hoechstens EINMAL bearbeitet, auch wenn die erste
         #    Bearbeitung abgelehnt wurde (ein neuer Versuch braucht eine neue ID). Eine Wiederholung bekommt das
         #    urspruengliche Ergebnis - so erkennt ein Absender nach einem Zeitlimit, was wirklich geschehen ist.

@@ -116,15 +116,28 @@ def pipeline_worker(a: Dict[str, Any]) -> None:
     ex = make_executor(a["url"], a["account"], 0.02)
     log = PostgresEventLog(a["url"], clock)
     rin = RuleBasedRin(TradingUniverse.of(futures=[symbol]), clock, RinConfig(), NO_SLIP)
-    sora = RuleBasedSora(SizingPolicy.from_limits(DEFAULT_LIMITS), NO_SLIP)
+    from trading.agents import SoraConfig
+
+    config = SoraConfig(risk_per_trade=D(a["risk_per_trade"])) if "risk_per_trade" in a else None
+    sora = RuleBasedSora(SizingPolicy.from_limits(DEFAULT_LIMITS), NO_SLIP, config)
+    if a.get("slow_sora"):  # Rechnete SORA ausserhalb der Konto-Sperre, saehen so alle Prozesse denselben alten Stand
+        original_size = sora.size
+
+        def slow_size(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(a["slow_sora"])
+            return original_size(*args, **kwargs)
+
+        sora.size = slow_size  # type: ignore[method-assign]
     # Weiter Stop (5 %): SORA plant je 0,4 % Risiko; fuenf Positionen passen unter alle Grenzen.
     setup = make_setup("pipe-" + symbol, symbol=symbol, market_type=MarketType.FUTURES,
                        entry=D(100), stop=D(95), tp=D(115))
     pipe = TradingPipeline(StubMomo([setup]), rin, StubKibo(), StubYuzu(), sora, AkiAgent(log), ex)
     wait_until(a["start_at"])
     outcome = pipe.run_cycle([MarketContext(snapshot(symbol=symbol, ts=T0, **FUT))])[0]
+    risk = outcome.result.risk if outcome.result is not None else None
     emit({"symbol": symbol, "executed": outcome.executed, "stage": outcome.stage,
-          "reasons": [r.value for r in outcome.reasons]})
+          "reasons": [r.value for r in outcome.reasons],
+          "risk_pct": str(risk.risk_pct) if risk is not None else None})
     ex.close()
     log.close()
 

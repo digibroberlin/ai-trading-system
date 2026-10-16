@@ -263,8 +263,9 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
   rechnerisch über 2 % des dann kleineren Kapitals steigen. Es werden dann keine neuen Trades zugelassen, bestehende laufen mit ihrem Stop weiter.
 * **SORA kennt nur das Kapital und die Positionen des Executors.** Aufträge, die erst *geplant*, aber noch nicht ausgeführt sind, zählen nicht – deshalb werden
   Dimensionierung und Ausführung in der Pipeline unteilbar ausgeführt. Mehrere *getrennte* Pipelines auf demselben Executor sind dadurch ebenfalls sicher,
-  Über mehrere Prozesse hinweg sichert die Datenbank-Sperre (siehe oben) das Limit; dort kann eine Freigabe von SORA durch den Risikomanager noch *abgelehnt* werden,
-  wenn ein anderer Prozess inzwischen Risiko belegt hat (sicher, aber ohne automatische Verkleinerung).
+  Über mehrere Prozesse hinweg rechnet SORA innerhalb der Datenbank-Transaktion mit gesperrter Konto-Zeile (`submit_sized`, D-013): Hat ein anderer Prozess
+  inzwischen Risiko belegt, wird die Position kleiner statt abgelehnt. Folge: Solange SORA rechnet, warten die anderen Prozesse – SORA muss deshalb schnell und
+  regelbasiert bleiben (keine KI-Aufrufe unter der Sperre).
 * **Mengenschritt und Mindestgröße** (0,0001 / 10 USD) sind für alle Symbole gleich angenommen; echte Börsenregeln je Paar kommen mit den Adaptern.
 
 ## Sicherheits-Checkliste für später (VPS)
