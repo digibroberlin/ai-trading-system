@@ -32,6 +32,11 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
   in PROJECT_STATUS. WO/WIE: auf github.com „Pull requests“ → „New“ → base `main`, compare `develop` (bzw. den genannten
   Commit) → „Merge“. Alternativ Claude ausdrücklich erlauben, geprüfte Stände selbst zusammenzuführen (ohne Überschreiben).
   WAS DANACH: GitHub Actions prüft `main` erneut; `main` ist wieder grün (AP-02).
+  **Dazu bitte:** Der Auftrag der stündlichen Routine enthält in Schritt 6 noch „develop nach main“. Claude darf ihn nicht
+  ändern (die Routine wurde im Browser angelegt). WO: https://claude.ai/code/routines/trig_01HtmuP8ds89wqCdpFJya5Z9 →
+  Bearbeiten. WIE: in Schritt 6 „develop nach main, annotierter Tag …“ ersetzen durch „den develop-Stand als STABLE
+  kennzeichnen (Tag + Eintrag in PROJECT_STATUS); main nie selbst verändern“. Bis dahin schützen CLAUDE.md (gilt für die
+  Routine verbindlich) und der Abschlussvermerk in PROJECT_STATUS, nach dem die Routine nichts mehr ändert.
 
 ## Später (noch nicht nötig)
 
