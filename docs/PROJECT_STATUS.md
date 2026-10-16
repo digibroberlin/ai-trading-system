@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 08:25 UTC (erneuert, Beginn 06:42) für AP-31 (neue Eigner-Vorgabe: KI-Kostenoptimierung und Nettogewinn nach allen Kosten, AP-31…33)
+gesperrt von Cloud-Routine (stündlich) seit 2026-10-16 12:12 UTC für AP-12 (Pipeline-Reihenfolge). Vorherige Sperre der interaktiven Sitzung (AP-31…33, zuletzt 08:25 UTC) war älter als 3 Stunden und galt als verwaist; der Zweig `ap/31-kostenoptimierung` bleibt unangetastet.
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
