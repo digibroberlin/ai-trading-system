@@ -369,3 +369,22 @@ keine negativen Gebühren) liefert das Kostenmodell der passenden Stufe.
 (`test_mutation_entries`) mitlaufen. Ein eingebauter Fehler verändert seine Textstelle – damit galt jeder Eintrag, der die
 ganze Testsuite nutzt, scheinbar als entdeckt. Betroffen: Läufe ab dem Zusammenführen von AP-31 (2026-10-16, ~17:20 UTC);
 `stable/004` (15:29 UTC) enthielt die Datei noch nicht. Behoben (`--ignore`), mit Test abgesichert; K24 echt nachgeprüft.
+
+## D-024 · 2026-10-16 · KI-Anbieter-Anschluss hinter dem Orchestrator (AP-22)
+**Entscheidung:** `AnthropicProvider` übersetzt eine Anfrage des Orchestrators in genau einen Aufruf
+`client.messages.create(...)` (Schnittstelle des offiziellen SDK) und meldet den Verbrauch **so, wie der Anbieter ihn
+nennt** (Eingabe, Ausgabe, Cache-Schreiben, Cache-Lesen; fehlt er, wird keiner erfunden – der Orchestrator rechnet dann
+die volle Reservierung ab und sperrt das Budget). Die feste Anweisung geht als cachebarer Block (Prompt-Caching,
+5 Minuten); zu kurze Anweisungen werden vom Anbieter schlicht nicht gecacht. Zeitlimit 30 s je Aufruf, **keine
+automatischen Wiederholungen im SDK** (`max_retries=0`), weil jede Wiederholung ein weiterer, nicht reservierter Aufruf
+wäre. Abgeschnittene (`max_tokens`) oder verweigerte Antworten gelten als leer (nicht verwendet, Verbrauch trotzdem
+berechnet). Fehler werden nicht verschluckt (Orchestrator: volle Reservierung, Regel-Ersatz).
+**Einsatz nur mit Freigabe:** `live_registry` baut den Anschluss erst nach allen Prüfungen – Freigabetext des Eigners in
+`TRADING_AI_APPROVAL`, Schlüssel in `ANTHROPIC_API_KEY` (nie in Meldungen), SDK installiert, nur Anthropic-Modelle in
+den Stufen, Preistabelle höchstens 60 Tage alt und mit Preis für jedes Modell. Unabhängig davon gilt das Budget
+(Standard 0). Das Paket `anthropic` ist bewusst **noch keine Abhängigkeit**: Es wird erst mit B-004 (Prüfsummen,
+Lückenprüfung) aufgenommen; bis dahin meldet `live_registry` ehrlich „nicht installiert“.
+**Struktur:** Anbieter werden nur im Orchestrator aufgerufen (`.complete(` nirgends sonst), das SDK wird nur in diesem
+Modul geladen – beides durch Tests abgesichert.
+**Grenzen:** Kein echter Aufruf, nur Attrappe der SDK-Antwortform. Ob die Preistabelle (Stand 2026-10-06) stimmt, muss vor
+echtem Einsatz gegen die Preisliste des Anbieters geprüft werden (die Altersprüfung erzwingt das spätestens nach 60 Tagen).

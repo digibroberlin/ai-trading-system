@@ -105,7 +105,8 @@ src/trading/
                          rin_rules.py (RuleBasedRin), sora_rules.py (RuleBasedSora), kibo_rules.py, yuzu_rules.py (AP-17),
                          ai_review.py (KI-Zweitmeinung über den Orchestrator), neutral.py (Platzhalter nur auf Wunsch)
   ai/                    provider.py (Schnittstelle, Verbrauch), orchestrator.py (DER Weg zu jeder KI-Analyse), pricing.py
-                         (datierte Preise, Kostenobergrenze), budget.py (harte Budgets), activation.py (ereignisbasiert)
+                         (datierte Preise, Kostenobergrenze), budget.py (harte Budgets), activation.py (ereignisbasiert),
+                         anthropic_provider.py (Claude-Anschluss, nur mit Freigabe B-004; Tests nur mit Attrappe)
   audit/                 event_log.py (Hash-Kette), events.py, stats.py (Trade-Kennzahlen), performance.py (Kapitalkurve, Bericht),
                          costs.py (Betriebs-/KI-Kosten, Netto nach allen Kosten), ai_value.py (lohnt die teurere Analyse?)
   backtest/              data.py (geprüfter Datensatz, Datenquellen), strategy.py, engine.py, compare.py, reference.py

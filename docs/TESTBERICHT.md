@@ -487,3 +487,18 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Preflight:** STABIL – **1553/1553** Tests, 0 übersprungen; Python 3.9: 1325 bestanden, 12 übersprungen (erwartet:
   Dashboard braucht ≥ 3.10).
 * **Nicht geprüft:** echte Börsenregeln (AP-14).
+
+## Nachtrag 2026-10-16 – AP-22 KI-Anbieter-Anschluss (D-024)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Kein echter KI-Aufruf, kein Schlüssel.
+
+* **Neu:** `ai/anthropic_provider.py` (Claude-Anschluss hinter dem Orchestrator, Einsatzprüfung `live_registry`).
+* **Tests:** `test_ai_provider` (25, nur Attrappe der SDK-Antwortform): Anfrage wird genau ein SDK-Aufruf mit cachebarer
+  Anweisung und Zeitlimit; Verbrauch inkl. Cache-Tokens aus der Antwort; nur Text-Blöcke zählen; abgeschnittene oder
+  verweigerte Antworten werden nie genutzt; Fehler werden nicht verschluckt; mit dem Orchestrator: Messung, Eskalation
+  nur bei Unsicherheit, Regel-Ersatz bei Fehlern, Budget-Sperre bei fehlendem/falschem Verbrauch oder anderem Modell,
+  ohne Budget kein Aufruf; Einsatz nur mit Freigabe, Schlüssel, aktueller Preistabelle, nur Anthropic-Stufen; SDK ohne
+  automatische Wiederholungen; Anbieter nur im Orchestrator aufgerufen, SDK nur in einem Modul geladen.
+* **Gegenprobe:** AN01–AN10 **10/10 entdeckt**.
+* **Preflight:** STABIL – **1580/1580** Tests, 0 übersprungen; Python 3.9: 1352 bestanden, 12 übersprungen (erwartet).
+* **Nicht geprüft:** echter Aufruf bei Anthropic (B-004); Preistabelle gegen die aktuelle Preisliste.

@@ -22,6 +22,11 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 * **B-004 KI-Anbieter.** Echte KI-Aufrufe (z. B. Claude-API) kosten Geld → Freigabe mit Budget nötig (AP-22). Seit D-016
   ist alles vorbereitet: Ohne Freigabe ist das Budget 0. Zu entscheiden sind dann nur drei Zahlen (USD je Aufruf, je Tag,
   je Monat) und der Anbieter-Zugang; vorher muss der Nutzen empirisch geprüft werden können (AP-33).
+  Seit D-024 (AP-22) ist auch der Claude-Anschluss fertig (nur mit Attrappe getestet). **WAS** bei Freigabe zu tun ist:
+  (1) Budget-Zahlen nennen, (2) in der Anthropic-Konsole (console.anthropic.com) einen API-Schlüssel anlegen und ihn
+  **nur** auf dem Server als `ANTHROPIC_API_KEY` hinterlegen (nie in den Chat oder ins Repository), (3) Freigabetext
+  `TRADING_AI_APPROVAL="KI-AUFRUFE FREIGEGEBEN"` setzen. Danach nimmt die Entwicklung das Paket `anthropic` mit Prüfsummen
+  auf und prüft die Preistabelle gegen die aktuelle Preisliste.
 * **B-005 Server.** Hetzner-VPS erst, wenn Betrieb ansteht (AP-26). Anleitung mit Kosten folgt dann.
 
 ## Erledigt
