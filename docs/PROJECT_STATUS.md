@@ -5,13 +5,14 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 06:42 UTC für AP-31 (neue Eigner-Vorgabe: KI-Kostenoptimierung und Nettogewinn nach allen Kosten, AP-31…33)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 15:55 UTC für AP-31 (Zusammenführen von AP-31…33 KI-Kostenoptimierung nach `develop`)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
 ## Aktueller Stand (2026-10-16)
 
-* **Letzter stabiler Stand:** `stable/003-autonomy-baseline` (633 Tests, Gegenprobe 193/193, Preflight STABIL).
+* **Letzter stabiler Stand:** `stable/004-safety-stage2` (2026-10-16, 886 Tests, Gegenprobe 278/278 mit Datenbank, Preflight STABIL).
+  `main` = `ad6cc9f` ist hochgeladen; der **Tag selbst fehlt auf GitHub** (Cloud darf keine Tags pushen, 403) → B-007.
 * **Zweige:** `main` (stabil), `develop` (Integration).
 * **GitHub:** Repository `digibroberlin/ai-trading-system` (privat). `main`, `develop`, `stable/001`–`003` hochgeladen (2026-10-15).
 * **Arbeitsort:** künftig die Cloud (D-008); der Mac-Ordner bleibt danach nur Sicherung.
@@ -19,10 +20,24 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 06:42 UT
 
 ## In Arbeit (Zwischenstand)
 
-* nichts. Nächstes Paket: **AP-12** (Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI).
-  Danach Meilenstein `stable/004-safety-stage2`: volle Gegenprobe (`preflight.py --mutation --record`, in der Cloud ca. 45–60 min).
+* nichts. Nächstes Paket: **AP-13** (Börsenregeln je Instrument: Preis-/Mengenschritt, Mindestgröße, Gebührenstufen).
+* Parallel offen (fremde Arbeit): Zweig `ap/31-kostenoptimierung` der interaktiven Sitzung (KI-Kostenoptimierung, D-016,
+  noch nicht nach `develop`). Konflikte beim Zusammenführen möglich in AGENTS.md, DECISIONS.md, MASTER_PLAN.md, TESTBERICHT.md
+  (AP-12 nutzt D-017). Geheimnis-Scan-Fehlalarme auf diesem Zweig: B-006.
 
 ## Zuletzt erledigt
+
+* **Meilenstein `stable/004-safety-stage2`** (Cloud-Routine 2026-10-16, 12:41–15:29 UTC): erste volle Gegenprobe fand eine
+  Testlücke (K14: Tagesverlust-Grenzfall „genau 3 %“ seit AP-07 ungetestet) → Grenzfall-Tests für Tagesverlust und Drawdown
+  ergänzt; zweite volle Gegenprobe 278/278, 886/886 Tests, STABIL. `develop` → `main` hochgeladen; Tag lokal gesetzt, Upload
+  verweigert (403) → B-007.
+
+* AP-12 Pipeline-Reihenfolge nach Vorgabe des Eigners (Cloud-Routine 2026-10-16 12:12–12:45 UTC, D-017): MOMO → RIN →
+  SORA-Vorprüfung → KIBO → YUZU → SORA endgültig unter der Sperre → Executor → AKI. Was RIN oder SORA schon verwerfen, erreicht
+  KIBO/YUZU (später ggf. teure KI) nicht mehr; die Größe der Order entsteht weiterhin unter der Sperre (Audit M8 bleibt erfüllt).
+  Preflight STABIL 886/886, 0 übersprungen; Python 3.9: 703 bestanden. Gegenprobe der Pipeline-Einträge 14/14 (dabei eine
+  Testlücke bei Q01 gefunden und mit einem deterministischen Test geschlossen). Hinweis B-006 (Geheimnis-Scan-Fehlalarme auf
+  dem AP-31-Zweig).
 
 * AP-11 Wiederverbindung zur Datenbank (Cloud-Routine 2026-10-16 06:13–06:40 UTC, Audit H7, D-015): Nach einem
   Verbindungsabbruch verbinden sich Executor, Protokoll und Not-Aus selbst neu (höchstens 4 Versuche mit 0,5/1/2 s Wartezeit,

@@ -13,7 +13,8 @@ from typing import Any, Mapping
 class EventType(str, Enum):
     SETUP_PROPOSED = "SETUP_PROPOSED"
     AGENT_OPINION = "AGENT_OPINION"
-    SIZING_PROPOSED = "SIZING_PROPOSED"
+    SIZING_PRECHECK = "SIZING_PRECHECK"  # SORA-Vorpruefung nach RIN, vor KIBO/YUZU (nicht verbindlich, AP-12)
+    SIZING_PROPOSED = "SIZING_PROPOSED"  # endgueltige Groesse unter der Sperre des Executors
     SETUP_BLOCKED = "SETUP_BLOCKED"
     ORDER_REJECTED = "ORDER_REJECTED"
     ORDER_FILLED = "ORDER_FILLED"

@@ -301,6 +301,29 @@ Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
 * **Nicht geprüft:** echter Datenbank-Neustart und echte Netzwerkausfälle (simuliert durch vom Server beendete Sitzungen);
   volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.
 
+## Nachtrag 2026-10-16 – AP-12 Pipeline-Reihenfolge nach Vorgabe des Eigners (D-017)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten:** MOMO → RIN → SORA (Vorprüfung, Protokoll `SIZING_PRECHECK`) → KIBO → YUZU → SORA (endgültig unter der
+  Sperre des Executors, `SIZING_PROPOSED`) → Executor → AKI. Die Vorprüfung ist nur ein Filter; die Order-Größe entsteht unter
+  der Sperre. Unlesbarer Portfolio-Zustand vor der Vorprüfung blockiert (fail closed).
+* **Geänderter Test:** `test_happy_path_executes_and_documents_every_step` – erwartete Ereignisfolge an die neue Reihenfolge
+  angepasst (zusätzlich `SIZING_PRECHECK`, Reihenfolge der Meinungen RIN, KIBO, YUZU geprüft). Inhaltlich strenger als vorher.
+* **Neue Tests (8):** Reihenfolge der Agenten-Aufrufe; RIN-Veto stoppt vor SORA; Ablehnung und Absturz der Vorprüfung stoppen
+  vor KIBO/YUZU; unlesbarer Zustand blockiert; Zustimmung der Vorprüfung ist keine Erlaubnis (SORA unter der Sperre lehnt ab →
+  kein Handel); Absturz unter der Sperre gibt die Order-ID frei; Order-Größe stammt aus der endgültigen Rechnung. Dazu in
+  `test_concurrency` ein **deterministischer** Test für Audit M8: Andere handeln genau zwischen Vorprüfung und Sperre → die
+  Größe wird ins Restbudget verkleinert, der Risikomanager muss nichts ablehnen.
+* **Gefundenes Testproblem:** Der Gegenprobe-Eintrag Q01 (SORA rechnet mit veraltetem Zustand) wurde vorher nur über das
+  zufällige Zusammentreffen von Threads entdeckt; durch die Vorprüfung verschob sich das Zeitverhalten, Q01 blieb unentdeckt.
+  Der neue deterministische Test schließt die Lücke.
+* **Gegenprobe:** neue Einträge W01–W06, angepasst I01, I02, I03, I06 (Textstellen); zusammen mit I09, O07, Q01, Q03:
+  **14/14 entdeckt**.
+* **Preflight:** STABIL – **886/886** Tests, 0 übersprungen; ruff und mypy `--strict` ohne Befunde. Python 3.9 (ohne Datenbank):
+  703 bestanden, 9 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus). KIBO/YUZU sehen die SORA-Größe noch nicht.
+
 ## Nachtrag 2026-10-16 – AP-31/32/33 KI-Kostenoptimierung und Nettogewinn nach allen Kosten (D-016)
 
 Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch;

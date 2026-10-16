@@ -28,8 +28,8 @@ Backups · keine Server-Konfiguration.
 **Technische Schulden / bekannte Sicherheitspunkte** (Audit, `AUDIT.md`): M3 PAPER-Schutz nicht zentral · M7 Order-Wiederholung ·
 M8 Ablehnung statt Verkleinerung unter Konkurrenz · M2 Rest (App-Rolle schreibt Kontostand, legt Konten an) · H7 keine
 Wiederverbindung zur Datenbank · M9 `verify()` lädt alles · M12 Pakete ohne Prüfsummen · M14 keine Backups · Test-Hook im
-Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht von der Vorgabe des Eigners ab
-(heute RIN → KIBO → YUZU → SORA; gewünscht RIN → SORA → KIBO/YUZU).
+Produktivcode · Stress-Limit ohne Datenbank-Gurt · ~~Pipeline-Reihenfolge weicht von der Vorgabe des Eigners ab~~
+(seit AP-12 / D-017: RIN → SORA-Vorprüfung → KIBO/YUZU → SORA unter der Sperre).
 
 **Nicht getestet:** Linux/amd64 und Docker Desktop · Python 3.13+ · Dauerbetrieb/Last · echte Marktdaten · echte Börsen.
 
@@ -40,7 +40,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 |---|---|---|---|
 | AP-01 | Lokale Sicherung: Branch-Modell, `stable/*`-Tags, Geheimnis-Scan, Prüfskript, GitHub-Actions-Datei, Wiederherstellungsanleitung, Steuerdokumente | Preflight STABIL, Scan der ganzen Geschichte sauber | ✅ (lokal) |
 | AP-02 | GitHub verbinden, alles hochladen, Actions grün | Actions-Lauf grün auf `develop` und `main` | 🔄 `develop` grün seit 2026-10-15 19:26 UTC; `main` noch rot bis zum nächsten stabilen Stand |
-| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren; Cloud-Umgebung prüfen (PostgreSQL über `scripts/cloud_test_db.sh`, Push-Rechte auf `develop`/Tags) | Probelauf erfolgreich, Sperr-Mechanismus wirkt | ✅ 2026-10-15 (erster Routine-Lauf; Tags aus der Cloud noch nicht ausprobiert) |
+| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren; Cloud-Umgebung prüfen (PostgreSQL über `scripts/cloud_test_db.sh`, Push-Rechte auf `develop`/Tags) | Probelauf erfolgreich, Sperr-Mechanismus wirkt | ✅ 2026-10-15 (erster Routine-Lauf; Tags aus der Cloud: Upload verweigert, 403 – B-007) |
 
 ### Phase B – Architekturentscheidung
 | AP | Inhalt | Abnahme | Status |
@@ -57,7 +57,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP-09 | Größe unter Konkurrenz innerhalb der Sperre neu berechnen (M8) | exakte Mehrprozess-Erwartung | ✅ D-013 |
 | AP-10 | Rechte der App-Rolle (M2-Rest), Konten nur administrativ | Schema-Tests | ✅ D-014 |
 | AP-11 | Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen (H7) | Tests mit Verbindungsabbruch | ✅ D-015 |
-| AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ⏳ |
+| AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ✅ D-017 |
 
 ### Phase C2 – Wirtschaftlichkeit: Kosten und KI-Orchestrierung (Vorgabe des Eigners vom 2026-10-15, D-016)
 Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator; Sicherheitsprüfungen kennen weder KI noch Budget.
@@ -112,7 +112,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 ## 3. Geplante stabile Stände
 
 `stable/001-phase1-3-foundation` ✅ · `stable/002-stage1-core-backtesting` ✅ · `stable/003-autonomy-baseline` ✅ (AP-01) ·
-`stable/004-safety-stage2` (AP-06…12) · `stable/005-market-data` (AP-13…15) · `stable/006-strategy-research` (AP-16…20) ·
+`stable/004-safety-stage2` (AP-06…12) ✅ · `stable/005-market-data` (AP-13…15) · `stable/006-strategy-research` (AP-16…20) ·
 `stable/007-trading-engine` (AP-21…22) · `stable/008-dashboard` (AP-23…24) · `stable/009-operations` (AP-25…28) ·
 `stable/010-release-candidate` (AP-29…30). Die Nummern folgen dem tatsächlichen Verlauf.
 

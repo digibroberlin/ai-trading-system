@@ -242,3 +242,19 @@ abgeleitet, nicht aus der Liste). Vor echtem Einsatz gegen die aktuelle Preislis
 **Grenzen:** KIBO/YUZU sind noch neutrale Platzhalter – die Orchestrierung ist die Infrastruktur, an die sie mit echter
 Regel-Logik (AP-17) und später mit KI (AP-22, nach Budgetfreigabe) angeschlossen werden. Der Nutzen jeder KI-Analyse ist
 bis zum Nachweis (AP-33 mit echten Daten) unbewiesen.
+
+## D-017 · 2026-10-16 · Pipeline-Reihenfolge nach Vorgabe des Eigners (AP-12)
+**Problem:** Die Pipeline fragte RIN → KIBO → YUZU → SORA. Der Eigner gibt MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI vor:
+Was regelbasiert schon scheitert (Daten, Budget, Stop-Abstand), soll die späteren, ggf. teuren Bewertungen (KI) gar nicht erst
+erreichen. Gleichzeitig muss SORA die Größe **unter der Sperre** des Executors rechnen (D-013, Audit M8) – sonst könnten zwei
+Prozesse dasselbe Restbudget verplanen.
+**Entscheidung:**
+* SORA wird **zweimal** gefragt: einmal als **Vorprüfung** direkt nach RIN (mit einem vorab gelesenen Portfolio-Zustand,
+  Protokoll `SIZING_PRECHECK`) und einmal **endgültig** unter der Sperre (unverändert, Protokoll `SIZING_PROPOSED`).
+* Die Vorprüfung ist nur ein Filter: Lehnt sie ab oder stürzt SORA ab, wird blockiert (Stufe `SORA`), KIBO und YUZU werden nicht
+  gefragt. Stimmt sie zu, ist das **keine** Größe und **keine** Erlaubnis – die Order bekommt die Größe von unter der Sperre;
+  lehnt SORA dort ab, wird nicht gehandelt.
+* Ist der Portfolio-Zustand für die Vorprüfung nicht lesbar, wird blockiert (Stufe `EXECUTOR`, `EXECUTION_ERROR`; fail closed).
+* KIBO und YUZU behalten ihre Schnittstelle (`evaluate(setup, ctx)`); sie sehen die vorgeschlagene Größe noch nicht.
+**Bewusst nicht umgesetzt:** Weitergabe der SORA-Größe an KIBO/YUZU (Schnittstellenänderung erst, wenn eine echte Bewertung sie
+braucht). Der Risikomanager im Executor bleibt unverändert die letzte Instanz.

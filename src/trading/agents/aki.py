@@ -52,6 +52,10 @@ class AkiAgent(BaseAgent):
     def record_opinion(self, opinion: AgentOpinion) -> None:
         self._log.append(EventType.AGENT_OPINION, opinion)
 
+    def record_sizing_precheck(self, sizing: SizingProposal) -> None:
+        """SORA-Vorpruefung (vor KIBO/YUZU). Nicht verbindlich: die Groesse fuer die Order entsteht erst unter der Sperre."""
+        self._log.append(EventType.SIZING_PRECHECK, {"agent": AgentName.SORA, "sizing": sizing})
+
     def record_sizing(self, sizing: SizingProposal) -> None:
         self._log.append(EventType.SIZING_PROPOSED, {"agent": AgentName.SORA, "sizing": sizing})
 
