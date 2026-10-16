@@ -234,6 +234,17 @@ nachgeladene Lücken, verworfene Nachrichten). Bei Ausfall: neu verbinden, Lück
 * `GET /metrics`: dieselben Angaben als Zahlen im Prometheus-Textformat (Kerzen, Abbrüche, Lücken, Fehler, KI-Kosten,
   Equity, Drawdown …).
 
+### Datenbank sichern und prüfen (AP-26, D-028)
+
+```bash
+export ADMIN_DATABASE_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/trading"
+python scripts/backup.py create                                  # → backups/trading-<Zeit>.dump (+ .sha256, .json)
+python scripts/backup.py verify backups/trading-<Zeit>.dump      # Rückspiel-Test in eine Wegwerf-Datenbank
+python scripts/backup.py prune --keep 14                          # ältere Sicherungen entfernen
+```
+Braucht die PostgreSQL-Client-Werkzeuge (`pg_dump`, `pg_restore`) mindestens in der Server-Version (auf dem Mac z. B.
+`brew install libpq`). Ohne sie werden die Sicherungs-Tests sichtbar übersprungen (dann NICHT STABIL).
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →

@@ -28,6 +28,9 @@ USER trader
 CMD ["python", "-m", "trading.demo"]
 
 FROM base AS test
+# PostgreSQL-Client-Werkzeuge fuer den Rueckspiel-Test der Sicherungen (AP-26). Debian 13 liefert Version 17 - neuere
+# Werkzeuge koennen den Server 16 sichern; scripts/backup.py prueft das vor jeder Sicherung.
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
 COPY tests ./tests
 COPY scripts ./scripts
 # Auch diese Dateien pruefen Tests (nur Installationswege, keine Geheimnisse - CI nutzt Wegwerf-Testpasswoerter).

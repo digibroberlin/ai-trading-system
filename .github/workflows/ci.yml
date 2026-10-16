@@ -51,6 +51,8 @@ jobs:
           python -c "import os, psycopg;
           c = psycopg.connect(os.environ['TEST_ADMIN_URL'], autocommit=True);
           c.execute(\"CREATE ROLE trading_app LOGIN PASSWORD 'test-ci-app'\")"
+      - name: PostgreSQL-Client-Werkzeuge fuer den Rueckspiel-Test (AP-26)
+        run: pg_dump --version && pg_restore --version
       - name: Geheimnis-Scan (Arbeitsstand und gesamte Geschichte)
         run: python scripts/secret_scan.py --history
       - name: Codequalitaet (ruff)

@@ -443,3 +443,16 @@ Logging dient nur dem Betrieb.
 Stille, Verbindungsverlust, offene Lücken, Engine-Fehler, KI-Budget-Sperre = WARN. Das Dashboard liefert sie unter
 `/api/health` (bei CRITICAL HTTP 503 – für Docker-Gesundheitsprüfung und Alarme) und alle Zahlen unter `/metrics`
 (Textformat von Prometheus, ohne zusätzliche Bibliothek). Weiterhin nur GET.
+
+## D-028 · 2026-10-16 · Sicherungen mit Rückspiel-Test (AP-26, Audit M14)
+**Entscheidung:** `scripts/backup.py` (Skript, nicht im Handelscode – es braucht `subprocess`):
+`create` zieht mit `pg_dump` (eigenes Format, mit Rechten) eine Sicherung; das Passwort geht nur über die Umgebung
+(PGPASSWORD), nie über die Befehlszeile. Daneben Prüfsumme und Beschreibung (Zeilen je Tabelle, Schema-Stand, Ende der
+Ereigniskette, Server-Version); alles nur für den Eigentümer lesbar, atomar geschrieben, nie überschrieben. Vor jeder
+Sicherung wird geprüft, dass `pg_dump`/`pg_restore` nicht älter als der Server sind.
+**Rückspiel-Test (`verify`):** Prüfsumme → neue Wegwerf-Datenbank → `pg_restore --exit-on-error` → Zeilen (mindestens
+wie beim Sichern), Schema-Stand und Hash-Kette samt Kettenende prüfen → Wegwerf-Datenbank immer entfernen. Die
+Betriebsdatenbank wird dabei nie angefasst. `prune` behält die neuesten N Sicherungen.
+**Grenzen:** Zeitplan und Ablage außerhalb des Servers kommen mit dem Betrieb (AP-27/28). Das Test-Image installiert
+`postgresql-client` aus Debian (Version 17); dieser Bauschritt ließ sich in der Cloud nicht ausführen (Proxy lässt aus
+Containern kein HTTP zu) – geprüft wird er beim nächsten `docker-compose ... run --rm tests` auf dem Mac.

@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 20:06 UTC für AP-26 (Backups mit Rückspiel-Test)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 20:36 UTC für AP-27 (Betrieb: Compose, Start/Stopp, Überwachung)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,12 +22,16 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-26** (Backups mit Rückspiel-Test), danach AP-27/28 (Betrieb, nur vorbereitet);
-  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–25 sind erledigt – jeweils mit eigener
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-27** (Betrieb: Compose, Start/Stopp, Überwachung), danach AP-28 (Server, nur Trockenlauf);
+  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–26 sind erledigt – jeweils mit eigener
   Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-26 Sicherungen mit Rückspiel-Test** (interaktive Cloud-Sitzung, 2026-10-16, D-028, Audit M14):
+  `scripts/backup.py create|verify|prune` – pg_dump mit Prüfsumme und Beschreibung, Rückspiel-Test in eine
+  Wegwerf-Datenbank mit Prüfung von Zeilen, Schema und Ereigniskette. Preflight STABIL 1701/1701; Python 3.9: 1461
+  bestanden; Gegenprobe BK01–BK10 10/10 (mit Datenbank).
 * **AP-25 Logging, Gesundheit, Kennzahlen** (interaktive Cloud-Sitzung, 2026-10-16, D-027): JSON-Logging, das Geheimnisse
   schwärzt; Gesundheit OK/WARN/CRITICAL (Not-Aus, Datenbank, Marktdaten, Engine, KI-Budget) unter `/api/health` (503 bei
   CRITICAL) und Kennzahlen unter `/metrics` (Prometheus-Text). Preflight STABIL 1683/1683; Python 3.9: 1451 bestanden;

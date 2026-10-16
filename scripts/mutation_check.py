@@ -87,6 +87,7 @@ WST = ["tests/test_market_stream.py", "tests/test_public_ws.py", "tests/test_no_
 WSS, WSP = "src/trading/marketdata/stream.py", "src/trading/marketdata/public_ws.py"
 OPT = ["tests/test_ops.py", "tests/test_dashboard.py"]  # Betrieb: Logging, Gesundheit, Kennzahlen (AP-25)
 OPH, OPL = "src/trading/ops/health.py", "src/trading/ops/logs.py"
+BKT, BKS = ["tests/test_pg_backup.py"], "scripts/backup.py"  # Sicherung mit Rueckspiel-Test (AP-26)
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -594,6 +595,16 @@ DATENBANK: List[Mutant] = [
  ("G91","KI-Budget: eine Verbindung ohne Sperre fuer alle Threads",[(PAB,"        with self._lock:\n            conn = self._db.get()","        if True:\n            conn = self._db.get()")], PGB),
  ("G92","KI-Budget arbeitet in fremder offener Transaktion",[(PAB,"            if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:","            if False:")], PGB),
  ("G93","KI-Reservierung schon abgerechnet angelegt",[(S6,"    IF NEW.actual IS NOT NULL THEN\n        RAISE EXCEPTION 'KI-Budget: neue Reservierung ist noch nicht abgerechnet'","    IF false THEN\n        RAISE EXCEPTION 'KI-Budget: neue Reservierung ist noch nicht abgerechnet'")], PGB),
+ ("BK01", "Beschaedigte Sicherung nicht erkannt", [(BKS, "    if sha256_of(dump) != meta.get(\"sha256\"):", "    if False:")], BKT),
+ ("BK02", "Fehlende Zeilen nach dem Rueckspielen nicht erkannt", [(BKS, "            if got is None or got < count:", "            if False:")], BKT),
+ ("BK03", "Kaputte Ereigniskette nach dem Rueckspielen nicht erkannt", [(BKS, "        if not result.ok:\n            findings.append(\"Ereigniskette", "        if False:\n            findings.append(\"Ereigniskette")], BKT),
+ ("BK04", "Passwort nicht ueber die Umgebung", [(BKS, "\"password\": \"PGPASSWORD\", ", "")], BKT),
+ ("BK05", "Wegwerf-Datenbank bleibt liegen", [(BKS, "            admin.execute(sql.SQL(\"DROP DATABASE IF EXISTS {} WITH (FORCE)\").format(sql.Identifier(name)))", "            pass")], BKT),
+ ("BK06", "Zu alte Werkzeuge erlaubt", [(BKS, "        if major < server:", "        if False:")], BKT),
+ ("BK07", "Sicherung fuer alle lesbar", [(BKS, "    os.chmod(tmp, 0o600)\n    os.replace(tmp, final)", "    os.replace(tmp, final)")], BKT),
+ ("BK08", "Anderer Schema-Stand nicht erkannt", [(BKS, "        if restored[\"schema_version\"] != meta[\"schema_version\"]:", "        if False:")], BKT),
+ ("BK09", "Aufraeumen loescht die neuesten Sicherungen", [(BKS, "    for dump in dumps[:-keep]:", "    for dump in dumps[keep:]:")], BKT),
+ ("BK10", "Vorhandene Sicherung wird ueberschrieben", [(BKS, "    if final.exists():\n        raise BackupError", "    if False:\n        raise BackupError")], BKT),
 ]
 
 
