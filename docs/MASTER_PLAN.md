@@ -52,7 +52,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP-07 | Globaler Kill Switch: dauerhaft in der DB, manuell und automatisch (Datenfehler, Protokollfehler, Notbremsen), Freigabe nur bewusst | Tests inkl. Mehrprozess, Gegenprobe | ✅ D-011 |
 | AP-08 | Order-Wiederholung liefert ursprüngliches Ergebnis (M7) | Tests, auch nach Neustart | ✅ D-012 |
 | AP-09 | Größe unter Konkurrenz innerhalb der Sperre neu berechnen (M8) | exakte Mehrprozess-Erwartung | ✅ D-013 |
-| AP-10 | Rechte der App-Rolle (M2-Rest), Konten nur administrativ | Schema-Tests | ⏳ |
+| AP-10 | Rechte der App-Rolle (M2-Rest), Konten nur administrativ | Schema-Tests | ✅ D-014 |
 | AP-11 | Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen (H7) | Tests mit Verbindungsabbruch | ⏳ |
 | AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ⏳ |
 

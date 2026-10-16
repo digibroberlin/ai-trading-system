@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import os
 import uuid
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 import pytest
 
@@ -34,6 +36,21 @@ class TestDatabase:
         self.name = name
         self.admin_url = admin_db_url  # Administrator, auf diese Datenbank
         self.app_url = app_url  # eingeschraenkte Rolle trading_app
+
+    def create_account(self, account: str = "main", equity: Any = None, day: Any = None) -> None:
+        """Konto als Administrator anlegen (die Anwendung darf das nicht, Migration 005). Ohne Protokolleintrag -
+        reine Testvorbereitung; der echte Weg `trading.persistence.accounts.create_account` hat eigene Tests.
+        Besteht das Konto schon, bleibt es unveraendert."""
+        import psycopg
+
+        equity = Decimal(10000) if equity is None else equity
+        day = date(2025, 1, 1) if day is None else day
+        with psycopg.connect(self.admin_url) as c:
+            c.execute(
+                "INSERT INTO accounts (account_id, initial_equity, balance, equity, peak_equity, day, day_start_equity)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (account_id) DO NOTHING",
+                (account, equity, equity, equity, equity, day, equity),
+            )
 
 
 def _database(target: Optional[int]) -> Iterator[TestDatabase]:

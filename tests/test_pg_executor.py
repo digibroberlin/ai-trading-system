@@ -31,7 +31,8 @@ FUTM = {"market_type": MarketType.FUTURES}
 
 def pg_exec(pg, clock=None, fault_hook=None, account="main", costs=NO_SLIP, equity=D(10000)):
     clock = clock or FixedClock(T0)
-    ex = PostgresPaperExecutor(pg.app_url, account, equity, RiskManager(DEFAULT_LIMITS, costs), clock, fault_hook)
+    pg.create_account(account, equity, clock.now().date())
+    ex = PostgresPaperExecutor(pg.app_url, account, RiskManager(DEFAULT_LIMITS, costs), clock, fault_hook)
     return ex, clock
 
 

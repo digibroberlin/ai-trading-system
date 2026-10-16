@@ -45,7 +45,7 @@ def make_executor(url: str, account: str, delay: float = 0.0, fault_hook: Any = 
             return decision
 
         risk.evaluate = slow  # type: ignore[method-assign]
-    return PostgresPaperExecutor(url, account, D(10000), risk, FixedClock(T0), fault_hook)
+    return PostgresPaperExecutor(url, account, risk, FixedClock(T0), fault_hook)
 
 
 def order_worker(a: Dict[str, Any]) -> None:
@@ -161,7 +161,7 @@ def operation_worker(a: Dict[str, Any]) -> None:
 
     clock = FixedClock(T0 + timedelta(hours=4))
     risk = RiskManager(DEFAULT_LIMITS, NO_SLIP)
-    ex = PostgresPaperExecutor(a["url"], a["account"], D(10000), risk, clock)
+    ex = PostgresPaperExecutor(a["url"], a["account"], risk, clock)
     instrument = inst("BTC-USD", MarketType.FUTURES)
     wait_until(a["start_at"])
     if a["op"] == "funding":

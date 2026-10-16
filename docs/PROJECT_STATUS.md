@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Routine (stündlicher Lauf) seit 2026-10-16 05:08 UTC für AP-10
+keine
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
@@ -19,10 +19,16 @@ gesperrt von Cloud-Routine (stündlicher Lauf) seit 2026-10-16 05:08 UTC für AP
 
 ## In Arbeit (Zwischenstand)
 
-* nichts. Nächstes Paket: **AP-10** (Rechte der App-Rolle, Audit M2-Rest: Konten nur administrativ anlegen, Kontostand-Spalten).
+* nichts. Nächstes Paket: **AP-11** (Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen; Audit H7).
 
 ## Zuletzt erledigt
 
+* AP-10 Rechte der App-Rolle (Cloud-Routine 2026-10-16 05:08–05:40 UTC, Audit M2 Rest, D-014): Konten legt nur noch ein
+  Administrator an (Migration 005, `python -m trading.persistence.accounts create KONTO STARTKAPITAL`, Protokoll
+  `ACCOUNT_CREATED`); der Executor startet ohne Konto nicht und hat keinen Parameter „Startkapital“ mehr. Die Datenbank prüft jede
+  Kontostand-Änderung der Anwendung (Version, Tag, Positionszähler, Tagesstart-Equity, Höchststand). Preflight STABIL 861/861,
+  0 übersprungen; Python 3.9: 694 bestanden. Gegenprobe G54–G65 12/12. Volle Gegenprobe steht vor `stable/004` aus.
+  Hinweis für den Mac: `scripts/restart_check.py seed` braucht für ein neues Konto jetzt zusätzlich `ADMIN_DATABASE_URL`.
 * AP-09 Größe unter Konkurrenz innerhalb der Sperre (Cloud-Routine 2026-10-16 04:08–04:35 UTC, Audit M8, D-013):
   SORA rechnet jetzt unter der Sperre des Executors (`submit_sized`), bei PostgreSQL in der Transaktion mit gesperrter
   Konto-Zeile. Ist das Restbudget durch einen anderen Prozess kleiner geworden, wird die Position verkleinert statt abgelehnt.

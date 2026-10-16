@@ -99,7 +99,8 @@ src/trading/
   backtest/              data.py (geprüfter Datensatz, Datenquellen), strategy.py, engine.py, compare.py, reference.py
                          (Vorführung: python -m trading.backtest) – siehe docs/BACKTESTING.md
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,
-                         kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release)
+                         kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release),
+                         accounts.py (Konten anlegen – nur Administrator, Kommandozeile list/create)
                          (einziges Paket, das `psycopg` importieren darf)
 tests/                   pytest; helpers.py, bt_helpers.py, stubs.py, pg_workers.py = Test-Hilfen (keine echte Strategie)
 db/                      migrations/ (nummerierte Schema-Schritte), 00_roles.sh (Anwendungsrolle), Dockerfile (PostgreSQL-Image)
@@ -137,7 +138,9 @@ backups/                 Sicherungen vor riskanten Änderungen (Archive werden n
 
 * **Jede Zustandsänderung = eine Datenbank-Transaktion**, die mit `SELECT ... FOR UPDATE` auf der Konto-Zeile beginnt. Nie Zustand lesen, außerhalb
   der Sperre rechnen und dann schreiben. Protokolleinträge gehören in **dieselbe** Transaktion wie der Handel (`append_raw`).
-* Die Anwendung verbindet sich **nur** als Rolle `trading_app` (kein Superuser, kein DDL, kein DELETE/TRUNCATE, keine Änderung von Limits/Modus).
+* Die Anwendung verbindet sich **nur** als Rolle `trading_app` (kein Superuser, kein DDL, kein DELETE/TRUNCATE, keine Änderung von Limits/Modus,
+  **keine Konten anlegen** – das darf nur ein Administrator über `trading.persistence.accounts`; fehlt das Konto, startet der Executor nicht).
+  Jede Kontostand-Änderung der Anwendung prüft die Datenbank auf Plausibilität (Migration 005, D-014).
   Das Schema ändert sich **nur über eine neue, nummerierte Migration** in `db/migrations/` (bestehende Dateien nie verändern – der
   Läufer `trading.persistence.migrate` bemerkt das an der Prüfsumme und bricht ab). **Vor jeder Migration der echten Datenbank ein Backup**
   nach `backups/`. Trigger und Constraints dürfen nie gelockert werden (Tests prüfen jeden einzeln).
