@@ -4,6 +4,37 @@
 selbstständigen Entwicklungsablauf. Bei Widerspruch gilt AGENTS.md. Der Eigner ist kein Programmierer: Berichte auf Deutsch,
 verständlich, ehrlich (nie unausgeführte Tests als bestanden melden).
 
+## Verbindliche Ergänzung des Eigners (2026-10-16) – gilt dauerhaft
+
+Ergänzung zum Master-Plan, **kein** Neustart: Fortschritte, Architektur und die Aufgaben der sechs Agenten bleiben.
+
+1. **Entwicklung vor Handelsbetrieb.** Ziel ist das technisch fertige System (MOMO, RIN, SORA, KIBO, YUZU, Paper-Executor,
+   AKI). Während der Entwicklung **kein** automatischer Demo- oder Echtgeldhandel – nur isolierte Tests, Backtests und
+   Simulationen.
+2. **Sicherheit.** Technisch und durch automatisierte Tests sicherstellen, dass **keine echte Börsenorder** ausgelöst werden
+   kann (`tests/test_no_real_trading.py`, AP-34). Handel ist **standardmäßig aus**. Vorhandene API-Konfigurationen werden auf
+   Handelsberechtigungen geprüft, **ohne Geheimnisse auszugeben** (`python -m trading.safety.credentials_check`, AP-34).
+   Demo-Handel nur nach **ausdrücklicher Freigabe des Eigners**; echter Handel braucht eine **separate** Freigabe und
+   zusätzliche Sicherheitsprüfungen (im Code gibt es heute keinen Weg dorthin).
+3. **GitHub-Checkpoints** nach jedem Arbeitspaket: relevante Tests → Fehler beheben → Ergebnisse dokumentieren
+   (TESTBERICHT, PROJECT_STATUS) → Geheimnis-Scan → Commit → Push auf den Arbeitszweig und nach `develop`.
+   **STABLE** heißt nur ein vollständig geprüfter Stand (Preflight STABIL **und** volle Gegenprobe mit Datenbank).
+   Unfertiges nur als **WIP** und ausdrücklich als ungetestet gekennzeichnet. **`main` wird nie eigenständig überschrieben
+   oder verändert** – auch kein Zusammenführen ohne Rückmeldung des Eigners (siehe Schritt 7).
+4. **Selbstständig** nach `docs/MASTER_PLAN.md` weiterarbeiten; Architektur und Agentenrollen nicht unnötig ändern; nach
+   jedem Paket automatisch das nächste offene; bereits geprüfte Komponenten nicht wiederholt umfangreich prüfen; neue
+   kritische Fehler immer beheben und testen. Vorrang: Kernfunktionen, Agenten-Integration, Strategien, Backtesting,
+   Börsen-Adapter, Dashboard.
+5. **Profitabilität und Kosten.** Ziel ist ein hoher, robuster, risikobereinigter **Nettogewinn nach sämtlichen Kosten**
+   (Gebühren, Spread, Slippage, Funding, KI, Server). KI-Tokens sparsam: Regeln zuerst, günstigste Modellstufe, nur bei
+   belegtem Nutzen. **Keine Strategie gilt ohne belastbare Tests als profitabel.**
+6. **Fortschritt und Wiederaufnahme.** Nach jedem Paket PROJECT_STATUS und MASTER_PLAN aktualisieren: was abgeschlossen
+   ist, welche Tests bestanden, **welcher Git-Checkpoint zuletzt gesichert wurde**, was fehlt, was als Nächstes folgt –
+   so, dass eine neue Sitzung nahtlos weitermachen kann.
+7. **Abschluss.** Die Software so weit wie möglich selbstständig fertigstellen; den Eigner nur bei Konten,
+   Serverbuchungen, API-Zugängen oder sicherheitskritischen Freigaben ansprechen. Ist alles fertig und getestet:
+   stoppen und melden **„SOFTWARE BEREIT FÜR GEMEINSAME DEMO-EINRICHTUNG.“** – weder Demo- noch Echtgeldhandel selbst starten.
+
 ## Grundregel: ENTWICKELN, NICHT HANDELN
 
 * Kein Demo-, Paper- oder Echtgeld-**Betrieb** starten, keinen dauerhaften Bot aktivieren, keine Börsenorders, keine
@@ -27,13 +58,16 @@ verständlich, ehrlich (nie unausgeführte Tests als bestanden melden).
    abschwächen. Nach dem dritten erfolglosen Versuch am selben Fehler: in `docs/BLOCKERS.md` dokumentieren, anderes Paket wählen.
 5. Doku aktualisieren (PROJECT_STATUS, MASTER_PLAN-Status, ggf. DECISIONS, README „Bekannte Grenzen“).
 6. Commit auf dem Arbeitszweig, dann nach `develop` zusammenführen (`git merge --no-ff`), Arbeitszweig löschen, pushen.
-7. Ist ein Meilenstein erreicht und `python scripts/preflight.py --mutation --record` meldet **STABIL**:
-   `develop` nach `main` zusammenführen, annotierten Tag `stable/NNN-kurzname` setzen (Nachricht: was, Testergebnis), pushen.
+7. Ist ein Meilenstein erreicht und `python scripts/preflight.py --mutation --record` meldet **STABIL**: den geprüften
+   `develop`-Stand als STABLE kennzeichnen – annotierter Tag `stable/NNN-kurzname` (Nachricht: was, Testergebnis) und
+   Eintrag in PROJECT_STATUS („Letzter STABLE-Stand: Commit …“). **`main` nicht selbst verändern** (Ergänzung 2026-10-16,
+   Punkt 3): Der Eigner führt den STABLE-Stand nach `main` zusammen oder gibt dafür ausdrücklich frei.
 8. Weiter mit Schritt 1.
 
 ## Git-Regeln
 
-* `main` enthält nur STABILE Stände. Nie direkt auf `main` committen, nie `--force` auf `main`, `develop` oder Tags.
+* `main` enthält nur STABILE Stände und wird von Claude **nie eigenständig** verändert (kein Commit, kein Zusammenführen ohne
+  Freigabe, nie `--force` auf `main`, `develop` oder Tags).
 * Unfertiges darf auf Arbeitszweigen gesichert werden (Commit-Nachricht beginnt mit `WIP:`) – es gilt nie als stabil.
 * Vor jedem Push: `python scripts/secret_scan.py --history` muss „keine Funde“ melden. Nie `.env`, Passwörter, Schlüssel,
   Datenbank-Abzüge oder `backups/` einchecken.

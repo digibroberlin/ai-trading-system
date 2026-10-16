@@ -511,3 +511,38 @@ Platzhalter (AP-33) laufen **nur auf Training+Validierung**. Der Bericht (Markdo
 Zeiträume, je Strategie Validierung/Test/Kaufen-und-Halten/Walk-forward, die Ablehnungsgründe und ein ehrliches
 Ergebnis („kein belastbarer Vorteil“ ist gültig). KI-Varianten werden ohne Budget (B-004) nicht gerechnet.
 **Grenzen:** ausgeführt erst nach der Netzfreigabe (B-008); Standard-Einstellungen ohne Optimierung.
+
+## D-033 · 2026-10-16 · Sicherheitsnachweis: keine echte Börsenorder möglich; Prüfung der API-Konfiguration (AP-34)
+**Anlass:** verbindliche Ergänzung des Eigners vom 2026-10-16 (Punkt 2).
+**Technisch:** Es gibt nur den Modus PAPER (`TradingMode`); Börsen-Schlüssel in der Umgebung brechen jeden Prozess ab, der
+`trading` lädt; der einzige Executor ist der Paper-Executor; Netzwerk nur lesend (HTTPS-GET an feste Hosts, WebSocket-Abos
+öffentlicher Kanäle); keine Signatur-Bibliotheken (Börsen-Orders müssen signiert werden); Handel standardmäßig aus und nur mit
+doppelter Freigabe (Paper).
+**Durch Tests belegt (`test_no_real_trading`):** keine Order-, Storno-, Abhebungs- oder Transfer-Pfade und keine
+Signatur-Kopfzeilen im Code; keine Signatur-Bibliotheken; nur Modus PAPER; WebSocket-Abos nur für Kerzen bzw. Handel/
+Herzschlag, ohne Anmeldung – zusätzlich zu den bestehenden Prüfungen (Netz-Ausnahmen, Executor ohne Sende-Schnittstelle,
+Freigabe-Sperren). Gegenprobe AS07–AS10.
+**Gehärtet nach unabhängiger Gegenprüfung (12 bestätigte Lücken, keine davon ermöglichte heute eine Order):**
+* Positivliste statt nur Sperrliste: im Handelscode und in den Skripten nur die Fremdpakete psycopg, fastapi, uvicorn, wsproto;
+  in `requirements/runtime.txt` genau die sechs bekannten Pakete, in keiner Sperrdatei ein Börsen-SDK (ccxt, binance,
+  coinbase, bitget …) – ein SDK signiert intern und bräuchte sonst keinen der gesperrten Bausteine.
+* Laufzeit-Sperren statt nur Textprüfung: `public_http` lässt je Host nur die Pfade für Kerzen/Funding zu (`ALLOWED_PATHS`),
+  `public_ws` sendet nur „ping“ und Abos öffentlicher Kanäle (`allowed_message`) – sonst Fehler vor dem Senden.
+* Scan-Bereich: Order-Pfade, Signatur-Kopfzeilen und Zugangsdaten auch in `scripts/` und `deploy/`; Netz-/Prozess-Zugriffe
+  der Skripte nur an eingetragenen Stellen (git, pg_dump, pip-audit, Alarm-Kanal).
+* Umwege: dynamisches Laden (`importlib`, `__import__`) nur im KI-Anschluss; `os.system`/`popen`/`exec`/`spawn` auch als
+  bloßer Verweis gesperrt; weitere Netz-Bausteine (asyncio außerhalb des Dashboards, xmlrpc, ctypes …) gesperrt;
+  Netzbausteine nur über die Marktdaten-Module erreichbar, ohne Weiter-Export.
+* Container starten nur fünf bekannte Programme, ohne `privileged`, `network_mode`, `cap_add` oder Börsen-Variablen.
+* Fest eingetragene Zugangsdaten werden auch in Wörterbuch-Form (`"api_key": "…"`) erkannt; der PostgreSQL-Executor hat
+  wie der Paper-Executor keine Sende-Schnittstelle.
+* `check_api_config.py` meldet zusätzlich unbekannte Zugänge (Key/Secret/Token im Namen) als HINWEIS.
+Gegenprobe AS01–AS20: alle entdeckt.
+**API-Konfiguration prüfen:** `python scripts/check_api_config.py [--env-file DATEI ...]` meldet Börsen-Zugangsdaten
+(gleiche Regeln wie der PAPER-Schutz), falschen Modus und eingeschaltete Echtgeld-Schalter als VERBOTEN, Freigaben und
+KI-Schlüssel als HINWEIS, Passwort-Dateien mit offenen Rechten oder im Projektordner als DATEI-Problem – **nur Namen, nie
+Werte**. Es lädt `config.py` direkt, damit es auch dort berichtet, wo der PAPER-Schutz den Start verweigert.
+Berechtigungen eines Börsen-Schlüssels (Handel/Abhebung) lassen sich nur bei der Börse prüfen – das gehört zu AP-29 (B-003);
+bis dahin darf kein Börsen-Schlüssel vorhanden sein. Ergebnis in der Cloud-Umgebung am 2026-10-16: OK (keine Funde).
+**Demo und Echtgeld:** Demo-Handel braucht die ausdrückliche Freigabe des Eigners (AP-29, B-003); echter Handel eine separate
+Freigabe und zusätzliche Sicherheitsprüfungen – im Code gibt es dafür heute keinen Weg.

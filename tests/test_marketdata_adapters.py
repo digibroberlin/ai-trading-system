@@ -326,14 +326,22 @@ def test_only_temporary_errors_are_retried_and_only_a_few_times():
 
 def test_only_https_get_to_known_public_market_data_hosts():
     assert ALLOWED_HOSTS == {"api.exchange.coinbase.com", "api.bitget.com"}
-    assert checked_url("https://api.bitget.com/api/v2/x", {"b": "2", "a": "1"}) == "https://api.bitget.com/api/v2/x?a=1&b=2"
+    candles = "https://api.bitget.com/api/v2/spot/market/history-candles"
+    assert checked_url(candles, {"b": "2", "a": "1"}) == candles + "?a=1&b=2"
+    for good in ("https://api.bitget.com/api/v2/mix/market/history-fund-rate",
+                 "https://api.exchange.coinbase.com/products/BTC-USD/candles"):
+        checked_url(good, {})
     for bad in ("http://api.bitget.com/x", "https://api.bitget.com.evil.example/x", "https://example.com/x",
                 "https://user:pw@api.bitget.com/x", "https://api.bitget.com:8443/x", "https://api.bitget.com/x?q=1",
-                "file:///etc/passwd"):
+                "file:///etc/passwd",
+                # nur Marktdaten-Pfade - auch zusammengesetzte Order- oder Konto-Pfade werden zur Laufzeit abgelehnt:
+                "https://api.bitget.com/api/v2/spot/" + "trade/place-order", "https://api.bitget.com/api/v2/spot/account/assets",
+                "https://api.exchange.coinbase.com/" + "orders", "https://api.exchange.coinbase.com/products/BTC-USD/candles/x",
+                "https://api.exchange.coinbase.com/accounts"):
         with pytest.raises(FetchError):
             checked_url(bad, {})
     with pytest.raises(FetchError):
-        checked_url("https://api.bitget.com/x", {"a": 1})
+        checked_url(candles, {"a": 1})
 
 
 def test_disallowed_addresses_never_open_a_connection_and_redirects_are_not_followed(monkeypatch):

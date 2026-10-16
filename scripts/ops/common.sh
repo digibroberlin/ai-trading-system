@@ -42,7 +42,11 @@ dc() {
   "${cmd[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"
 }
 
+env_value() {  # letzter Wert einer Variablen in der Passwort-Datei, ohne Anfuehrungszeichen (nie ausgeben!)
+  sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\?$1[[:space:]]*=[[:space:]]*//p" "$ENV_FILE" | tail -n 1 | tr -d "\"'"
+}
+
 trading_enabled() {
-  # Nur zur Anzeige: Steht die Freigabe in der Passwort-Datei? (Werte werden nie ausgegeben.)
-  grep -q '^TRADING_ENGINE_ENABLED=1$' "$ENV_FILE" && grep -q '^TRADING_ENGINE_APPROVAL=' "$ENV_FILE"
+  # Nur zur Anzeige: Steht die Freigabe in der Passwort-Datei? Massgeblich prueft der Dienst selbst.
+  [ "$(env_value TRADING_ENGINE_ENABLED)" = "1" ] && [ -n "$(env_value TRADING_ENGINE_APPROVAL)" ]
 }

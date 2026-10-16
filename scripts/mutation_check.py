@@ -92,6 +92,7 @@ BET = ["tests/test_runtime_service.py", "tests/test_ops_scripts.py"]  # Betrieb 
 BES, BEC = "src/trading/runtime/service.py", "docker-compose.prod.yml"
 LFT, LFS = ["tests/test_live_funding.py", "tests/test_runtime_service.py"], "src/trading/runtime/funding.py"  # D-031
 SDT, SDS = ["tests/test_research_study.py"], "src/trading/research/study.py"  # Untersuchung auf Knopfdruck (D-032)
+AST, ASC = ["tests/test_api_config_check.py", "tests/test_no_real_trading.py"], "scripts/check_api_config.py"  # AP-34
 DPT, DPH, DPI, DPA = (["tests/test_deploy.py"], "deploy/server/harden.sh", "deploy/server/install.sh",
                       "scripts/ops/alert_check.py")  # Server, Alarme, Kosten (AP-28)
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
@@ -517,6 +518,26 @@ BACKTEST: List[Mutant] = [
  ("SD01", "Walk-forward blickt in den Testzeitraum", [(SDS, "tuple(walk_forward(split.train.start, split.validation.end, wf_train, wf_test))", "tuple(walk_forward(split.train.start, dataset.end, wf_train, wf_test))")], SDT),
  ("SD02", "Testdaten auch fuer Verworfene", [(SDS, "factory) if validation.passed else None", "factory) if True else None")], SDT),
  ("SD03", "Bericht meldet Erfolg ohne bestandenen Test", [(SDS, "    if winners:\n", "    if True:\n")], SDT),
+ ("AS01", "Pruefung uebersieht Boersen-Zugangsdaten", [(ASC, "    for name in CONFIG.credential_variables(values):", "    for name in []:")], AST),
+ ("AS02", "Pruefung gibt einen Wert aus", [(ASC, "Finding(\"VERBOTEN\", source, name, \"Boersen-Zugangsdaten", "Finding(\"VERBOTEN\", source, name, values[name] + \"Boersen-Zugangsdaten")], AST),
+ ("AS03", "Falscher Modus wird nicht gemeldet", [(ASC, "        if norm == \"TRADING_MODE\" and value.strip().lower() != \"paper\":", "        if False:")], AST),
+ ("AS04", "Eingeschalteter Echtgeld-Schalter nur als Hinweis", [(ASC, "            if value.strip().lower() in TRUTHY:", "            if False:")], AST),
+ ("AS05", "Offene Rechte der Passwort-Datei nicht gemeldet", [(ASC, "    if mode & 0o077:", "    if False:")], AST),
+ ("AS06", "Passwort-Datei im Projektordner nicht gemeldet", [(ASC, "    if ROOT in real.parents:", "    if False:")], AST),
+ ("AS07", "Signatur-Bibliothek im Code", [("src/trading/marketdata/public_http.py", "import json\n", "import hmac\nimport json\n")], AST),
+ ("AS08", "Order-Pfad im Code", [("src/trading/marketdata/bitget.py", "FUNDING_PAGE = 100\n", "FUNDING_PAGE = 100\nORDER_PATH = \"/api/v2/spot/trade/place-order\"\n")], AST),
+ ("AS09", "Echtgeld-Modus im Code", [("src/trading/config.py", "    PAPER = \"paper\"\n", "    PAPER = \"paper\"\n    LIVE = \"live\"\n")], AST),
+ ("AS10", "WebSocket-Abo fuer einen privaten Kanal", [("src/trading/marketdata/bitget_ws.py", "\"channel\": CHANNELS[interval_s],", "\"channel\": \"orders\",")], AST),
+ ("AS11", "Order-Pfad an einem erlaubten Host", [("src/trading/marketdata/public_http.py", "    if not ALLOWED_PATHS[parts.hostname].match(parts.path):", "    if False:")], ["tests/test_marketdata_adapters.py"]),
+ ("AS12", "WebSocket sendet beliebige Nachrichten", [("src/trading/marketdata/public_ws.py", "        if not allowed_message(text):", "        if False:")], ["tests/test_public_ws.py"]),
+ ("AS13", "Fremdprogramm ueber os.system", [("src/trading/runtime/service.py", "import os\n", "import os\n\n_RUN = os.system\n")], ["tests/test_no_real_trading.py"]),
+ ("AS14", "Container startet ein anderes Programm", [("docker-compose.prod.yml", 'command: ["python", "-m", "trading.runtime"]', 'command: ["python", "-c", "import trading"]')], ["tests/test_no_real_trading.py"]),
+ ("AS15", "Container mit Sonderrechten", [("docker-compose.prod.yml", "    read_only: true\n", "    read_only: true\n    privileged: true\n")], ["tests/test_no_real_trading.py"]),
+ ("AS16", "Unbekannter Zugang nicht gemeldet", [(ASC, "and set(norm.split(\"_\")) & SECRET_PARTS):", "and False):")], AST),
+ ("AS17", "Fest eingetragener Schluessel in Woerterbuch-Form", [("src/trading/marketdata/bitget.py", "FUNDING_PAGE = 100\n", "FUNDING_PAGE = 100\nDEMO = {\"api" + "_key\": \"abcd" + "efgh12\"}\n")], ["tests/test_no_real_trading.py"]),
+ ("AS18", "Boersen-SDK im Code", [("src/trading/marketdata/bitget.py", "FUNDING_PAGE = 100\n", "FUNDING_PAGE = 100\n\n\ndef _sdk():\n    from coinbase.rest import RESTClient\n    return RESTClient\n")], ["tests/test_no_real_trading.py"]),
+ ("AS19", "Boersen-SDK in den Abhaengigkeiten", [("requirements/runtime.txt", "wsproto==1.3.2", "ccxt==4.4.0\nwsproto==1.3.2")], ["tests/test_no_real_trading.py"]),
+ ("AS20", "Skript mit neuem Netzzugang", [("scripts/backup.py", "import subprocess\n", "import socket\nimport subprocess\n")], ["tests/test_no_real_trading.py"]),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
@@ -664,7 +685,7 @@ def copy_project(workdir: Path) -> Path:
     # eingebauten Fehler fehl, und jeder Eintrag gaelte faelschlich als "entdeckt".
     for folder in ("src", "tests", "db", "scripts", "requirements", ".github", "deploy"):
         shutil.copytree(ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__"))
-    for name in ("pyproject.toml", "Dockerfile", "docker-compose.prod.yml"):
+    for name in ("pyproject.toml", "Dockerfile", "docker-compose.yml", "docker-compose.prod.yml"):
         shutil.copy(ROOT / name, copy)
     return copy
 

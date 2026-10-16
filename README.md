@@ -271,6 +271,15 @@ Lädt öffentliche Kerzen, prüft sie streng und testet alle Strategien nach den
 (Testdaten nur einmal, Walk-forward nur vor dem Testzeitraum). Ergebnis ist ein ehrlicher Bericht – auch „kein
 belastbarer Vorteil“. Braucht Netzzugang zu den Börsen (B-008).
 
+### API-Konfiguration prüfen (AP-34, D-033) – ohne Geheimnisse auszugeben
+
+```bash
+python scripts/check_api_config.py                                  # Umgebung dieses Rechners
+python scripts/check_api_config.py --env-file ~/trading-secrets.env  # zusätzlich die Passwort-Datei
+```
+Meldet Börsen-Zugangsdaten, falschen Modus und Echtgeld-Schalter als VERBOTEN (nur Namen, nie Werte). Rückgabe 0 = in
+Ordnung. Dass keine echte Börsenorder möglich ist, prüfen automatisch die Tests in `tests/test_no_real_trading.py`.
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →

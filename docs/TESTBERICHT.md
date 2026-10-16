@@ -633,3 +633,22 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 
 * **Preflight (D-031 + D-032 zusammen):** STABIL – **1782/1782** Tests, 0 übersprungen; Python 3.9: 1537 bestanden,
   16 übersprungen (erwartet).
+
+## Nachtrag 2026-10-16 – AP-34 Sicherheitsnachweis: keine echte Börsenorder möglich (D-033)
+
+* **Neu:** `scripts/check_api_config.py` (prüft Umgebung und Passwort-Dateien, gibt nur Namen aus, nie Werte);
+  Laufzeit-Sperren in `public_http.py` (nur Kerzen-/Funding-Pfade je Host) und `public_ws.py` (nur „ping“ und Abos
+  öffentlicher Kanäle).
+* **Tests:** `test_no_real_trading` (jetzt 20): keine Order-, Storno-, Abhebungs- oder Transfer-Pfade und keine
+  Signatur-Kopfzeilen in Handelscode, Skripten und Server-Dateien; keine Signatur-Bibliotheken; nur Modus PAPER;
+  Positivliste der Fremdpakete; kein Börsen-SDK in den Abhängigkeiten; kein dynamisches Laden, kein `os.system` (auch
+  nicht als Verweis); Netz-/Prozess-Zugriffe der Skripte nur an eingetragenen Stellen; Container nur mit fünf bekannten
+  Befehlen und ohne Sonderrechte; Zugangsdaten auch in Wörterbuch-Form. `test_api_config_check` (4): Funde nur mit Namen,
+  Werte erscheinen nie; Rechte und Lage der Passwort-Dateien; funktioniert auch dort, wo der PAPER-Schutz den Start
+  verweigert. `test_marketdata_adapters`/`test_public_ws`: Order- und Konto-Pfade bzw. Anmelde-/Order-Nachrichten
+  werden zur Laufzeit abgelehnt.
+* **Unabhängige Gegenprüfung** (Workflow mit Gegenstimmen): 17 Funde, 12 bestätigt – alle Test-Lücken, keine ermöglichte
+  heute eine Order; alle 12 geschlossen (Einzelheiten D-033).
+* **Gegenprobe:** AS01–AS20 **20/20 entdeckt**.
+* **Prüfung der Cloud-Umgebung:** `check_api_config.py` → OK (keine Börsen-Zugangsdaten, kein Echtgeld-Schalter, Modus PAPER).
+* **Preflight:** STABIL – **1817/1817** Tests, 0 übersprungen; Python 3.9: 1571 bestanden, 16 übersprungen (erwartet).
