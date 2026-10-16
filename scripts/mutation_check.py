@@ -58,12 +58,14 @@ S1 = "db/migrations/001_initial.sql"
 S2 = "db/migrations/002_instruments_and_exposure.sql"
 S3 = "db/migrations/003_kill_switch.sql"
 S4 = "db/migrations/004_order_replay.sql"
+S5 = "db/migrations/005_account_rights.sql"
+AC = "src/trading/persistence/accounts.py"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 BT_PG = BT + ["tests/test_backtest_pg.py"]
 PG = ["tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
-      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py", "tests/test_pg_kill_switch.py"]
+      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py", "tests/test_pg_kill_switch.py", "tests/test_pg_accounts.py"]
 
 KERN: List[Mutant] = []
 
@@ -350,6 +352,18 @@ DATENBANK: List[Mutant] = [
  ("G51","DB: Fingerabdruck in beliebigem Format",[(S4,"ADD COLUMN fingerprint TEXT CHECK (fingerprint ~ '^[0-9a-f]{64}$'),","ADD COLUMN fingerprint TEXT,")], PG),
  ("G52","DB: Order verweist auf nicht vorhandene Position",[(S4,",\n    ADD CONSTRAINT orders_position_fk FOREIGN KEY (account_id, position_id) REFERENCES positions (account_id, position_id);",";")], PG),
  ("G53","Groessen-Order: Order-ID nicht geprueft und nicht gespeichert",[(EX,"                         client_order_id, lambda: built[-1] if built else None)","                         None, lambda: built[-1] if built else None)")], PG),
+ ("G54","DB: Anwendung darf wieder Konten anlegen",[(S5,"REVOKE INSERT ON accounts FROM trading_app;","GRANT INSERT ON accounts TO trading_app;")], PG),
+ ("G55","DB: Kontoaenderung ohne genau einen Versionsschritt",[(S5,"    IF NEW.version <> OLD.version + 1 THEN","    IF NEW.version < OLD.version THEN")], PG),
+ ("G56","DB: Positionszaehler darf sinken",[(S5,"    IF NEW.position_counter < OLD.position_counter THEN","    IF false THEN")], PG),
+ ("G57","DB: Handelstag darf zurueckspringen",[(S5,"    IF NEW.day < OLD.day THEN","    IF false THEN")], PG),
+ ("G58","DB: Tagesstart-Equity innerhalb des Tages aenderbar",[(S5,"    IF NEW.day = OLD.day AND NEW.day_start_equity <> OLD.day_start_equity THEN","    IF false THEN")], PG),
+ ("G59","DB: Hoechststand darf sinken",[(S5,"    IF NEW.peak_equity < OLD.peak_equity OR NEW.peak_equity < NEW.equity THEN","    IF NEW.peak_equity < NEW.equity THEN")], PG),
+ ("G60","DB: Hoechststand darf unter der Equity liegen",[(S5,"    IF NEW.peak_equity < OLD.peak_equity OR NEW.peak_equity < NEW.equity THEN","    IF NEW.peak_equity < OLD.peak_equity THEN")], PG),
+ ("G61","DB: Plausibilitaetspruefung gilt nur fuer die Rolle trading_app",[(S5,"    IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN","    IF current_user <> 'trading_app' THEN")], PG),
+ ("G62","Executor legt fehlendes Konto nicht an, startet aber trotzdem",[(EX,"            if cur.fetchone() is None:\n                raise AccountMissingError(","            if cur.fetchone() is None and False:\n                raise AccountMissingError(")], PG),
+ ("G63","Kontoanlage ohne Protokolleintrag",[(AC,"            if created:  # in derselben Transaktion: ohne Protokolleintrag kein Konto","            if False:")], PG),
+ ("G64","Kontoanlage prueft das Startkapital nicht",[(AC,"    if not is_positive_decimal(initial_equity):","    if initial_equity is None:")], PG),
+ ("G65","Kontoanlage prueft den Kontonamen nicht",[(AC,"    if not isinstance(account_id, str) or not _ACCOUNT_ID.match(account_id):","    if not isinstance(account_id, str):")], PG),
 ]
 
 

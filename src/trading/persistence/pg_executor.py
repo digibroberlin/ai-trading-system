@@ -23,6 +23,9 @@ Wiederholte Order-ID: Die Tabelle `orders` haelt je Order Fingerabdruck, Ergebni
 Kommt dieselbe Order erneut - auch aus einem anderen Prozess oder nach einem Neustart -, liefert die Engine das
 urspruengliche Ergebnis, ohne zu handeln.
 
+Konten legt nur ein Administrator an (`persistence/accounts.py`, Migration 005): Fehlt das Konto, startet der Executor
+nicht. Jede Aenderung des Kontostands prueft die Datenbank auf Plausibilitaet (Version, Tag, Hoechststand).
+
 Ein Neustart ist daher trivial: Es gibt keinen Zustand im Prozess, der verloren gehen koennte. Auch der
 Stand der Kerzen-Verarbeitung je Instrument liegt in der Datenbank - wiederholt gelieferte Kerzen und
 Funding-Ereignisse bleiben nach einem Neustart wirkungslos.
@@ -59,9 +62,9 @@ from trading.domain.models import (
     Position,
     Side,
 )
-from trading.domain.numeric import is_positive_decimal
 from trading.domain.reasons import RejectReason
 from trading.execution.paper_executor import ExecutorState, KnownOrder, PaperExecutor, order_fingerprint
+from trading.persistence.accounts import AccountMissingError
 from trading.persistence.db import connect
 from trading.persistence.kill_switch import read_halt, trip_in_new_transaction, write_trip
 from trading.persistence.pg_event_log import append_raw
@@ -107,7 +110,6 @@ class PostgresPaperExecutor:
         self,
         url: str,
         account_id: str,
-        initial_equity: Decimal,
         risk_manager: RiskManager,
         clock: Clock,
         fault_hook: Optional[FaultHook] = None,
@@ -118,7 +120,11 @@ class PostgresPaperExecutor:
         self._fault_hook = fault_hook  # nur fuer Absturz-Tests
         self._conn = connect(url)
         self._conn_lock = threading.RLock()
-        self._ensure_account(initial_equity)
+        try:
+            self._require_account()
+        except Exception:
+            self._conn.close()
+            raise
 
     def close(self) -> None:
         self._conn.close()
@@ -248,17 +254,14 @@ class PostgresPaperExecutor:
                                         "Protokoll nicht schreibbar: %s" % type(exc.__cause__).__name__)
             raise
 
-    def _ensure_account(self, initial_equity: Decimal) -> None:
-        if not is_positive_decimal(initial_equity):
-            raise ValueError("Startkapital muss eine positive Decimal-Zahl sein.")
+    def _require_account(self) -> None:
+        """Konten legt nur ein Administrator an (Migration 005, Audit M2) - fehlt es, startet der Executor nicht."""
         with self._transaction() as cur:
-            cur.execute(
-                "INSERT INTO accounts (account_id, initial_equity, balance, equity, peak_equity,"
-                " day, day_start_equity) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-                " ON CONFLICT (account_id) DO NOTHING",
-                (self._account_id, initial_equity, initial_equity, initial_equity, initial_equity,
-                 self._clock.now().date(), initial_equity),
-            )
+            cur.execute("SELECT 1 FROM accounts WHERE account_id = %s", (self._account_id,))
+            if cur.fetchone() is None:
+                raise AccountMissingError(
+                    "Konto %r existiert nicht. Anlegen nur durch einen Administrator:"
+                    " python -m trading.persistence.accounts create %s STARTKAPITAL" % (self._account_id, self._account_id))
 
     def _lock_account(self, cur: Any) -> Dict[str, Any]:
         """Der Kern der Absicherung: Zeilensperre auf dem Konto bis zum Ende der Transaktion."""

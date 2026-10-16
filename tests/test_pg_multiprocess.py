@@ -43,6 +43,7 @@ def run_workers(kind, arg_list, lead_time=4.0, timeout=120):
 
 
 def init_account(pg):
+    pg.create_account("main")
     make_executor(pg.app_url, "main").close()
 
 
@@ -192,6 +193,7 @@ def open_base_position(pg):
     from helpers import FUT, make_setup, snapshot
     from trading.domain.models import MarketType, OrderIntent
 
+    pg.create_account("main")
     ex = make_executor(pg.app_url, "main")
     setup = make_setup("base", market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
     assert ex.submit(OrderIntent("base", setup, D(9), D(2)), snapshot(ts=T0, **FUT)).status.value == "filled"

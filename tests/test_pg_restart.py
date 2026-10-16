@@ -33,7 +33,8 @@ BTC, ETH = inst("BTC-USD", MarketType.SPOT), inst("ETH-USD", MarketType.FUTURES)
 
 def new_executor(pg, clock):
     """Jeder Aufruf = frischer Executor mit NEUER Verbindung und NEUEM Objektzustand (wie nach einem Neustart)."""
-    return PostgresPaperExecutor(pg.app_url, "main", D(10000), RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
+    pg.create_account("main", D(10000), clock.now().date())
+    return PostgresPaperExecutor(pg.app_url, "main", RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
 
 
 def order(oid, symbol, mt, side=Side.LONG, **kw):
@@ -221,14 +222,15 @@ def test_event_chain_stays_valid_and_continues_across_restarts(pg):
     assert log.verify().ok and len(log.of_type(EventType.ORDER_FILLED)) == 2
 
 
-def test_account_is_not_reset_when_the_system_starts_again_with_another_initial_equity(pg):
+def test_account_is_not_reset_when_it_is_created_again_with_another_initial_equity(pg):
     clock = FixedClock(T0)
     a = new_executor(pg, clock)
     a.submit(order("a", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
     balance = a.balance
     a.close()
-    # Neustart mit "falschem" Startkapital: darf das bestehende Konto NICHT ueberschreiben.
-    b = PostgresPaperExecutor(pg.app_url, "main", D(999999), RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
+    # Erneutes Anlegen mit "falschem" Startkapital, dann Neustart: das bestehende Konto bleibt unveraendert.
+    pg.create_account("main", D(999999))
+    b = PostgresPaperExecutor(pg.app_url, "main", RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
     assert b.balance == balance and len(b.open_positions) == 1
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT initial_equity FROM accounts").fetchone() == (D(10000),)

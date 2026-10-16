@@ -3,7 +3,8 @@
     python scripts/restart_check.py seed   STATEFILE    # Konto + 2 offene Positionen anlegen, Zustand merken
     python scripts/restart_check.py verify STATEFILE    # nach Neustart/Migration: Zustand mit dem gemerkten vergleichen
 
-Benoetigt DATABASE_URL (eingeschraenkte Rolle trading_app). Verwendet nur synthetische Daten.
+Benoetigt DATABASE_URL (eingeschraenkte Rolle trading_app); `seed` zusaetzlich ADMIN_DATABASE_URL, falls das Konto
+noch nicht existiert (Konten legt nur ein Administrator an, Migration 005). Verwendet nur synthetische Daten.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from trading.clock import FixedClock
 from trading.domain.instrument import Exchange, InstrumentId
 from trading.domain.models import Horizon, MarketSnapshot, MarketType, OrderIntent, Side, TradeSetup
 from trading.execution.costs import CostModel
+from trading.persistence.accounts import create_account
 from trading.persistence.pg_event_log import PostgresEventLog
 from trading.persistence.pg_executor import PostgresPaperExecutor
 from trading.safety.limits import DEFAULT_LIMITS
@@ -32,7 +34,7 @@ NUMERIC = ("balance", "equity", "open_risk")
 
 
 def executor(url: str) -> PostgresPaperExecutor:
-    return PostgresPaperExecutor(url, "restart-check", D(10000), RiskManager(DEFAULT_LIMITS, NO_SLIP), FixedClock(T0))
+    return PostgresPaperExecutor(url, "restart-check", RiskManager(DEFAULT_LIMITS, NO_SLIP), FixedClock(T0))
 
 
 def state(url: str) -> Dict[str, Any]:
@@ -62,6 +64,9 @@ def normalized(s: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def seed(url: str) -> None:
+    admin_url = os.environ.get("ADMIN_DATABASE_URL")
+    if admin_url:
+        create_account(admin_url, "restart-check", D(10000), FixedClock(T0))
     ex = executor(url)
     for oid, symbol, side in (("rc-1", "BTC-USD", Side.LONG), ("rc-2", "ETH-USD", Side.SHORT)):
         instrument = InstrumentId(Exchange.SYNTHETIC, MarketType.FUTURES, symbol)

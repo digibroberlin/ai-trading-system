@@ -39,7 +39,8 @@ def through_postgres(pg, data, strategy, cfg, account="backtest"):
         return logs[0]
 
     def executor_factory(clock, risk, log):
-        return PostgresPaperExecutor(pg.app_url, account, cfg.initial_equity, risk, clock)
+        pg.create_account(account, cfg.initial_equity, clock.now().date())
+        return PostgresPaperExecutor(pg.app_url, account, risk, clock)
 
     return BacktestEngine(data, strategy, cfg, log_factory=log_factory, executor_factory=executor_factory).run(), logs[0]
 

@@ -566,7 +566,7 @@ def test_migration_002_keeps_existing_positions_trades_and_the_log(pg_v1):
 
     # Der neue Executor arbeitet auf den migrierten Daten weiter:
     clock = FixedClock(T0)
-    ex = PostgresPaperExecutor(pg_v1.app_url, "main", D(10000), RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
+    ex = PostgresPaperExecutor(pg_v1.app_url, "main", RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
     (pos,) = ex.open_positions
     assert pos.instrument == inst("BTC-USD", MarketType.FUTURES) and pos.quantity == D(9)
     assert ex.portfolio_state().unrealized_pnl == D(9)  # bewertet zum uebernommenen Kurs 101
