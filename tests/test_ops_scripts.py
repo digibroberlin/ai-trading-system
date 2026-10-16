@@ -58,7 +58,8 @@ def test_stop_status_and_backup(tmp_path):
     assert run("stop.sh", secrets).stdout.splitlines()[0] == "+ compose stop --timeout 60 trader"
     assert "+ compose stop --timeout 60 db" in run("stop.sh", secrets, "--all").stdout
     assert run("status.sh", secrets).stdout.splitlines()[0] == "+ compose ps"
-    assert run("backup.sh", secrets).stdout.strip() == "+ compose run --rm backup"
+    assert run("backup.sh", secrets).stdout.splitlines() == ["+ mkdir -p -m 700 %s/backups" % ROOT,
+                                                            "+ compose run --rm backup"]
 
 
 def test_the_password_file_must_be_private_and_outside_the_project(tmp_path):

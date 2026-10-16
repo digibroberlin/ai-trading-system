@@ -1,0 +1,17 @@
+# Gesundheit pruefen und Zustandswechsel melden (AP-28). Kanal: ALERT_WEBHOOK_URL in der Passwort-Datei (optional).
+[Unit]
+Description=KI-Trading-System - Alarm-Pruefung
+
+[Service]
+Type=oneshot
+User=trading
+Group=trading
+EnvironmentFile=/etc/ai-trading/secrets.env
+Environment=ALERT_STATE_FILE=/var/lib/ai-trading/alert-state.json
+ExecStart=/usr/bin/python3 /opt/ai-trading-system/scripts/ops/alert_check.py
+# WARN/CRITICAL (Rueckgabe 1/2) sind Ergebnisse, keine Fehler der Pruefung
+SuccessExitStatus=1 2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ai-trading
+PrivateTmp=yes

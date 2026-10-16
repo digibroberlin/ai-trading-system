@@ -1,0 +1,14 @@
+# Sicherung mit Rueckspiel-Test (AP-26/28). Scheitert sie, meldet ai-trading-alert-failure.service einen Alarm.
+[Unit]
+Description=KI-Trading-System - Sicherung mit Rueckspiel-Test
+Requires=docker.service
+After=docker.service
+OnFailure=ai-trading-alert-failure.service
+
+[Service]
+Type=oneshot
+User=trading
+Group=trading
+WorkingDirectory=/opt/ai-trading-system
+ExecStart=/opt/ai-trading-system/scripts/ops/backup.sh /etc/ai-trading/secrets.env
+TimeoutStartSec=3600

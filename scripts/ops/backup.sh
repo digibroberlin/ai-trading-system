@@ -5,4 +5,5 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 load_env_file "${1:-}"
 
+prepare_backup_dir
 dc run --rm backup

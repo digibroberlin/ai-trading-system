@@ -22,6 +22,15 @@ load_env_file() {
   [ "$mode" = "600" ] || [ "$mode" = "400" ] || fail "Passwort-Datei hat Rechte $mode - bitte: chmod 600 $ENV_FILE"
 }
 
+# Sicherungen gehoeren dem Benutzer, der die Skripte ausfuehrt (docker-compose.prod.yml: backup.user)
+OPS_UID="$(id -u)"
+OPS_GID="$(id -g)"
+export OPS_UID OPS_GID
+
+prepare_backup_dir() {
+  if [ "${DRY_RUN:-0}" = "1" ]; then echo "+ mkdir -p -m 700 $ROOT/backups"; else mkdir -p -m 700 "$ROOT/backups"; fi
+}
+
 # docker compose (neu) oder docker-compose (alt, z. B. Colima auf dem Mac)
 dc() {
   local cmd

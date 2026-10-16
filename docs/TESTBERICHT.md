@@ -592,3 +592,22 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16,
 * **Preflight:** STABIL – **1737/1737** Tests, 0 übersprungen; Python 3.9: 1492 bestanden, 16 übersprungen (erwartet).
 * **Nicht geprüft:** Bau der Images und ein echter Start der Dienste (Cloud-Proxy; außerdem gilt: kein Betrieb ohne
   Freigabe des Eigners).
+
+## Nachtrag 2026-10-16 – AP-28 Server-Härtung, Deployment, Alarme, Serverkosten (D-030)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Kein Server, nur Trockenlauf.
+
+* **Neu:** `deploy/server/harden.sh`, `deploy/server/install.sh` (Trockenlauf/`--check`/`--apply`),
+  `deploy/systemd/*` (Start, tägliche Sicherung, Alarm alle 5 min, Alarm bei gescheiterter Sicherung),
+  `scripts/ops/alert_check.py`, Serverkosten aus der Umgebung (`operating_costs_from_env`), `docs/DEPLOYMENT.md`.
+* **Tests:** `test_deploy` (11): Härtung im Trockenlauf (SSH ohne root/Passwort, Firewall nur SSH, keine Ports für
+  Datenbank/Dashboard, erst `sshd -t` dann laden), Aussperr-Schutz praktisch geprüft (`--check`), Installation in
+  richtiger Reihenfolge, Passwort-Datei geprüft, Skripte streng und nur mit `--apply` wirksam, systemd-Einheiten als
+  Betriebsbenutzer mit Zeitplänen, Alarme (Wechsel, neue Meldung inkl. KI-Budget-Sperre, Wiederholung, Erholung,
+  Kanal nur HTTPS, Adresse nie im Protokoll, Kanal-Ausfall gemeldet), Serverkosten monatsweise im Netto.
+  Zeitpläne zusätzlich mit `systemd-analyze verify` ohne Befund.
+* **Gegenprobe:** DP01–DP11 **11/11 entdeckt**. Ein zwölfter Eintrag (negative Kosten) war gleichwertig – `OperatingCost`
+  lehnt negative Beträge selbst ab – und wurde entfernt.
+* **Preflight:** STABIL – **1759/1759** Tests, 0 übersprungen; Python 3.9: 1514 bestanden, 16 übersprungen (erwartet).
+  Danach nur noch `COPY deploy` im Test-Image ergänzt (Tests für Abhängigkeiten und Deployment erneut grün).
+* **Nicht geprüft:** echter Server (B-005).

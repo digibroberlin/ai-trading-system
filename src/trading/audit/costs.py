@@ -93,6 +93,41 @@ class CostLedger:
         return sum((c.share(start, end) for c in self._costs if category is None or c.category is category), ZERO)
 
 
+COST_ENV = {
+    CostCategory.SERVER: "COST_SERVER_MONTHLY_USD",
+    CostCategory.MARKET_DATA: "COST_MARKET_DATA_MONTHLY_USD",
+    CostCategory.OTHER: "COST_OTHER_MONTHLY_USD",
+}
+
+
+def operating_costs_from_env(env: Mapping[str, str], start: datetime, months: int = 24) -> CostLedger:
+    """Monatliche Betriebskosten (AP-28) aus der Umgebung, z. B. COST_SERVER_MONTHLY_USD=5.50 fuer den Server.
+
+    Je Kostenart ein Eintrag je Kalendermonat ab dem Monat von `start` - so rechnet AKI zeitanteilig genau mit.
+    Fehlt ein Wert: 0. Ein ungueltiger Wert ist ein Fehler (lieber kein Start als eine falsche Netto-Rechnung)."""
+    if not is_aware(start) or months < 1:
+        raise ValueError("Beginn mit Zeitzone und mindestens ein Monat.")
+    ledger = CostLedger()
+    utc = start.astimezone(timezone.utc)
+    for category, name in COST_ENV.items():
+        raw = (env.get(name) or "0").strip()
+        try:
+            amount = Decimal(raw)
+        except ArithmeticError:
+            raise ValueError("%s=%r ist keine Zahl." % (name, raw)) from None
+        if not is_finite_decimal(amount) or amount < 0:
+            raise ValueError("%s=%r muss eine nicht-negative Zahl sein." % (name, raw))
+        if amount == 0:
+            continue
+        year, month = utc.year, utc.month
+        for _ in range(months):
+            begin = datetime(year, month, 1, tzinfo=timezone.utc)
+            year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+            ledger.add(OperatingCost(category, amount, begin, datetime(year, month, 1, tzinfo=timezone.utc),
+                                     "%s (monatlich)" % name))
+    return ledger
+
+
 @dataclass(frozen=True)
 class AICostSummary:
     total_cost: Decimal
