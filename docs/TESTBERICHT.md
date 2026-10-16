@@ -255,3 +255,26 @@ Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
   neue Mehrprozess-Test in 3 von 3 Durchläufen.
 * **Preflight:** STABIL – **821/821** Tests, 0 übersprungen. Python 3.9: 691 bestanden, 6 Datenbank-Module übersprungen (erwartet).
 * **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.
+
+## Nachtrag 2026-10-16 – AP-10 Rechte der Anwendungsrolle am Konto (Audit M2, Rest)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-014):** Migration 005 entzieht `trading_app` das Anlegen von Konten; Konten legt nur ein Administrator an
+  (`python -m trading.persistence.accounts create KONTO STARTKAPITAL`, mit Protokolleintrag `ACCOUNT_CREATED`). Der
+  PostgreSQL-Executor legt kein Konto mehr an und startet ohne Konto nicht. Jede Kontostand-Änderung einer Rolle ohne
+  Administratorrechte wird geprüft (ein Versionsschritt, Tag und Positionszähler nur vorwärts, Tagesstart-Equity fest,
+  Höchststand fällt nie und liegt nie unter der Equity).
+* **Neue Tests:** `test_pg_accounts` (37): Anwendung kann kein Konto anlegen; Executor ohne Konto startet nicht und legt keines an;
+  Kontoanlage als Administrator mit Protokolleintrag, wiederholbar ohne Änderung; ungültige Namen und Startkapital (0, negativ,
+  NaN, Unendlich, float, int, None) werden abgelehnt; je unplausible Änderung eine Ablehnung, plausible Änderungen erlaubt;
+  Administrator darf die Bremsen neu setzen; Prüfung gilt auch für andere Rollen ohne Administratorrechte; Kommandozeile.
+* **Angepasste Tests:** Der Executor hat keinen Parameter „Startkapital“ mehr. Die Test-Hilfen legen das Konto vorher als
+  Administrator an (`TestDatabase.create_account`, ohne Protokolleintrag – reine Vorbereitung). Der Test „Neustart mit anderem
+  Startkapital setzt das Konto nicht zurück“ prüft jetzt dasselbe über eine erneute Kontoanlage. Keine Erwartung wurde gelockert.
+* **Gegenprobe:** neue Einträge G54–G65: **12/12 entdeckt**. Die Datenbank-Testliste der Gegenprobe beginnt jetzt mit den
+  schnellen Dateien (gleiche Tests, nur schnelleres Abbrechen).
+* **Preflight:** STABIL – **861/861** Tests, 0 übersprungen; ruff und mypy `--strict` ohne Befunde. Python 3.9 (ohne Datenbank):
+  694 bestanden, 7 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau; `scripts/restart_check.py`
+  gegen die echte lokale Datenbank (Mac) – das Konto `restart-check` existiert dort bereits.
