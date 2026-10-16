@@ -24,7 +24,7 @@ keine
 
 ## Zuletzt erledigt
 
-* AP-11 Wiederverbindung zur Datenbank (Cloud-Routine 2026-10-16 06:13–06:55 UTC, Audit H7, D-015): Nach einem
+* AP-11 Wiederverbindung zur Datenbank (Cloud-Routine 2026-10-16 06:13–06:40 UTC, Audit H7, D-015): Nach einem
   Verbindungsabbruch verbinden sich Executor, Protokoll und Not-Aus selbst neu (höchstens 4 Versuche mit 0,5/1/2 s Wartezeit,
   dann Fehler). Aktionen werden nur wiederholt, wenn die Verbindung vor der Entscheidung abriss; bei Abbruch während des COMMIT
   kommt ein Fehler, dieselbe Order-ID kann gefahrlos erneut gesendet werden. Zeitlimit für hängende Transaktionen gab es schon
