@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-15 19:37 UTC für AP-07
+gesperrt von Cloud-Routine (Lauf 2026-10-16 02:08 UTC) seit 2026-10-16 02:10 UTC für AP-07 (verwaiste Sperre der interaktiven Sitzung vom 2026-10-15 19:37 UTC übernommen)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
