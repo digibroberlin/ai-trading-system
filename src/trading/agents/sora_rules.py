@@ -34,6 +34,7 @@ from trading.agents.base import AgentName
 from trading.agents.contracts import MarketContext, SizingProposal
 from trading.agents.sora import SoraAgent
 from trading.ai.provider import AIProvider
+from trading.domain.exchange_rules import ExchangeRules, InstrumentRules
 from trading.domain.instrument import MarketType, is_instrument
 from trading.domain.models import PortfolioState, RiskDecision, Side, TradeSetup
 from trading.domain.numeric import is_finite_decimal, is_positive_decimal
@@ -75,7 +76,7 @@ _TEXT: Dict[R, str] = {
 _SIZE_INDEPENDENT = frozenset({
     R.NON_FINITE_VALUE, R.INVALID_SYMBOL, R.NO_EQUITY, R.INVALID_QUANTITY, R.STOP_WRONG_SIDE,
     R.TAKE_PROFIT_WRONG_SIDE, R.FUNDING_MISSING, R.EQUITY_UNCERTAIN, R.SPOT_SHORT_NOT_ALLOWED,
-    R.TOO_MANY_POSITIONS, R.DUPLICATE_POSITION, R.DAILY_LOSS_LIMIT, R.DRAWDOWN_LIMIT,
+    R.TOO_MANY_POSITIONS, R.DUPLICATE_POSITION, R.DAILY_LOSS_LIMIT, R.DRAWDOWN_LIMIT, R.PRICE_NOT_ON_TICK,
 })
 
 
@@ -141,8 +142,10 @@ class RuleBasedSora(SoraAgent):
         costs: CostModel,
         config: Optional[SoraConfig] = None,
         ai: Optional[AIProvider] = None,
+        rules: Optional[ExchangeRules] = None,
     ) -> None:
         super().__init__(ai)
+        self._rules = rules  # Boersenregeln (AP-13): Mengenschritt, Mindestgroesse, Hoechsthebel je Instrument
         cfg = config or SoraConfig()
         if cfg.risk_per_trade > policy.max_risk_per_trade:
             raise ValueError("risk_per_trade ueberschreitet das Limit je Trade.")
@@ -159,12 +162,12 @@ class RuleBasedSora(SoraAgent):
         remaining = self._policy.max_portfolio_risk * portfolio.equity - portfolio.open_risk
         return max(min(per_trade, remaining), ZERO)
 
-    def _floor(self, qty: Decimal) -> Decimal:
-        step = self._cfg.quantity_step
+    @staticmethod
+    def _floor(qty: Decimal, step: Decimal) -> Decimal:
         return (qty / step).to_integral_value(rounding=ROUND_DOWN) * step
 
-    def _ceil(self, qty: Decimal) -> Decimal:
-        step = self._cfg.quantity_step
+    @staticmethod
+    def _ceil(qty: Decimal, step: Decimal) -> Decimal:
         return (qty / step).to_integral_value(rounding=ROUND_CEILING) * step
 
     def _leverage_candidates(self, setup: TradeSetup, fill: Decimal) -> List[Decimal]:
@@ -209,15 +212,22 @@ class RuleBasedSora(SoraAgent):
         pol, cfg, costs, side = self._policy, self._cfg, self._costs, setup.side
         quote = costs.quote(side, snap)
         fill, mark = quote.fill_price, quote.mark_price
+        rules: Optional[InstrumentRules] = None
+        if self._rules is not None:
+            rules = self._rules.for_instrument(setup.instrument)
+            if rules is None:
+                return block([R.EXCHANGE_RULES_MISSING])
+        step = rules.quantity_step if rules is not None else cfg.quantity_step
 
         def check(quantity: Decimal, leverage: Decimal) -> RiskDecision:
-            return evaluate_order(pol, costs, setup, quantity, leverage, quote, portfolio)
+            return evaluate_order(pol, costs, setup, quantity, leverage, quote, portfolio, rules)
 
         # --- 2. Gruende, an denen keine Menge etwas aendert (alle gesammelt) ---
-        fatal = [r for r in check(cfg.quantity_step, D(1)).reasons if r in _SIZE_INDEPENDENT]
+        fatal = [r for r in check(step, D(1)).reasons if r in _SIZE_INDEPENDENT]
         if fatal:
             return block(fatal)
-        candidates = self._leverage_candidates(setup, fill)
+        candidates = [lv for lv in self._leverage_candidates(setup, fill)
+                      if rules is None or lv <= rules.max_leverage]
         if not candidates:
             return block([R.LIQUIDATION_TOO_CLOSE])
 
@@ -250,8 +260,10 @@ class RuleBasedSora(SoraAgent):
 
         leverage = next((lv for lv in candidates if margin_for(lv) >= limit_for(lv)), candidates[-1])
         raw = min(limit_for(leverage), margin_for(leverage))
-        quantity = self._floor(raw) if raw > 0 else ZERO
-        minimum = self._ceil(cfg.min_notional / fill)
+        quantity = self._floor(raw, step) if raw > 0 else ZERO
+        minimum = self._ceil(cfg.min_notional / fill, step)
+        if rules is not None:
+            minimum = max(minimum, rules.minimum_quantity(fill))
 
         if quantity < minimum:
             # Welche Grenzen verhindern schon die kleinste handelbare Groesse?
@@ -260,9 +272,9 @@ class RuleBasedSora(SoraAgent):
         # --- 4. Endkontrolle mit den abgerundeten Werten (dieselbe Funktion wie der Risikomanager) ---
         decision = check(quantity, leverage)
         for _ in range(3):  # Rundungsreste: hoechstens ein paar Mengenschritte zurueck, nie nach oben
-            if decision.approved or quantity - cfg.quantity_step < minimum:
+            if decision.approved or quantity - step < minimum:
                 break
-            quantity -= cfg.quantity_step
+            quantity -= step
             decision = check(quantity, leverage)
         if not decision.approved:
             return block(decision.reasons)

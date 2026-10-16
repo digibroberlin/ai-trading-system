@@ -98,7 +98,8 @@ src/trading/
                          numeric.py (endliche Decimal-Prüfung), universe.py (erlaubte Instrumente)
   safety/                limits.py (unveränderlich), order_risk.py (DIE Risikorechnung), risk_manager.py, data_validator.py,
                          kill_switch.py (globaler Not-Aus)
-  execution/             costs.py (Gebühren, Slippage, Rundung), paper_executor.py, protocol.py (Executor-Schnittstelle)
+  execution/             costs.py (Gebühren, Slippage, Rundung), fees.py (Gebührenstufen), paper_executor.py, protocol.py
+                         (Executor-Schnittstelle); domain/exchange_rules.py: Börsenregeln je Instrument (AP-13)
   marketdata/            candles.py (Kerzen- und Reihenprüfung), synthetic.py (erfundene Daten), feed.py (Schnittstelle)
   agents/                base.py, contracts.py, momo/rin/sora/kibo/yuzu (abstrakt), aki (implementiert),
                          rin_rules.py (RuleBasedRin), sora_rules.py (RuleBasedSora), kibo_rules.py, yuzu_rules.py (AP-17),

@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 18:49 UTC für AP-13 (Börsenregeln je Instrument)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 19:10 UTC für AP-22 (KI-Anbieter-Adapter hinter dem Orchestrator, nur Attrappe)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,11 +22,18 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-13** (Börsenregeln), danach AP-22, AP-14/15;
-  AP-16–19, AP-21 und AP-23/24 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-22** (KI-Anbieter-Adapter, nur mit Attrappe;
+  echte Aufrufe erst nach B-004), danach AP-14/15; AP-13, AP-16–19, AP-21 und AP-23/24 sind erledigt – jeweils mit eigener
+  Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-13 Börsenregeln je Instrument** (interaktive Cloud-Sitzung, 2026-10-16, D-023): Preis-/Mengenschritt,
+  Mindestmenge, Mindestwert, Börsen-Hebel und Gebührenstufen nach Volumen. SORA rechnet auf dem Mengenschritt und nie über
+  dem Börsen-Hebel; der Risikomanager lehnt jede Order ab, die eine Börse ablehnen würde, und **rät nie** (fehlen Regeln für
+  ein Instrument → abgelehnt); Strategie-Stops/-Ziele auf dem Preisschritt zu Ungunsten. Kritischer Fund im Prüfwerkzeug
+  behoben (Gegenprobe zählte ihre eigene Textstellen-Prüfung als Entdeckung). Preflight STABIL 1553/1553; Python 3.9: 1325
+  bestanden; Gegenprobe K24 + BR01–BR09 10/10.
 * **AP-18/19 Forschungsrahmen und Bewertung** (interaktive Cloud-Sitzung, 2026-10-16, D-022): getrennte Zeiträume,
   Walk-forward, Versuchszählung mit steigender Sharpe-Schwelle, Kosten-Stress, Testdaten nur einmal, Strategie-Register mit
   Freigabestatus; AKI-Bewertung nach allen Kosten, je Marktphase, Stabilität, Nutzen von KIBO/YUZU.

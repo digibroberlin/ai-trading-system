@@ -353,3 +353,19 @@ Nutzen von KIBO/YUZU gepaart je Fenster mit `compare_methods` (im Zweifel die ei
 **Grenzen:** vereinfachte Formel (keine Schiefe/Wölbung); Strategien werden noch nicht automatisch optimiert (jede
 Variante muss bewusst als Versuch geprüft werden); KI-Kosten im Backtest erst mit echtem Anbieter (AP-22);
 aussagekräftig erst mit echten Daten (AP-20).
+
+## D-023 · 2026-10-16 · Börsenregeln je Instrument (AP-13)
+**Entscheidung:** `InstrumentRules` (Preisschritt, Mengenschritt, Mindestmenge, Mindestwert, Höchsthebel) in einem
+`ExchangeRules`-Regelwerk (ausdrücklich je Instrument, sonst Vorgabe je Börse und Marktart). Wer sie nutzt: SORA rundet
+die Menge auf den Mengenschritt ab, hält Mindestmenge/-wert ein und wählt keinen höheren Hebel als die Börse erlaubt;
+der unabhängige Risikomanager lehnt jede Order ab, die eine Regel verletzt (QUANTITY_NOT_ON_STEP, QUANTITY_TOO_SMALL,
+NOTIONAL_TOO_SMALL, PRICE_NOT_ON_TICK, LEVERAGE_TOO_HIGH); Strategie-Vorschläge kommen mit Stop/Ziel auf den
+Preisschritt – zu Ungunsten gerundet. Gilt ein Regelwerk, wird ein Instrument ohne Regeln abgelehnt
+(EXCHANGE_RULES_MISSING) – nie geraten. Ohne Regelwerk bleibt alles wie bisher (eigene Limits).
+**Gebührenstufen:** `FeeSchedule` (aufsteigend nach 30-Tage-Volumen, erste Stufe ab 0, höhere Stufe nie teurer,
+keine negativen Gebühren) liefert das Kostenmodell der passenden Stufe.
+**Grenzen:** Nur die Regeln der erfundenen Test-Börse sind hinterlegt; echte Werte liefern die Adapter (AP-14).
+**Nebenbei gefunden (Prüfwerkzeug):** Die Gegenprobe ließ die Prüfung ihrer eigenen Textstellen
+(`test_mutation_entries`) mitlaufen. Ein eingebauter Fehler verändert seine Textstelle – damit galt jeder Eintrag, der die
+ganze Testsuite nutzt, scheinbar als entdeckt. Betroffen: Läufe ab dem Zusammenführen von AP-31 (2026-10-16, ~17:20 UTC);
+`stable/004` (15:29 UTC) enthielt die Datei noch nicht. Behoben (`--ignore`), mit Test abgesichert; K24 echt nachgeprüft.

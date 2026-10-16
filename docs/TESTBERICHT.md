@@ -467,3 +467,23 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Gegenprobe:** RS01–RS09 **9/9 entdeckt** (RS05/RS08 erst nach zwei gezielten Tests).
 * **Preflight:** STABIL – **1529/1529** Tests, 0 übersprungen; Python 3.9: 1301 bestanden, 12 übersprungen (erwartet).
 * **Nicht geprüft:** echte Daten (AP-20).
+
+## Nachtrag 2026-10-16 – AP-13 Börsenregeln je Instrument (D-023)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Nur erfundene Daten.
+
+* **Neu:** `domain/exchange_rules.py`, `execution/fees.py`, Prüfungen in `safety/order_risk.py` und
+  `safety/risk_manager.py`, SORA mit Regeln, `on_ticks` für Strategie-Vorschläge, `BacktestConfig.rules`,
+  Laufzeit-Engine mit Regeln; neue Ablehnungsgründe EXCHANGE_RULES_MISSING, QUANTITY_NOT_ON_STEP, NOTIONAL_TOO_SMALL,
+  PRICE_NOT_ON_TICK.
+* **Tests:** `test_exchange_rules` (14): Rundung zu Ungunsten, ungültige Regeln, Vorrang ausdrücklicher Regeln,
+  Gebührenstufen (auch Fehlbedienungen), Risikomanager lehnt Schritt-/Mindest-/Hebelverstöße und fehlende Regeln ab,
+  SORA bleibt auf Schritt und Börsen-Hebel (auch bei knapper Margin) und sein Vorschlag besteht beim Risikomanager,
+  Backtest mit Regeln erzeugt nur regelkonforme Orders, ohne Regeln für ein Instrument wird nichts gehandelt.
+* **Kritischer Fund im Prüfwerkzeug (behoben):** siehe D-023 – die Gegenprobe zählte die Prüfung ihrer eigenen
+  Textstellen als Entdeckung. Jetzt ausgeschlossen und durch einen Test abgesichert; K24 echt entdeckt
+  (`test_risk_manager`). Betroffen wären nur volle Läufe seit ~17:20 UTC gewesen – es gab keinen.
+* **Gegenprobe:** K24, BR01–BR09 **10/10 entdeckt** (BR09 erst nach einem Test mit knapper Margin).
+* **Preflight:** STABIL – **1553/1553** Tests, 0 übersprungen; Python 3.9: 1325 bestanden, 12 übersprungen (erwartet:
+  Dashboard braucht ≥ 3.10).
+* **Nicht geprüft:** echte Börsenregeln (AP-14).

@@ -31,3 +31,10 @@ def test_entry_matches_the_code_exactly_once(key, path, old, new):
     text = (ROOT / path).read_text(encoding="utf-8")
     assert text.count(old) == 1, "%s: Textstelle in %s %d-mal gefunden" % (key, path, text.count(old))
     assert old != new, key
+
+
+def test_mutation_runs_never_count_this_entry_check_as_a_detection():
+    """Ein eingebauter Fehler veraendert seine eigene Textstelle - liefe diese Datei mit, waere JEDER Eintrag mit der
+    ganzen Testsuite scheinbar 'entdeckt' (2026-10-16 bei K24 bemerkt)."""
+    text = (ROOT / "scripts" / "mutation_check.py").read_text(encoding="utf-8")
+    assert '"--ignore=tests/test_mutation_entries.py"' in text

@@ -48,6 +48,7 @@ from trading.audit.performance import EquityPoint, PerformanceReport
 from trading.backtest.data import InstrumentSeries, MarketDataset
 from trading.backtest.strategy import MarketView, Strategy, StrategyMomo
 from trading.clock import Clock, FixedClock
+from trading.domain.exchange_rules import ExchangeRules
 from trading.domain.instrument import InstrumentId
 from trading.domain.models import Candle, ClosedTrade, FundingEvent, Position
 from trading.domain.numeric import is_positive_decimal
@@ -77,6 +78,7 @@ class BacktestConfig:
     rin: RinConfig = field(default_factory=RinConfig)
     sora: SoraConfig = field(default_factory=SoraConfig)
     history_bars: int = 200  # so viele abgeschlossene Kerzen sieht die Strategie je Instrument
+    rules: Optional[ExchangeRules] = None  # Boersenregeln je Instrument (AP-13); None = nur eigene Limits
     label: str = ""
 
     def __post_init__(self) -> None:
@@ -177,7 +179,7 @@ class BacktestEngine:
         cfg, data = self._config, self._dataset
         clock = FixedClock(data.start)
         log = self._log_factory(clock) if self._log_factory else InMemoryEventLog(clock)
-        risk = RiskManager(cfg.limits, cfg.costs)
+        risk = RiskManager(cfg.limits, cfg.costs, cfg.rules)
         executor: Executor = (
             self._executor_factory(clock, risk, log)
             if self._executor_factory
@@ -211,18 +213,18 @@ class BacktestEngine:
         kibo = self._kibo or RuleBasedKibo()
         yuzu = self._yuzu or RuleBasedYuzu()
         pipeline = TradingPipeline(
-            StrategyMomo(self._strategy, clock, view),
+            StrategyMomo(self._strategy, clock, view, cfg.rules),
             RuleBasedRin(TradingUniverse(frozenset(data.instruments)), clock, cfg.rin, cfg.costs),
             kibo,
             yuzu,
-            RuleBasedSora(SizingPolicy.from_limits(cfg.limits), cfg.costs, cfg.sora),
+            RuleBasedSora(SizingPolicy.from_limits(cfg.limits), cfg.costs, cfg.sora, rules=cfg.rules),
             aki,
             executor,
         )
         placeholders = tuple(name for name, neutral in (("KIBO", isinstance(kibo, NeutralKibo)),
                                                        ("YUZU", isinstance(yuzu, NeutralYuzu))) if neutral)
         config_fp = _digest({k: v for k, v in to_jsonable(cfg).items() if k != "label"})
-        assumptions_fp = _digest((cfg.initial_equity, cfg.costs, cfg.limits))
+        assumptions_fp = _digest((cfg.initial_equity, cfg.costs, cfg.limits) + ((cfg.rules,) if cfg.rules else ()))
         log.append(EventType.BACKTEST_STARTED, {
             "strategy": self._strategy.name, "label": cfg.label, "dataset": data.fingerprint,
             "config": config_fp, "instruments": [i.key for i in data.instruments],
