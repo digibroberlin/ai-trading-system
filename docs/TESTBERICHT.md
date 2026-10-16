@@ -133,7 +133,7 @@ Grenze der Methode: Die Gegenprobe zeigt nur, dass **diese 193** Fehler bemerkt 
 | **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | **behoben** (AP-08, Nachtrag unten) |
 | **PAPER-Schutz nicht an einem zentralen Startpunkt** (Audit M3) | offen; ein Live-Modus existiert im Code nicht |
 | **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | **behoben** (AP-10, Nachtrag unten); Beträge rechnet weiter die Anwendung |
-| **Wiederverbindung zur Datenbank, hängende Transaktionen** (Audit H7) | offen |
+| **Wiederverbindung zur Datenbank, hängende Transaktionen** (Audit H7) | **behoben** (AP-07, AP-11, Nachtrag unten); Alarm fehlt noch (AP-25) |
 | **Kein regelmäßiges Backup, keine festgeschriebenen Paketversionen** (Audit M14, M12) | offen |
 | **Börsenregeln je Instrument** (Mindestgröße, Preis- und Mengenschritte) | fehlen |
 | Docker nur mit **Colima auf Apple Silicon**; nicht Docker Desktop, nicht Linux/amd64 (Hetzner) | vor dem Server-Betrieb testen |
@@ -278,3 +278,25 @@ Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
   694 bestanden, 7 Datenbank-Module übersprungen (erwartet).
 * **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau; `scripts/restart_check.py`
   gegen die echte lokale Datenbank (Mac) – das Konto `restart-check` existiert dort bereits.
+
+## Nachtrag 2026-10-16 – AP-11 Wiederverbindung zur Datenbank (Audit H7)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-015):** `persistence/db.py` → `ConnectionKeeper` baut eine abgerissene Verbindung vor der nächsten Transaktion
+  neu auf (höchstens 4 Versuche, Wartezeiten 0,5 / 1 / 2 s, je Versuch höchstens 5 s), sonst `DatabaseUnavailableError`.
+  Genutzt von PostgreSQL-Executor, -Protokoll und -Not-Aus. Aktionen werden nur wiederholt, wenn die Verbindung schon **vor** der
+  Entscheidung abgerissen war; reine Abfragen und das Auslösen des Not-Aus immer einmal.
+* **Neue Tests:** `test_db_keeper` (7, ohne Datenbank): gesunde Verbindung wird weiterverwendet; kaputte/geschlossene wird
+  ersetzt; Wartezeiten zwischen Versuchen; Aufgabe nach 4 Versuchen; beim Start kein Warten; bewusst geschlossen = nie neu.
+  `test_pg_reconnect` (9, mit Datenbank, Sitzung vom Server beendet über `pg_terminate_backend`): Executor erholt sich ohne
+  Neustart (Order, alle Abfragen, Not-Aus-Zustand); Abbruch beim COMMIT → Fehler, nichts gespeichert, dieselbe Order-ID danach
+  genau einmal ausgeführt; dauerhaft unerreichbar → begrenzte Versuche, kein Handel, Not-Aus-Zustand „gestoppt“; geschlossener
+  Executor verbindet nicht neu; Protokoll wiederholt einen unsicheren Eintrag nicht, Kette bleibt intakt; Not-Aus von außen
+  gelingt nach Abbruch; Fehler bei intakter Verbindung (Sperr-Zeitlimit) wird nicht wiederholt.
+* **Angepasste Gegenprobe-Einträge:** G08, G35, G47, G62 (Textstellen an den neuen Code angepasst, Inhalt unverändert).
+* **Gegenprobe:** neue Einträge G66–G73 und die angepassten G08, G35, G47, G62: **12/12 entdeckt**.
+* **Preflight:** STABIL – **877/877** Tests, 0 übersprungen; ruff und mypy `--strict` ohne Befunde. Python 3.9 (ohne Datenbank):
+  694 bestanden, 9 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** echter Datenbank-Neustart und echte Netzwerkausfälle (simuliert durch vom Server beendete Sitzungen);
+  volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.

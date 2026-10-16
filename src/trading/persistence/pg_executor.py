@@ -41,6 +41,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, TypeVar
 
+import psycopg
 from psycopg.rows import dict_row
 
 from trading.audit.event_log import EventLog
@@ -65,7 +66,7 @@ from trading.domain.models import (
 from trading.domain.reasons import RejectReason
 from trading.execution.paper_executor import ExecutorState, KnownOrder, PaperExecutor, order_fingerprint
 from trading.persistence.accounts import AccountMissingError
-from trading.persistence.db import connect
+from trading.persistence.db import ConnectionKeeper
 from trading.persistence.kill_switch import read_halt, trip_in_new_transaction, write_trip
 from trading.persistence.pg_event_log import append_raw
 from trading.safety.data_validator import SnapshotValidator
@@ -118,16 +119,16 @@ class PostgresPaperExecutor:
         self._risk = risk_manager
         self._clock = clock
         self._fault_hook = fault_hook  # nur fuer Absturz-Tests
-        self._conn = connect(url)
+        self._db = ConnectionKeeper(url)  # verbindet nach einem Abbruch neu (Audit H7)
         self._conn_lock = threading.RLock()
         try:
             self._require_account()
         except Exception:
-            self._conn.close()
+            self._db.close()
             raise
 
     def close(self) -> None:
-        self._conn.close()
+        self._db.close()
 
     # ------------------------------------------------------------------ oeffentliche API
 
@@ -179,8 +180,7 @@ class PostgresPaperExecutor:
 
     def halt_status(self) -> HaltStatus:
         try:
-            with self._transaction() as cur:
-                return read_halt(cur)
+            return self._read(read_halt)
         except Exception as exc:  # nicht lesbar -> gestoppt (fail closed)
             return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)
 
@@ -193,35 +193,50 @@ class PostgresPaperExecutor:
             ok, detail = False, type(exc).__name__
         if not ok:
             with self._conn_lock:
-                trip_in_new_transaction(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,
+                trip_in_new_transaction(self._db.get(), self._clock, HaltReason.PROTOCOL_ERROR,
                                         "Protokollpruefung: %s" % detail)
         return ok
 
     @property
     def balance(self) -> Decimal:
-        with self._transaction() as cur:
-            return Decimal(self._read_account(cur)["balance"])
+        return self._read(lambda cur: Decimal(self._read_account(cur)["balance"]))
 
     @property
     def open_positions(self) -> Tuple[Position, ...]:
-        with self._transaction() as cur:
-            return tuple(self._load_positions(cur))
+        return self._read(lambda cur: tuple(self._load_positions(cur)))
 
     @property
     def closed_trades(self) -> Tuple[ClosedTrade, ...]:
-        with self._transaction() as cur:
+        def query(cur: Any) -> Tuple[ClosedTrade, ...]:
             cur.execute(
                 "SELECT * FROM closed_trades WHERE account_id = %s ORDER BY closed_at, position_id",
                 (self._account_id,),
             )
             return tuple(_trade_from_row(r) for r in cur.fetchall())
 
+        return self._read(query)
+
     # ------------------------------------------------------------------ Transaktion und Sperre
 
     @contextmanager
     def _transaction(self) -> Iterator[Any]:
-        with self._conn_lock, self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:
-            yield cur
+        with self._conn_lock:
+            conn = self._db.get()  # abgerissene Verbindung wird hier neu aufgebaut
+            with conn.transaction(), conn.cursor(row_factory=dict_row) as cur:
+                yield cur
+
+    def _read(self, query: Callable[[Any], T]) -> T:
+        """Reine Abfrage. Reisst die Verbindung dabei ab, wird einmal mit neuer Verbindung wiederholt - Lesen aendert
+        nichts, eine Wiederholung ist also immer harmlos (Audit H7)."""
+        for attempt in range(2):
+            try:
+                with self._transaction() as cur:
+                    return query(cur)
+            except psycopg.OperationalError:
+                if attempt == 0 and self._db.is_lost():
+                    continue
+                raise
+        raise AssertionError("nicht erreichbar")
 
     def _run(
         self,
@@ -231,37 +246,53 @@ class PostgresPaperExecutor:
         order_of: Callable[[], Optional[OrderIntent]] = lambda: None,
     ) -> T:
         """Sperren -> laden -> Engine entscheidet -> Differenz und Protokoll speichern -> COMMIT.
-        `order_id`/`order_of`: die bearbeitete Order (ID vorab, Auftrag erst nach der Entscheidung bekannt)."""
-        try:
-            with self._transaction() as cur:
-                account = self._lock_account(cur)
-                halt = read_halt(cur, lock=True)  # immer NACH der Konto-Sperre (feste Reihenfolge)
-                known = self._known_order(cur, order_id) if order_id is not None else None
-                loaded = self._load(cur, account, instrument,
-                                    {order_id: known} if order_id is not None and known else {}, halt)
-                result = operation(loaded.engine)
-                new_order = None
-                order = order_of()
-                if order_id is not None and known is None and result is not None:
-                    assert isinstance(result, ExecutionResult) and order is not None
-                    assert order.client_order_id == order_id
-                    new_order = (order, result)
-                self._persist(cur, loaded, new_order)
-                return result
-        except ProtocolWriteError as exc:
-            with self._conn_lock:  # Transaktion ist zurueckgerollt; Not-Aus in eigener Transaktion
-                trip_in_new_transaction(self._conn, self._clock, HaltReason.PROTOCOL_ERROR,
-                                        "Protokoll nicht schreibbar: %s" % type(exc.__cause__).__name__)
-            raise
+        `order_id`/`order_of`: die bearbeitete Order (ID vorab, Auftrag erst nach der Entscheidung bekannt).
+
+        Wiederverbindung (Audit H7): Reisst die Verbindung ab, BEVOR die Engine entschieden hat (beim Sperren oder Laden),
+        ist nichts geschehen - dann wird genau einmal mit neuer Verbindung wiederholt. Reisst sie danach ab (auch beim
+        COMMIT), ist der Ausgang ungewiss: Der Fehler geht an den Aufrufer, die naechste Aktion verbindet neu. Eine Order
+        mit derselben ID darf er gefahrlos erneut senden - sie liefert das gespeicherte Ergebnis oder wird jetzt
+        bearbeitet, nie doppelt (Audit M7)."""
+        for attempt in range(2):
+            decided = False
+            try:
+                with self._transaction() as cur:
+                    account = self._lock_account(cur)
+                    halt = read_halt(cur, lock=True)  # immer NACH der Konto-Sperre (feste Reihenfolge)
+                    known = self._known_order(cur, order_id) if order_id is not None else None
+                    loaded = self._load(cur, account, instrument,
+                                        {order_id: known} if order_id is not None and known else {}, halt)
+                    decided = True
+                    result = operation(loaded.engine)
+                    new_order = None
+                    order = order_of()
+                    if order_id is not None and known is None and result is not None:
+                        assert isinstance(result, ExecutionResult) and order is not None
+                        assert order.client_order_id == order_id
+                        new_order = (order, result)
+                    self._persist(cur, loaded, new_order)
+                    return result
+            except ProtocolWriteError as exc:
+                with self._conn_lock:  # Transaktion ist zurueckgerollt; Not-Aus in eigener Transaktion
+                    trip_in_new_transaction(self._db.get(), self._clock, HaltReason.PROTOCOL_ERROR,
+                                            "Protokoll nicht schreibbar: %s" % type(exc.__cause__).__name__)
+                raise
+            except psycopg.OperationalError:
+                if attempt == 0 and not decided and self._db.is_lost():
+                    continue  # Verbindung war schon vor der Entscheidung weg: nichts geschehen, neu versuchen
+                raise
+        raise AssertionError("nicht erreichbar")
 
     def _require_account(self) -> None:
         """Konten legt nur ein Administrator an (Migration 005, Audit M2) - fehlt es, startet der Executor nicht."""
-        with self._transaction() as cur:
+        def exists(cur: Any) -> bool:
             cur.execute("SELECT 1 FROM accounts WHERE account_id = %s", (self._account_id,))
-            if cur.fetchone() is None:
-                raise AccountMissingError(
-                    "Konto %r existiert nicht. Anlegen nur durch einen Administrator:"
-                    " python -m trading.persistence.accounts create %s STARTKAPITAL" % (self._account_id, self._account_id))
+            return cur.fetchone() is not None
+
+        if not self._read(exists):
+            raise AccountMissingError(
+                "Konto %r existiert nicht. Anlegen nur durch einen Administrator:"
+                " python -m trading.persistence.accounts create %s STARTKAPITAL" % (self._account_id, self._account_id))
 
     def _lock_account(self, cur: Any) -> Dict[str, Any]:
         """Der Kern der Absicherung: Zeilensperre auf dem Konto bis zum Ende der Transaktion."""
