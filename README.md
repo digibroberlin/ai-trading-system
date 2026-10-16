@@ -256,6 +256,12 @@ PYTHONPATH=src python3.12 -c "from trading.persistence.ai_budget import unblock_
 AKI weist aus: KI-Aufrufe, Tokens und Kosten je Agent und Modell, je Analyse und je Signal, je Tag und Monat, KI-Kosten je
 Trade (direkt und voll umgelegt), Server-/Marktdaten-/sonstige Kosten und das **Nettoergebnis nach allen Kosten**.
 
+**Claude-Anschluss (AP-22, D-024):** `trading.ai.anthropic_provider` verbindet den Orchestrator mit der Claude-API
+(Haiku → Sonnet → Opus nur mit Wertschranke). Er ist fertig, aber **nicht eingeschaltet** und nur mit einer Attrappe
+getestet. `live_registry(...)` baut ihn erst, wenn alles zutrifft: `TRADING_AI_APPROVAL="KI-AUFRUFE FREIGEGEBEN"`,
+`ANTHROPIC_API_KEY` gesetzt (wird nie angezeigt), Paket `anthropic` installiert, Preistabelle höchstens 60 Tage alt und mit
+Preis für jede Stufe. Auch dann gilt das Budget oben: Budget 0 = kein bezahlter Aufruf.
+
 ### Neustart-Prüfung von Hand
 
 ```bash
@@ -341,11 +347,11 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
   Gebührenstufen nach Volumen gibt es als `FeeSchedule`; negative Maker-Gebühren (Rabatte) werden bewusst abgelehnt.
 * **Strategien sind nicht erforscht:** Standard-Einstellungen aus der Fachliteratur, nur auf erfundenen Daten technisch
   geprüft. Ob eine davon nach allen Kosten einen Vorteil hat, klärt erst der Forschungsrahmen (AP-18) auf getrennten
-  echten Daten (AP-20). Stop und Ziel werden auf 8 Nachkommastellen gerundet (zu Ungunsten); die echten Preis- und
-  Mengenschritte je Börse folgen mit AP-13. Kaufen-und-Halten wird analytisch gerechnet (ohne Stop – mit den
+  echten Daten (AP-20). Stop und Ziel werden auf 8 Nachkommastellen gerundet (zu Ungunsten), mit Börsenregeln auf deren Preisschritt
+  (AP-13). Kaufen-und-Halten wird analytisch gerechnet (ohne Stop – mit den
   Sicherheitsregeln wäre ein Dauer-Long nicht handelbar).
-* **KI-Budget – bewusst offene, kleinere Punkte:** Ein hängender KI-Anbieter hält gleiche Analysen bis zu 120 s auf (dann
-  Regel-Ersatz); echte Zeitlimits gehören in den Anbieter-Adapter (AP-22). Meldet ein Anbieter einen *zu kleinen*, aber nicht
+* **KI-Budget – bewusst offene, kleinere Punkte:** Der Claude-Anschluss (AP-22) bricht jeden Aufruf nach 30 s ab; gleiche
+  Analysen warten höchstens 120 s auf einen laufenden Aufruf (dann Regel-Ersatz). Meldet ein Anbieter einen *zu kleinen*, aber nicht
   leeren Verbrauch, lässt sich das ohne eigene Token-Zählung nicht erkennen (erkannt werden: kein Verbrauch, nur Ausgabe,
   0 Ausgabe-Tokens bei Text, anderes Modell, Überschreitung der Obergrenze). Lässt sich die Budget-Sperre nicht in die
   Datenbank schreiben, zahlt nur der betroffene Prozess bis zum Neustart nichts mehr.

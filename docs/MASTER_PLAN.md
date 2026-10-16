@@ -87,7 +87,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
 | AP-21 | Ereignisgesteuerte Engine: schneller Regelpfad je Marktereignis (ohne KI), KI-Agenten nur ereignisbasiert über die Aktivierungsregeln des Orchestrators (AP-32), keine Dauerschleife über alle Agenten; Start nur mit ausdrücklicher Konfiguration + Freigabe; in Tests nur mit simulierter Uhr und synthetischem Markt | Tests (Tausende Ereignisse, Fehlerfälle, Neustart, KI-Kosten je Ereignis) | ✅ D-021 |
-| AP-22 | KI-Anbieter-Anschluss (z. B. Claude über das offizielle SDK) hinter dem Orchestrator: Verbrauch aus der Anbieter-Antwort, Prompt-Caching des festen Anweisungsteils, Zeitlimit; Modellstufen billig (Haiku) → mittel (Sonnet) → teuer (Opus) nur mit Wertschranke; deterministischer Ersatz ohne KI; Preistabelle vor Einsatz prüfen | Tests mit Attrappe | ⏳ (B-004: Budget-Freigabe für echte Aufrufe) |
+| AP-22 | KI-Anbieter-Anschluss (z. B. Claude über das offizielle SDK) hinter dem Orchestrator: Verbrauch aus der Anbieter-Antwort, Prompt-Caching des festen Anweisungsteils, Zeitlimit; Modellstufen billig (Haiku) → mittel (Sonnet) → teuer (Opus) nur mit Wertschranke; deterministischer Ersatz ohne KI; Preistabelle vor Einsatz prüfen | Tests mit Attrappe | ✅ D-024 (echte Aufrufe erst mit B-004) |
 
 ### Phase G – Dashboard
 | AP | Inhalt | Abnahme | Status |

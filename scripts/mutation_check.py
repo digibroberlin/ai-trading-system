@@ -78,6 +78,7 @@ RTT = ["tests/test_runtime_engine.py"]  # Laufzeit-Engine (AP-21)
 RST = ["tests/test_research.py"]  # Forschungsrahmen (AP-18/19)
 BRT = ["tests/test_exchange_rules.py"]  # Boersenregeln (AP-13)
 BXR = "src/trading/domain/exchange_rules.py"
+ANT, ANP = ["tests/test_ai_provider.py"], "src/trading/ai/anthropic_provider.py"  # KI-Anschluss (AP-22)
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
                       "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
@@ -418,6 +419,16 @@ BACKTEST: List[Mutant] = [
  ("BR07", "Stop zu Gunsten auf den Preisschritt gerundet", [(BXR, "aufrunden).\"\"\"\n        rounding = ROUND_FLOOR if side is Side.LONG else ROUND_CEILING\n        return (stop", "aufrunden).\"\"\"\n        rounding = ROUND_CEILING if side is Side.LONG else ROUND_FLOOR\n        return (stop")], BRT),
  ("BR08", "Falsche Gebuehrenstufe", [("src/trading/execution/fees.py", "        return [t for t in self.tiers if t.min_volume_30d <= volume_30d][-1]", "        return [t for t in self.tiers if t.min_volume_30d <= volume_30d][0]")], BRT),
  ("BR09", "SORA ignoriert den Hoechsthebel der Boerse", [(SO, "                      if rules is None or lv <= rules.max_leverage]", "                      if True]")], BRT),
+ ("AN01", "KI-Anschluss ohne Freigabe des Eigners", [(ANP, "    if env.get(APPROVAL_ENV) != APPROVAL_TEXT:", "    if False:")], ANT),
+ ("AN02", "KI-Anschluss ohne Schluessel", [(ANP, "    if not api_key:\n        raise", "    if False:\n        raise")], ANT),
+ ("AN03", "Veraltete Preistabelle erlaubt", [(ANP, "    if age < 0 or age > max_age_days:", "    if age < 0:")], ANT),
+ ("AN04", "Modellstufe ohne Preis erlaubt", [(ANP, "        prices.get(target.provider, target.model)  # wirft", "        pass  # wirft")], ANT),
+ ("AN05", "SDK wiederholt Aufrufe selbst", [(ANP, "sdk.Anthropic(api_key=api_key, max_retries=0", "sdk.Anthropic(api_key=api_key, max_retries=2")], ANT),
+ ("AN06", "Abgeschnittene/verweigerte Antwort wird genutzt", [(ANP, "    if getattr(message, \"stop_reason\", None) in UNUSABLE_STOPS:", "    if False:")], ANT),
+ ("AN07", "Cache-Lese-Tokens nicht gezaehlt", [(ANP, "cache_read_tokens=_count(usage, \"cache_read_input_tokens\")", "cache_read_tokens=0")], ANT),
+ ("AN08", "Fehlender Verbrauch wird erfunden", [(ANP, "    if usage is None:\n        return NO_USAGE", "    if usage is None:\n        return TokenUsage(1, 1)")], ANT),
+ ("AN09", "Fremder Anbieter in den Modellstufen erlaubt", [(ANP, "    if any(t.provider != PROVIDER for t in routing.models.values()):", "    if False:")], ANT),
+ ("AN10", "Kein Zeitlimit je Aufruf", [(ANP, "            timeout=self._timeout,\n", "")], ANT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),
