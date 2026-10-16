@@ -217,3 +217,20 @@ Umgebung: Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
   der Prüfung zu ändern. Neu: `mutation_check.py` prüft vor dem Lauf, dass **jede** Textstelle genau einmal vorkommt, und
   bricht sonst sofort mit einer Liste ab. Die vollständige Gegenprobe aller 236 Einträge ist für AP-07 **nicht** gelaufen
   (folgt spätestens vor `stable/004`).
+
+## Nachtrag 2026-10-16 – AP-08 Wiederholte Order liefert das ursprüngliche Ergebnis (Audit M7)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-012):** Gleiche Order-ID mit gleichem Inhalt → ursprüngliches Ergebnis (`replayed=True`, Protokoll
+  `ORDER_REPLAYED`), nichts wird gehandelt. Gleiche ID mit anderem Inhalt → weiter „Duplikat“. Migration 004 speichert
+  Fingerabdruck und Position in `orders`.
+* **Tests:** neu bzw. geändert in `test_paper_executor` (Wiederholung nach Fill und nach Ablehnung, anderer Inhalt, Not-Aus,
+  Einträge ohne Ergebnis, Fingerabdruck), `test_concurrency` (16 Threads: 1 Fill + 15 Wiederholungen mit derselben Position),
+  `test_pipeline_and_agents`, `test_pg_executor` (Speicher- und DB-Executor liefern identische Ergebnisse inkl. Wiederholung),
+  `test_pg_restart` (Wiederholung nach Neustart, auch nach Funding; Alt-Einträge ohne Fingerabdruck bleiben blockiert),
+  `test_pg_multiprocess` (8 Prozesse, dieselbe ID: 1 Fill + 7 Wiederholungen, je 3×), `test_pg_schema` (neue Constraints).
+  Die bisherigen Erwartungen „Wiederholung = Duplikat“ wurden durch die strengeren neuen ersetzt (gleiche Position, genau ein Fill).
+* **Preflight:** STABIL – **806/806** Tests, 0 übersprungen. Python 3.9: 683 bestanden, 6 Datenbank-Module übersprungen (erwartet).
+* **Gegenprobe der AP-08-Einträge:** 15/15 entdeckt. Die vollständige Gegenprobe aller Einträge steht vor `stable/004` aus.
+* **Nicht geprüft:** Docker-Image-Bau; GitHub-Actions-Lauf des neuen Stands (folgt nach dem Push).

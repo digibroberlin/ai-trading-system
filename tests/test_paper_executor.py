@@ -619,13 +619,17 @@ def test_order_ids_restored_without_a_result_stay_blocked():
     assert not r.replayed and r.reasons == (R.DUPLICATE_ORDER_ID,) and env.executor.open_positions == ()
 
 
-def test_known_order_without_fingerprint_is_never_answered_as_a_repeat():
+def test_known_order_without_fingerprint_is_never_answered_as_a_repeat(monkeypatch):
     from trading.domain.models import ExecutionResult
+    from trading.execution import paper_executor
     from trading.execution.paper_executor import KnownOrder
 
     env = Env()
     unproven = ExecutionResult(OrderStatus.REJECTED, "k", (R.STALE_DATA,))
     env.executor.restore_state(env.executor.export_state(), known_orders={"k": KnownOrder(None, unproven)})
+    assert env.order("k").reasons == (R.DUPLICATE_ORDER_ID,)
+    # Auch wenn sich der neue Auftrag ebenfalls nicht darstellen laesst: "beide unbekannt" ist nie "gleich".
+    monkeypatch.setattr(paper_executor, "order_fingerprint", lambda intent: None)
     r = env.order("k")
     assert not r.replayed and r.reasons == (R.DUPLICATE_ORDER_ID,)
 

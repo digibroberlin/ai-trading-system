@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Routine (stündlicher Lauf) seit 2026-10-16 03:08 UTC für AP-08
+keine
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
@@ -19,10 +19,15 @@ gesperrt von Cloud-Routine (stündlicher Lauf) seit 2026-10-16 03:08 UTC für AP
 
 ## In Arbeit (Zwischenstand)
 
-* nichts. Nächstes Paket: **AP-08** (Order-Wiederholung liefert ursprüngliches Ergebnis, Audit M7).
+* nichts. Nächstes Paket: **AP-09** (Größe unter Konkurrenz innerhalb der Sperre neu berechnen, Audit M8).
 
 ## Zuletzt erledigt
 
+* AP-08 Wiederholte Order liefert das ursprüngliche Ergebnis (Cloud-Routine 2026-10-16 03:08–03:40 UTC, Audit M7, D-012):
+  Gleiche Order-ID mit gleichem Inhalt bekommt Status, Gründe und Position der ersten Bearbeitung (`replayed=True`,
+  Protokoll `ORDER_REPLAYED`) – auch aus anderen Prozessen und nach einem Neustart; anderer Inhalt bleibt „Duplikat“.
+  Migration 004 (Fingerabdruck + Position in `orders`). Preflight STABIL 806/806, 0 übersprungen; Python 3.9: 683 bestanden.
+  Gegenprobe der AP-08-Einträge 15/15. Volle Gegenprobe steht vor `stable/004` weiter aus.
 * AP-07 Globaler Not-Aus (interaktive Sitzung 2026-10-15; abgeschlossen von der Cloud-Routine 2026-10-16 02:08–03:10 UTC,
   nachdem deren Sperre verwaist war): dauerhaft in der Datenbank (Migration 003), automatisch bei kaputten Daten,
   Protokollfehlern und Notbremsen, Freigabe nur durch einen Administrator mit Namen und `HANDEL FREIGEBEN` (D-011).
