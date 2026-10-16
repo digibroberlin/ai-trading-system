@@ -630,3 +630,6 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
   Bericht und bricht bei fehlerhaften Daten ohne Bericht ab.
 * **Gegenprobe:** SD01–SD03 **3/3 entdeckt**.
 * **Nicht ausgeführt:** die eigentliche Untersuchung auf echten Daten (B-008).
+
+* **Preflight (D-031 + D-032 zusammen):** STABIL – **1782/1782** Tests, 0 übersprungen; Python 3.9: 1537 bestanden,
+  16 übersprungen (erwartet).

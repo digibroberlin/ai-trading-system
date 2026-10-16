@@ -28,6 +28,11 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 
 ## Zuletzt erledigt
 
+* **D-031 Funding-Sätze für Futures im Betrieb und D-032 Untersuchung auf Knopfdruck** (interaktive Cloud-Sitzung,
+  2026-10-16): Der Paper-Dienst holt nach jeder Futures-Kerze die Abrechnungen der Börse (vor der Kerze, je Position
+  höchstens einmal, Not-Aus nach 12 h ohne Abrechnung). `python -m trading.research.study` führt AP-20 mit einem
+  Befehl aus, sobald Netz da ist (B-008). Preflight STABIL 1782/1782; Python 3.9: 1537 bestanden; Gegenprobe LF01–LF07
+  7/7, SD01–SD03 3/3.
 * **AP-28 Server vorbereitet** (interaktive Cloud-Sitzung, 2026-10-16, D-030): Härtung (SSH nur Schlüssel, Firewall nur
   SSH, Updates, fail2ban) mit Aussperr-Schutz, Installation mit systemd (Start, tägliche Sicherung, Alarm alle 5 min),
   Alarm-Prüfung inkl. KI-Budget-Sperre, Serverkosten im Netto. Nur Trockenlauf; Anleitung `docs/DEPLOYMENT.md` (B-005).
