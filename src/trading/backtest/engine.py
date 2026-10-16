@@ -14,9 +14,10 @@ Warum Schritt 5 so: Die Entscheidung faellt aus dem Schlusskurs; gehandelt wird 
 den die Strategie nicht kennen konnte. So kann kein Wissen aus der Zukunft in eine Entscheidung
 fliessen, und Kursluecken zwischen Entscheidung und Ausfuehrung gehen zu Lasten des Ergebnisses.
 
-Der Entscheidungsweg ist derselbe wie im spaeteren Betrieb: Strategie (als MOMO) -> RIN -> KIBO -> YUZU
--> SORA -> Executor mit unabhaengigem Risikomanager; AKI protokolliert jeden Schritt.
-Solange KIBO und YUZU keine eigene Logik haben, laufen neutrale Platzhalter (im Ergebnis ausgewiesen).
+Der Entscheidungsweg ist derselbe wie im spaeteren Betrieb: Strategie (als MOMO) -> RIN -> SORA-Vorpruefung -> KIBO
+-> YUZU -> SORA -> Executor mit unabhaengigem Risikomanager; AKI protokolliert jeden Schritt.
+KIBO und YUZU arbeiten standardmaessig regelbasiert (AP-17); neutrale Platzhalter nur, wenn ausdruecklich uebergeben
+(im Ergebnis ausgewiesen).
 
 Reproduzierbarkeit: keine Systemuhr, kein ungesetzter Zufall, feste Reihenfolge der Instrumente.
 Gleicher Datensatz + gleiche Einstellungen + gleiche Strategie ergeben bitgleiche Ergebnisse
@@ -35,10 +36,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from trading.agents.aki import AkiAgent
 from trading.agents.contracts import MarketContext
 from trading.agents.kibo import KiboAgent
+from trading.agents.kibo_rules import RuleBasedKibo
 from trading.agents.neutral import NeutralKibo, NeutralYuzu
 from trading.agents.rin_rules import RinConfig, RuleBasedRin
 from trading.agents.sora_rules import RuleBasedSora, SizingPolicy, SoraConfig
 from trading.agents.yuzu import YuzuAgent
+from trading.agents.yuzu_rules import RuleBasedYuzu
 from trading.audit.event_log import EventLog, InMemoryEventLog
 from trading.audit.events import EventType, to_jsonable
 from trading.audit.performance import EquityPoint, PerformanceReport
@@ -205,16 +208,19 @@ class BacktestEngine:
             opening = tick.opens.get(instrument)
             return context(instrument, opening[1].open) if opening is not None else None
 
+        kibo = self._kibo or RuleBasedKibo()
+        yuzu = self._yuzu or RuleBasedYuzu()
         pipeline = TradingPipeline(
             StrategyMomo(self._strategy, clock, view),
             RuleBasedRin(TradingUniverse(frozenset(data.instruments)), clock, cfg.rin, cfg.costs),
-            self._kibo or NeutralKibo(),
-            self._yuzu or NeutralYuzu(),
+            kibo,
+            yuzu,
             RuleBasedSora(SizingPolicy.from_limits(cfg.limits), cfg.costs, cfg.sora),
             aki,
             executor,
         )
-        placeholders = tuple(name for name, agent in (("KIBO", self._kibo), ("YUZU", self._yuzu)) if agent is None)
+        placeholders = tuple(name for name, neutral in (("KIBO", isinstance(kibo, NeutralKibo)),
+                                                       ("YUZU", isinstance(yuzu, NeutralYuzu))) if neutral)
         config_fp = _digest({k: v for k, v in to_jsonable(cfg).items() if k != "label"})
         assumptions_fp = _digest((cfg.initial_equity, cfg.costs, cfg.limits))
         log.append(EventType.BACKTEST_STARTED, {

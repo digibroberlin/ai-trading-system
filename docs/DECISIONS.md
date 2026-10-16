@@ -288,3 +288,19 @@ Backtests.
 lange synthetische Läufe: Stop/Ziel auf der richtigen Seite, kein Short auf Spot, kein zweiter Einstieg; volle Pipeline:
 alles vor einem Schnitt ist identisch, ob danach Daten folgen oder nicht (kein Blick in die Zukunft), zwei Läufe bitgleich.
 **Grenzen:** Nicht optimiert, nicht als profitabel belegt (AP-18/20); Preis-/Mengenschritte je Börse folgen mit AP-13.
+
+## D-019 · 2026-10-16 · Marktphasen und regelbasierte KIBO/YUZU (AP-17)
+**Entscheidung:** `trading.analysis` (Indikatoren, Marktphasen) ist ein eigenes Paket ohne Handelslogik – Strategien und
+Agenten nutzen es, ohne voneinander abzuhängen. Marktphase: Trend nur bei gerichteter Bewegung (Kaufman-Effizienz ≥ 0,3)
+UND passender Steigung des EMA(50) UND Kurs auf dessen richtiger Seite, sonst seitwärts; Volatilität als mittlerer Rang
+der ATR-% gegenüber den letzten 100 Kerzen (≤ 0,2 ruhig, ≥ 0,8 unruhig).
+**KIBO** (Technik) lehnt hart ab: Stop im Rauschen (< 0,5 × ATR), Setup gegen einen klaren Trend (abschaltbar). **YUZU**
+(Umfeld) lehnt hart ab: ATR > 5 % je Kerze, Funding > 0,2 % je Abrechnung gegen die Position, Spread > 20 % des
+Stop-Abstands, Volumen < 30 % des Durchschnitts. Sonst Bewertung ab 0,5 mit nachvollziehbaren Zu- und Abschlägen;
+Zustimmung ab 0,35. Zu wenig Kerzen: kein Urteil (Zustimmung 0,5 mit Hinweis) – KIBO/YUZU sind Bewerter, keine
+Sicherheitsinstanz; die Sicherheit hängt unverändert an RIN, SORA, Risikomanager und Executor.
+**KI nur als Zweitmeinung** über den Kosten-Orchestrator (D-016): nur ohne harte Ablehnung, nur bei unsicherem
+Regel-Ergebnis (Sicherheit 0,5 + Abstand zur Schwelle), nur mit konfiguriertem Nutzen (Standard 0 = nie bezahlt) und
+Budget; eine Antwort zählt nur mit eindeutigem `approve` und höherer Sicherheit als die Regeln.
+**Backtest-Standard:** KIBO und YUZU regelbasiert; neutrale Platzhalter nur noch ausdrücklich (im Ergebnis ausgewiesen).
+**Grenzen:** Schwellen aus Fachliteratur und Plausibilität, nicht optimiert; Nutzen erst mit AP-18/20 belegbar.

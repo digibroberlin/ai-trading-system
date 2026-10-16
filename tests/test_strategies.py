@@ -27,7 +27,7 @@ from trading.strategies import (
     buy_and_hold,
     default_strategies,
 )
-from trading.strategies import indicators as ind
+from trading.analysis import indicators as ind
 
 D = Decimal
 HOUR = timedelta(hours=1)

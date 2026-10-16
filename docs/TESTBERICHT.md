@@ -388,3 +388,22 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 
   bestanden, 10 Datenbank-Module übersprungen (erwartet). Angepasst: Der Test der Vorführung erwartet jetzt alle Strategien
   und Kaufen-und-Halten statt der zwei alten SMA-Varianten.
 * **Nicht geprüft:** echte Marktdaten (AP-14/20); Optimierung und Überanpassung (AP-18); Börsen-Schritte (AP-13).
+
+## Nachtrag 2026-10-16 – AP-17 Marktphasen und regelbasierte KIBO/YUZU (D-019)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Nur erfundene Daten, keine echte KI.
+
+* **Neu:** `analysis/regime.py` (Trend/Seitwärts, Volatilitätsrang), `agents/kibo_rules.py`, `agents/yuzu_rules.py`,
+  `agents/ai_review.py` (KI-Zweitmeinung nur über den Orchestrator); neue Ablehnungsgründe STOP_INSIDE_NOISE,
+  AGAINST_TREND, TECHNICALS_WEAK, VOLATILITY_TOO_HIGH, FUNDING_UNFAVORABLE, LIQUIDITY_TOO_LOW, CONDITIONS_UNFAVORABLE.
+  Indikatoren nach `trading.analysis` verschoben (keine Abhängigkeit Agenten ↔ Strategien). Backtests nutzen standardmäßig
+  die echten KIBO/YUZU.
+* **Tests:** `test_kibo_yuzu` (23): Phasen (Auf-/Abwärtstrend, seitwärts, ruhig/unruhig, zu wenig Daten); KIBO (kein
+  Urteil ohne Daten, mit/gegen den Trend, Stop im Rauschen, RSI/Volumen, schwache Bewertung); YUZU (Volatilität,
+  Funding für Long/Short, überfüllte Seite, Spread, Volumeneinbruch, Scalping, Stimmung, unbrauchbare Zusatzdaten);
+  KI-Zweitmeinung mit Attrappe (unsicher → Orchestrator, Budget 0 oder Nutzen 0 → nichts bezahlt, harte Ablehnung → nie
+  KI, Antwort ohne `approve` → Regeln); voller Backtest mit allen sechs Agenten, bitgleich. Angepasst: ein Backtest-Test
+  erwartete die alten Platzhalter; neu ein Test, dass Platzhalter nur auf Wunsch laufen und ausgewiesen werden.
+* **Gegenprobe:** KY01–KY10 **10/10 entdeckt**.
+* **Preflight:** STABIL – **1451/1451** Tests, 0 übersprungen; Python 3.9: 1241 bestanden, 10 Datenbank-Module übersprungen.
+* **Nicht geprüft:** Nutzen der Filter auf echten Daten (AP-18/20); echte KI (B-004).

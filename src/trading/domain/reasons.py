@@ -66,3 +66,12 @@ class RejectReason(str, Enum):
     NO_POSITION = "NO_POSITION"
     INVALID_EXIT_REASON = "INVALID_EXIT_REASON"
     TRADING_HALTED = "TRADING_HALTED"  # globaler Not-Aus ist ausgeloest (safety/kill_switch.py)
+
+    # --- Bewertung durch KIBO (Technik) und YUZU (Marktumfeld), AP-17 ---
+    STOP_INSIDE_NOISE = "STOP_INSIDE_NOISE"  # Stop im normalen Schwanken (unter x ATR)
+    AGAINST_TREND = "AGAINST_TREND"  # gegen einen klaren Trend
+    TECHNICALS_WEAK = "TECHNICALS_WEAK"  # technische Bewertung zu schwach
+    VOLATILITY_TOO_HIGH = "VOLATILITY_TOO_HIGH"
+    FUNDING_UNFAVORABLE = "FUNDING_UNFAVORABLE"  # Funding stark gegen die Position
+    LIQUIDITY_TOO_LOW = "LIQUIDITY_TOO_LOW"  # Spread zu gross fuer den Stop oder Volumen eingebrochen
+    CONDITIONS_UNFAVORABLE = "CONDITIONS_UNFAVORABLE"  # Umfeld-Bewertung zu schwach

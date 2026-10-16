@@ -353,7 +353,7 @@ def test_every_fill_respects_all_limits_at_once_and_everything_is_logged():
     assert types[0] == "BACKTEST_STARTED" and types[-1] == "BACKTEST_FINISHED"
     assert log.verify().ok and r.events == len(types) and r.log_head == log.events()[-1].hash
     assert len(log.of_type(EventType.POSITION_CLOSED)) == len(r.trades)
-    assert r.placeholders == ("KIBO", "YUZU")
+    assert r.placeholders == ()  # KIBO und YUZU arbeiten standardmaessig regelbasiert (AP-17)
 
 
 def test_report_reconciles_and_trades_cover_long_short_spot_and_futures():
@@ -529,3 +529,12 @@ def test_the_order_in_which_series_are_supplied_does_not_matter():
     r1, _, _ = run(one, plan)
     r2, _, _ = run(two, plan)
     assert r1.result_hash == r2.result_hash and r1.log_head == r2.log_head and r1.setups_executed == 2
+
+
+def test_neutral_placeholders_only_on_request_and_then_reported():
+    from trading.agents import NeutralKibo, NeutralYuzu
+
+    ds = synthetic(days=3)
+    r = BacktestEngine(ds, Scripted({}), config(), kibo=NeutralKibo(), yuzu=NeutralYuzu()).run()
+    assert r.placeholders == ("KIBO", "YUZU") and r.summary()["placeholders"] == ("KIBO", "YUZU")
+    assert BacktestEngine(ds, Scripted({}), config(), kibo=NeutralKibo()).run().placeholders == ("KIBO",)

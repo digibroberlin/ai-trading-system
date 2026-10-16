@@ -21,7 +21,7 @@ Es gibt keinen Code, der eine echte Order senden könnte (keine Netzwerk-Bibliot
 | Konto, Positionen, Orders, Marktzustand und Protokoll in PostgreSQL; Schema-Migrationen | funktionsfähig, getestet (12 echte Prozesse gleichzeitig) |
 | Datenbank-Trigger: Protokoll unveränderlich, Gesamtrisiko und Exposure beim Commit, nur Paper-Modus | funktionsfähig, getestet |
 | Neustart: offene Paper-Positionen, Handelstag und Notbremsen bleiben erhalten | getestet |
-| Sechs Agenten | RIN, SORA, AKI regelbasiert implementiert · MOMO: Schnittstelle (im Backtest speist eine `Strategy` die Vorschläge ein) · **KIBO und YUZU: neutrale Platzhalter** |
+| Sechs Agenten | RIN, SORA, AKI, **KIBO (Technik) und YUZU (Marktumfeld)** regelbasiert implementiert (KIBO/YUZU seit AP-17, optional mit KI-Zweitmeinung über den Kosten-Orchestrator) · MOMO: Strategie-Bibliothek (AP-16) |
 | Paper Executor, unabhängiger Risikomanager, Datenprüfung, Ereignisprotokoll (Hash-Kette) | funktionsfähig, getestet |
 | Austauschbare KI-Modelle | nur Schnittstelle (kein echter Anbieter, keine Kosten) |
 | Echte historische Daten, echte Strategien, Live-Marktdaten, Börsen-Adapter, Dashboard | **noch nicht gebaut** |
@@ -251,8 +251,9 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
 
 ## Bekannte Grenzen (ehrlich)
 
-* **Keine Strategie, kein Profitnachweis.** Es existiert noch keine echte Handelslogik. Die Referenz-Strategie des Backtests
-  (gleitende Durchschnitte) ist ein Technik-Test; KIBO und YUZU sind neutrale Platzhalter, die immer zustimmen.
+* **Kein Profitnachweis.** Strategien (AP-16), KIBO und YUZU (AP-17) sind regelbasiert und technisch geprüft, aber nur
+  auf erfundenen Daten. Ob sie nach allen Kosten einen Vorteil bringen, ist offen (AP-18/20). KIBO/YUZU geben bei zu wenig
+  Kerzen (unter ~115) kein Urteil ab und halten dann nichts auf – die Sicherheit hängt an RIN, SORA und dem Risikomanager.
 * **Nur erfundene Daten.** Es gibt noch keinen Adapter für echte historische oder laufende Marktdaten.
 * **Das Stress-Limit wirkt strenger als die Exposure-Grenze** (siehe „Annahmen“): praktisch knapp 50 % Gesamtgröße.
 * **Der Stress-Test wird nur in der Anwendung gerechnet** (unter der Konto-Sperre). Die Datenbank prüft beim Commit zusätzlich
@@ -289,7 +290,7 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
   ersten Bearbeitung wird bei der Wiederholung nicht mitgeliefert (sie steht im Ereignisprotokoll). Orders aus der Zeit vor
   Migration 004 haben keinen Fingerabdruck; ihre Wiederholung wird weiter als Duplikat abgelehnt.
 * **KI ist noch nicht angeschlossen:** Orchestrierung, Budgets und Kostenmessung sind fertig und nur mit einer Attrappe getestet.
-  Einen echten Anbieter gibt es erst mit AP-22 nach Budget-Freigabe (B-004); KIBO/YUZU sind weiter neutrale Platzhalter.
+  Einen echten Anbieter gibt es erst mit AP-22 nach Budget-Freigabe (B-004); KIBO/YUZU entscheiden bis dahin rein regelbasiert.
   Ob eine KI-Analyse ihr Geld wert ist, ist **unbewiesen**, bis der Vergleich (AP-33) auf echten Daten gelaufen ist.
 * **Strategien sind nicht erforscht:** Standard-Einstellungen aus der Fachliteratur, nur auf erfundenen Daten technisch
   geprüft. Ob eine davon nach allen Kosten einen Vorteil hat, klärt erst der Forschungsrahmen (AP-18) auf getrennten

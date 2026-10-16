@@ -72,7 +72,10 @@ S6 = "db/migrations/006_ai_budget.sql"
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 STT = ["tests/test_strategies.py"]  # Strategie-Bibliothek (AP-16)
-SI, SL, SB = ("src/trading/strategies/indicators.py", "src/trading/strategies/library.py",
+KYT = ["tests/test_kibo_yuzu.py", "tests/test_backtest_engine.py"]  # Marktphasen, KIBO, YUZU (AP-17)
+KB, YZ, RG, AR = ("src/trading/agents/kibo_rules.py", "src/trading/agents/yuzu_rules.py",
+                  "src/trading/analysis/regime.py", "src/trading/agents/ai_review.py")
+SI, SL, SB = ("src/trading/analysis/indicators.py", "src/trading/strategies/library.py",
               "src/trading/strategies/benchmarks.py")
 BT_PG = BT + ["tests/test_backtest_pg.py"]
 # Schnelle Dateien zuerst: pytest bricht beim ersten Fehlschlag ab (-x), die Mehrprozess-Tests dauern am laengsten.
@@ -364,6 +367,16 @@ BACKTEST: List[Mutant] = [
  ("ST07", "Kaufen-und-Halten ohne Funding", [(SB, "                h.funding += h.quantity * value", "                h.funding += 0")], STT),
  ("ST08", "Kaufen-und-Halten ohne Ausstiegsgebuehr", [(SB, "        fee = proceeds * costs.taker_fee\n", "        fee = ZERO\n")], STT),
  ("ST09", "Scalping ohne Grenze der Haltedauer", [(SL, "        if held >= self.max_hold:", "        if False:")], STT),
+ ("KY01", "KIBO laesst Stop im Rauschen zu", [(KB, "        if abs(setup.entry - setup.stop_loss) < cfg.min_stop_atr * atr:", "        if False:")], KYT),
+ ("KY02", "KIBO laesst Setups gegen den klaren Trend zu", [(KB, "        if against and cfg.block_counter_trend:", "        if False:")], KYT),
+ ("KY03", "KI kann harte KIBO-Ablehnung aufheben", [(KB, "        if hard:\n            return AgentOpinion(AgentName.KIBO", "        if False:\n            return AgentOpinion(AgentName.KIBO")], KYT),
+ ("KY04", "KI-Antwort ohne klare Entscheidung zaehlt", [(AR, "and isinstance(answer.get(\"approve\"), bool):", "and answer.get(\"confidence\") is not None:")], KYT),
+ ("KY05", "YUZU laesst extreme Volatilitaet zu", [(YZ, "        if regime.atr_pct > cfg.max_atr_pct:", "        if False:")], KYT),
+ ("KY06", "YUZU ignoriert Funding gegen die Position", [(YZ, "            if paid > cfg.max_funding:", "            if False:")], KYT),
+ ("KY07", "YUZU ignoriert den Spread im Verhaeltnis zum Stop", [(YZ, "        if stop_distance > 0 and spread > cfg.max_spread_stop_share * stop_distance:", "        if False:")], KYT),
+ ("KY08", "Trend ohne Effizienz-Schwelle", [(RG, "    if efficiency >= config.trend_efficiency and slope > 0 and price > now:", "    if slope > 0 and price > now:")], KYT),
+ ("KY09", "Gleichstaende im Volatilitaets-Rang nicht beruecksichtigt", [(RG, " + D(sum(1 for v in earlier if v == current)) / 2)", ")")], KYT),
+ ("KY10", "Backtest nutzt wieder neutrale Platzhalter", [("src/trading/backtest/engine.py", "        kibo = self._kibo or RuleBasedKibo()", "        kibo = self._kibo or NeutralKibo()")], KYT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),

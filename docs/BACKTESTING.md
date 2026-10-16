@@ -89,7 +89,8 @@ Ein Adapter für echte Daten ist noch **nicht** gebaut (das wäre ein Netzwerkzu
   Slippage ist ein fester Wert und hängt nicht von der Ordergröße ab.
 * **Innerhalb einer Kerze ist die Reihenfolge unbekannt.** Deshalb gilt die vorsichtige Annahme „Stop zuerst“.
 * **Keine Börsenregeln je Handelspaar** (Mindestgröße, Preis- und Mengenschritte) – kommt mit den Börsen-Adaptern.
-* **KIBO und YUZU sind neutrale Platzhalter** (stimmen immer zu, ohne Urteil). Das Ergebnis nennt sie ausdrücklich.
+* **KIBO und YUZU arbeiten regelbasiert** (AP-17). Mit weniger als ~115 Kerzen Historie geben sie kein Urteil ab. Neutrale
+  Platzhalter nur, wenn ausdrücklich übergeben – das Ergebnis nennt sie dann (`placeholders`).
 * **Vereinfachte Futures-Mathematik:** isolierte Margin, einfache Liquidationsformel; bei Liquidation gilt die gesamte Margin als verloren.
 * **Ein Backtest über PostgreSQL braucht eine frische Datenbank.** Die Datenbank führt je Instrument eine einzige
   Marktzeitleiste; ein zweiter Lauf über denselben Zeitraum wird abgebrochen (getestet). Standard ist der Lauf im Speicher.

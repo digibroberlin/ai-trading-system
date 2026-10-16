@@ -23,7 +23,7 @@ from typing import List, Optional, Sequence, Tuple
 from trading.backtest.strategy import EntryProposal, ExitProposal, MarketView, Strategy, StrategyDecision
 from trading.domain.instrument import InstrumentId, MarketType
 from trading.domain.models import Candle, Horizon, Position, Side
-from trading.strategies import indicators as ind
+from trading.analysis import indicators as ind
 
 D = Decimal
 PRICE_STEP = D("0.00000001")  # Vorschlaege auf 8 Nachkommastellen; Boersen-Schritte je Instrument folgen mit AP-13
