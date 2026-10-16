@@ -295,6 +295,7 @@ class MarketStreamMonitor:
         self._failures = 0
         self._last_keepalive: Optional[datetime] = None
         self._started = clock.now()
+        self.steps = 0
         self.status = MonitorStatus()
 
     # ------------------------------------------------------------------ oeffentlich
@@ -311,6 +312,7 @@ class MarketStreamMonitor:
                 yield self._ready.popleft()
 
     def step(self) -> None:
+        self.steps += 1  # Lebenszeichen der Hauptschleife (Waechter, AP-27)
         now = self._clock.now()
         self._check_stale(now)
         if not self.status.connected:

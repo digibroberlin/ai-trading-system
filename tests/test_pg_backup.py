@@ -155,3 +155,27 @@ def test_missing_tools_are_reported(monkeypatch):
     monkeypatch.setattr(backup.subprocess, "run", missing)
     with pytest.raises(backup.BackupError, match="nicht installiert"):
         backup.tool_major("pg_dump")
+
+
+@requires_db
+@requires_tools
+def test_cycle_prunes_old_backups_only_after_a_passed_restore_test(pg, tmp_path, monkeypatch, capsys):
+    fill(pg)
+    monkeypatch.setenv("ADMIN_DATABASE_URL", pg.admin_url)
+    for stem in ("trading-20190101T000000Z", "trading-20200101T000000Z"):
+        for suffix in (".dump", ".json", ".sha256"):
+            (tmp_path / (stem + suffix)).write_text("alt")
+    real_verify = backup.verify
+    monkeypatch.setattr(backup, "verify", lambda dump, url: ["simulierter Fehler"])
+    assert backup.main(["cycle", "--out", str(tmp_path), "--keep", "1"]) == 1
+    assert (tmp_path / "trading-20190101T000000Z.dump").exists()  # nicht bestanden: nichts geloescht
+    assert (tmp_path / "trading-20200101T000000Z.dump").exists()
+    for dump in tmp_path.glob("trading-2026*"):
+        dump.unlink()  # die eben erzeugte Sicherung entfernen (sonst gleicher Zeitstempel)
+    monkeypatch.setattr(backup, "verify", real_verify)
+    assert backup.main(["cycle", "--out", str(tmp_path), "--keep", "1"]) == 0
+    assert "RUECKSPIEL-TEST: BESTANDEN" in capsys.readouterr().out
+    assert [p.name for p in tmp_path.glob("*.dump")] != ["trading-20200101T000000Z.dump"]
+    old = [tmp_path / (stem + suffix) for stem in ("trading-20190101T000000Z", "trading-20200101T000000Z")
+           for suffix in (".dump", ".json", ".sha256")]
+    assert not any(p.exists() for p in old) and len(list(tmp_path.glob("*.dump"))) == 1

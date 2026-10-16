@@ -72,7 +72,8 @@ def test_the_only_network_access_reads_public_market_data_and_sends_nothing():
     assert len(hosts) == 1 and ast.literal_eval(hosts[0].value.args[0]) == {"api.exchange.coinbase.com",
                                                                              "api.bitget.com"}
     users = sorted(str(p.relative_to(SRC)) for p in python_files() if "public_http" in p.read_text(encoding="utf-8"))
-    assert users and all(u.startswith("marketdata/") for u in users), users  # nirgends sonst (z. B. nie im Executor)
+    # nur das Marktdaten-Paket und der Paper-Dienst, der es zusammensetzt (AP-27) - nie Executor, Risiko oder Agenten
+    assert users and all(u.startswith("marketdata/") or u == "runtime/service.py" for u in users), users
 
 
 def test_no_hardcoded_credentials():

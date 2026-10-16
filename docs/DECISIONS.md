@@ -456,3 +456,22 @@ Betriebsdatenbank wird dabei nie angefasst. `prune` behält die neuesten N Siche
 **Grenzen:** Zeitplan und Ablage außerhalb des Servers kommen mit dem Betrieb (AP-27/28). Das Test-Image installiert
 `postgresql-client` aus Debian (Version 17); dieser Bauschritt ließ sich in der Cloud nicht ausführen (Proxy lässt aus
 Containern kein HTTP zu) – geprüft wird er beim nächsten `docker-compose ... run --rm tests` auf dem Mac.
+
+## D-029 · 2026-10-16 · Betrieb: Paper-Dienst, Produktions-Compose, Start/Stopp, Überwachung (AP-27)
+**Entscheidung:** `python -m trading.runtime` (`runtime/service.py`) setzt den Betrieb zusammen: Marktüberwachung
+(AP-15) → Laufzeit-Engine mit allen sechs Agenten → Paper-Executor in PostgreSQL (eingeschränkte Rolle), gemeinsamer
+Not-Aus (eine Tabelle für Monitor und Executor), Aufwärmen aus der REST-Historie **ohne zu handeln**, nur lesendes
+Dashboard mit `/api/health` und `/metrics` im selben Prozess (nur 127.0.0.1 nach außen). **Doppelte Sperre:** gehandelt
+wird nur mit `TRADING_ENGINE_ENABLED=1` UND dem Freigabetext des Eigners; sonst beendet sich der Dienst sofort mit
+Code 0 – ohne Datenbank- oder Netzzugriff – und wird nicht neu gestartet.
+**Prozessüberwachung:** Docker `restart: on-failure`; ein Wächter beendet den Prozess mit Code 3, wenn die
+Hauptschleife 15 min keinen Schritt macht (hängt) – Docker startet neu. Ein Not-Aus führt bewusst NICHT zum Neustart.
+SIGTERM/SIGINT beenden sauber (60 s Zeit). Gesundheitsprüfung von Docker über `/api/health`.
+**Compose (`docker-compose.prod.yml`):** Datenbank ohne Port nach außen, Dienst mit Nur-Lese-Dateisystem, ohne
+Linux-Sonderrechte, Protokolle rotiert; `backup` (Image-Ziel `ops` mit `postgresql-client`) führt `backup.py cycle` aus
+(sichern → Rückspiel-Test → erst dann aufräumen). Skripte `scripts/ops/start|stop|status|backup.sh`: Passwort-Datei nur
+außerhalb des Projekts und mit Rechten 600; Start = Datenbank → Sicherung → Migration → Dienst; `DRY_RUN=1` zeigt nur an.
+**Grenzen:** KI-Zweitmeinungen im Dienst nicht angeschlossen (B-004); Futures-Funding live fehlt (Futures werden dann
+blockiert); Börsenregeln echter Börsen fehlen (eigene Limits gelten). Die Images wurden in der Cloud nicht gebaut
+(Proxy lässt aus Containern kein HTTP zu); geprüft sind Compose-Schema (`docker compose config`), Skripte im
+Trockenlauf und der Dienst mit simuliertem Server und echter Datenbank.

@@ -1,0 +1,117 @@
+# Betrieb auf dem Server (AP-27, D-029) - Paper-Handel, nur nach Freigabe des Eigners.
+# Bedienung ueber die Skripte (Passwort-Datei liegt AUSSERHALB des Projekts, Rechte 600):
+#   scripts/ops/start.sh  ~/trading-secrets.env    # Datenbank, Sicherung, Migration, Dienst
+#   scripts/ops/status.sh ~/trading-secrets.env    # Zustand und /api/health
+#   scripts/ops/stop.sh   ~/trading-secrets.env    # sauber anhalten
+#   scripts/ops/backup.sh ~/trading-secrets.env    # Sicherung + Rueckspiel-Test (taeglich per Zeitplan, AP-28)
+#
+# Sicherheit:
+#  * Der Handel startet NUR mit TRADING_ENGINE_ENABLED=1 UND TRADING_ENGINE_APPROVAL="PAPER-HANDEL FREIGEGEBEN".
+#    Fehlt das, beendet sich `trader` sofort mit Code 0 und wird nicht neu gestartet (restart: on-failure).
+#  * Die Datenbank hat keinen Port nach aussen; das Dashboard nur 127.0.0.1 (von aussen per SSH-Tunnel).
+#  * `trader` kennt nur die eingeschraenkte Rolle trading_app; nur `migrate` und `backup` den Administrator.
+#  * Haengt der Dienst, beendet ihn sein Waechter (Code 3) und Docker startet ihn neu. Ein Not-Aus fuehrt NICHT zum
+#    Neustart (er ist Absicht) - /api/health meldet ihn als CRITICAL.
+name: ai-trading
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  db:
+    build: ./db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trading
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Bitte POSTGRES_PASSWORD setzen}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Bitte APP_DB_PASSWORD setzen}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    logging: *logging
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TRADING_MODE: paper
+      ADMIN_DATABASE_URL: postgresql://trading:${POSTGRES_PASSWORD:?Bitte POSTGRES_PASSWORD setzen}@db:5432/trading
+    command: ["python", "-m", "trading.persistence.migrate"]
+    logging: *logging
+
+  backup:
+    build:
+      context: .
+      target: ops
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TRADING_MODE: paper
+      ADMIN_DATABASE_URL: postgresql://trading:${POSTGRES_PASSWORD:?Bitte POSTGRES_PASSWORD setzen}@db:5432/trading
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+    volumes:
+      - ./backups:/app/backups
+    command: ["python", "scripts/backup.py", "cycle"]
+    logging: *logging
+
+  trader:
+    build:
+      context: .
+      target: runtime
+    command: ["python", "-m", "trading.runtime"]
+    restart: on-failure
+    stop_grace_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      TRADING_MODE: paper
+      DATABASE_URL: postgresql://trading_app:${APP_DB_PASSWORD:?Bitte APP_DB_PASSWORD setzen}@db:5432/trading
+      TRADING_ENGINE_ENABLED: ${TRADING_ENGINE_ENABLED:-0}
+      TRADING_ENGINE_APPROVAL: ${TRADING_ENGINE_APPROVAL:-}
+      TRADING_EXCHANGE: ${TRADING_EXCHANGE:-bitget}
+      TRADING_MARKET: ${TRADING_MARKET:-spot}
+      TRADING_SYMBOLS: ${TRADING_SYMBOLS:-BTC-USDT}
+      TRADING_INTERVAL_S: ${TRADING_INTERVAL_S:-3600}
+      TRADING_STRATEGY: ${TRADING_STRATEGY:-breakout}
+      TRADING_ACCOUNT: ${TRADING_ACCOUNT:-main}
+      AI_BUDGET_PER_CALL_USD: ${AI_BUDGET_PER_CALL_USD:-0}
+      AI_BUDGET_DAILY_USD: ${AI_BUDGET_DAILY_USD:-0}
+      AI_BUDGET_MONTHLY_USD: ${AI_BUDGET_MONTHLY_USD:-0}
+      DASHBOARD_HOST: 0.0.0.0  # im Container; nach aussen nur 127.0.0.1 (siehe ports)
+      DASHBOARD_PORT: "8000"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *logging
+
+volumes:
+  pgdata:

@@ -249,3 +249,18 @@ def test_health_with_probe_and_prometheus_metrics(source):
     assert c.post("/metrics").status_code == 405 and c.get("/metrics").headers["Cache-Control"] == "no-store"
     plain = TestClient(create_app(source, clock, push_interval_s=0.05)).get("/metrics")
     assert plain.text == "# HELP trading_up Dienst laeuft\n# TYPE trading_up gauge\ntrading_up 1\n"
+
+
+def test_dashboard_server_runs_in_a_thread_and_stops_cleanly(source):
+    import urllib.request
+
+    from trading.dashboard.server import DashboardServer
+
+    server = DashboardServer(source, None, "127.0.0.1", 0)
+    server.start()
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:%d/api/health" % server.port, timeout=5) as response:
+            assert response.status == 200
+    finally:
+        server.stop()
+    assert not server._thread.is_alive()
