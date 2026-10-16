@@ -25,6 +25,7 @@ from trading.domain.models import (
 )
 from trading.domain.reasons import RejectReason as R
 from trading.execution.costs import MONEY_QUANTUM, CostModel
+from trading.safety.kill_switch import RELEASE_CONFIRMATION, HaltReason
 from trading.safety.limits import DEFAULT_LIMITS
 
 FUTM = {"market_type": MarketType.FUTURES}
@@ -565,18 +566,85 @@ def test_closing_frees_risk_exposure_and_the_instrument():
 # ------------------------------------------------------------------ Doppel-Orders
 
 
-def test_same_order_id_is_executed_only_once():
+def test_same_order_is_executed_only_once_and_a_repeat_gets_the_original_result():
     env = Env()
-    assert env.order("dup").status is OrderStatus.FILLED
+    first = env.order("dup")
+    assert first.status is OrderStatus.FILLED and not first.replayed
+    balance = env.executor.balance
     again = env.order("dup")
-    assert again.status is OrderStatus.REJECTED and again.reasons == (R.DUPLICATE_ORDER_ID,)
-    assert len(env.executor.open_positions) == 1 and len(env.log.of_type(EventType.ORDER_FILLED)) == 1
+    assert again.replayed and again.status is OrderStatus.FILLED and again.reasons == ()
+    assert again.position == first.position and again.risk is None
+    assert env.executor.balance == balance and len(env.executor.open_positions) == 1
+    assert len(env.log.of_type(EventType.ORDER_FILLED)) == 1
+    replay = env.log.of_type(EventType.ORDER_REPLAYED)
+    assert [(e.payload["client_order_id"], e.payload["original_status"], e.payload["position_id"])
+            for e in replay] == [("dup", "filled", first.position.position_id)]
 
 
-def test_rejected_order_id_cannot_be_retried_with_same_id():
+def test_rejected_order_id_cannot_be_retried_and_a_repeat_gets_the_original_rejection():
     env = Env()
-    assert env.order("x", snap_kw={"ts": T0 - timedelta(seconds=99)}).status is OrderStatus.REJECTED
-    assert env.order("x").reasons == (R.DUPLICATE_ORDER_ID,)
+    first = env.order("x", snap_kw={"ts": T0 - timedelta(seconds=99)})
+    assert first.status is OrderStatus.REJECTED and R.STALE_DATA in first.reasons
+    again = env.order("x", snap_kw={"ts": T0 - timedelta(seconds=99)})  # gleicher Auftrag, auch mit frischen Daten
+    fresh = env.order("x")
+    for r in (again, fresh):
+        assert r.replayed and r.status is OrderStatus.REJECTED and r.reasons == first.reasons and r.position is None
+    assert env.executor.open_positions == ()
+
+
+def test_same_order_id_with_different_content_is_rejected_as_duplicate():
+    env = Env()
+    first = env.order("dup")
+    for changed in (env.order("dup", qty=D(39)), env.order("dup", lev=D(2)), env.order("dup", stop=D(94))):
+        assert not changed.replayed and changed.status is OrderStatus.REJECTED
+        assert changed.reasons == (R.DUPLICATE_ORDER_ID,) and changed.position is None
+    assert env.executor.open_positions == (first.position,)
+    assert len(env.log.of_type(EventType.ORDER_REPLAYED)) == 0
+
+
+def test_repeat_is_answered_even_while_the_kill_switch_is_active():
+    env = Env()
+    first = env.order("dup")
+    env.executor.halt("Test")
+    again = env.order("dup")
+    assert again.replayed and again.position == first.position
+    assert env.order("new", symbol="ETH-USD", snap_kw={"symbol": "ETH-USD"}).reasons == (R.TRADING_HALTED,)
+
+
+def test_order_ids_restored_without_a_result_stay_blocked():
+    env = Env()
+    state = env.executor.export_state()
+    env.executor.restore_state(state, ("old",))
+    r = env.order("old")
+    assert not r.replayed and r.reasons == (R.DUPLICATE_ORDER_ID,) and env.executor.open_positions == ()
+
+
+def test_known_order_without_fingerprint_is_never_answered_as_a_repeat(monkeypatch):
+    from trading.domain.models import ExecutionResult
+    from trading.execution import paper_executor
+    from trading.execution.paper_executor import KnownOrder
+
+    env = Env()
+    unproven = ExecutionResult(OrderStatus.REJECTED, "k", (R.STALE_DATA,))
+    env.executor.restore_state(env.executor.export_state(), known_orders={"k": KnownOrder(None, unproven)})
+    assert env.order("k").reasons == (R.DUPLICATE_ORDER_ID,)
+    # Auch wenn sich der neue Auftrag ebenfalls nicht darstellen laesst: "beide unbekannt" ist nie "gleich".
+    monkeypatch.setattr(paper_executor, "order_fingerprint", lambda intent: None)
+    r = env.order("k")
+    assert not r.replayed and r.reasons == (R.DUPLICATE_ORDER_ID,)
+
+
+def test_order_fingerprint_covers_the_whole_intent():
+    from trading.execution.paper_executor import order_fingerprint
+
+    base = OrderIntent("a", make_setup("a"), D(40), D(1))
+    assert order_fingerprint(base) == order_fingerprint(OrderIntent("a", make_setup("a"), D(40), D(1)))
+    variants = [OrderIntent("b", base.setup, D(40), D(1)), OrderIntent("a", base.setup, D(41), D(1)),
+                OrderIntent("a", base.setup, D(40), D(2)), OrderIntent("a", make_setup("a", tp=D(111)), D(40), D(1)),
+                OrderIntent("a", make_setup("a", symbol="ETH-USD"), D(40), D(1))]
+    assert len({order_fingerprint(v) for v in variants} | {order_fingerprint(base)}) == 6
+    assert order_fingerprint(OrderIntent("a", base.setup, D("NaN"), D(1))) is None
+    assert order_fingerprint(object()) is None
 
 
 def test_second_position_in_same_instrument_is_blocked():
@@ -687,20 +755,27 @@ def test_stale_valuation_of_an_open_position_blocks_new_trades_until_refreshed()
     assert small_order(env, "d", "SOL-USD").status is OrderStatus.FILLED
 
 
-def test_daily_loss_kill_switch_stops_trading_then_resets_next_day():
+def test_daily_loss_brake_halts_trading_until_deliberate_release():
+    """Tagesverlust >= 3 % loest den Not-Aus aus. Er bleibt auch am naechsten Tag bestehen (AP-07, strenger als frueher:
+    vorher loeste sich die Bremse um Mitternacht von selbst) - bis ein Mensch ihn bewusst freigibt."""
     env = Env()
     blocked_at = None
     for i in range(10):
         r = env.order("t%d" % i)
         if r.status is OrderStatus.REJECTED:
             blocked_at = i
-            assert r.reasons == (R.DAILY_LOSS_LIMIT,)
+            assert r.reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
             break
         env.feed(make_candle(env.clock.now(), D(100), D(100), D(98), D(98.5)))  # Stop wird ausgeloest
         env.clock.advance(120)
     assert blocked_at == 7  # 7 Verluste a 0,448 % = 3,13 % >= 3 %
+    assert env.executor.halt_status().reason is HaltReason.DAILY_LOSS
+    assert [e.payload["reason"] for e in env.log.of_type(EventType.HALT_ACTIVATED)] == ["DAILY_LOSS"]
     env.clock.set(T0 + timedelta(days=1))
-    assert env.order("next-day").status is OrderStatus.FILLED
+    assert env.order("next-day").reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
+    env.executor.release_halt("Eigner", RELEASE_CONFIRMATION)
+    assert env.order("after-release").status is OrderStatus.FILLED
+    assert env.log.of_type(EventType.HALT_RELEASED)[0].payload["operator"] == "Eigner"
 
 
 def test_clock_going_backwards_does_not_reset_the_daily_loss_limit():
@@ -712,7 +787,7 @@ def test_clock_going_backwards_does_not_reset_the_daily_loss_limit():
         env.clock.advance(120)
     env.clock.set(env.clock.now() - timedelta(days=1))
     r = env.order("after", symbol="ETH-USD", snap_kw={"symbol": "ETH-USD"})
-    assert r.reasons == (R.DAILY_LOSS_LIMIT,)
+    assert r.reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
     assert env.executor.portfolio_state().day_start_equity == D(10000)
 
 
@@ -729,10 +804,16 @@ def test_peak_equity_never_falls_and_drawdown_limit_blocks():
     state = dataclasses.replace(Env().executor.export_state(), peak_equity=D("11112"))
     dd = Env()
     dd.executor.restore_state(state)
-    assert dd.order("x").reasons == (R.DRAWDOWN_LIMIT,)
+    assert dd.order("x").reasons == (R.TRADING_HALTED, R.DRAWDOWN_LIMIT)
+    assert dd.executor.halt_status().reason is HaltReason.DRAWDOWN
+    # Gemessen wird am Zustand NACH der Order (Gebuehr 2,40): 9 997,60 gegen den Hoechststand.
     ok = Env()
-    ok.executor.restore_state(dataclasses.replace(state, peak_equity=D("11111")))  # 9,99 %
+    ok.executor.restore_state(dataclasses.replace(state, peak_equity=D("11108")))  # 9,996 % nach der Order
     assert ok.order("x").status is OrderStatus.FILLED
+    edge = Env()
+    edge.executor.restore_state(dataclasses.replace(state, peak_equity=D("11109")))  # 9,98 % vorher, 10,0004 % danach
+    assert edge.order("x").reasons == (R.DRAWDOWN_LIMIT,)  # die Order selbst wuerde die Grenze reissen: abgelehnt
+    assert not edge.executor.halt_status().halted  # ... aber kein Not-Aus, denn ausgefuehrt wurde nichts
 
 
 # ------------------------------------------------------------------ M5: keine halben Zustaende, kein Handel ohne Protokoll
@@ -754,9 +835,12 @@ def test_failed_logging_rolls_the_order_back_completely():
     with pytest.raises(OSError):
         env.order("x")
     assert env.executor.open_positions == () and env.executor.balance == D(10000) and log.events() == ()
+    # Protokollfehler -> Not-Aus (AP-07): ohne bewusste Freigabe keine neue Position.
+    assert env.executor.halt_status().reason is HaltReason.PROTOCOL_ERROR
     log.fail = False
+    env.executor.release_halt("Eigner", RELEASE_CONFIRMATION)
     assert env.order("x").status is OrderStatus.FILLED  # die Order-ID wurde nicht verbraucht
-    assert [e.event_type for e in log.events()] == ["ORDER_FILLED"]
+    assert [e.event_type for e in log.events()] == ["HALT_RELEASED", "ORDER_FILLED"]
 
 
 def test_failed_logging_rolls_back_exits_funding_and_closes():
@@ -899,3 +983,25 @@ def test_closing_on_signal_updates_the_last_known_price():
     assert close(env, mid=D(101), half_spread=D("0.05")).closed
     mark = env.executor.export_state().marks[inst("BTC-USD", MarketType.SPOT)]
     assert (mark.price, mark.time) == (D(101), env.clock.now())
+
+
+# ------------------------------------------------------------------ Groesse unter der Sperre (Audit M8)
+
+
+def _intent(oid, symbol):
+    return OrderIntent(oid, make_setup(oid, symbol=symbol), D(9), D(1))
+
+
+def test_submit_sized_passes_the_current_state_and_rejects_a_foreign_order_id():
+    env = Env()
+    seen = []
+    first = _intent("a", "AAA-USD")
+    res = env.executor.submit_sized("a", env.snap(symbol="AAA-USD"), lambda st: seen.append(st) or first)
+    assert res.status is OrderStatus.FILLED and seen[0].open_count == 0
+    before = env.executor.export_state()
+    with pytest.raises(ValueError):
+        env.executor.submit_sized("b", env.snap(symbol="BBB-USD"),
+                                  lambda st: _intent("x", "BBB-USD"))
+    assert env.executor.export_state() == before and len(env.log.of_type(EventType.ORDER_FILLED)) == 1
+    assert env.executor.submit_sized("c", env.snap(symbol="CCC-USD"), lambda st: None) is None
+    assert env.executor.export_state() == before

@@ -21,19 +21,27 @@ Modellannahmen - im Zweifel immer zu Ungunsten des Haendlers:
   jedes Ereignis je Position hoechstens einmal.
 * Jede Operation ist unteilbar: Schlaegt unterwegs etwas fehl (auch das Protokoll), wird der Zustand
   vollstaendig zurueckgesetzt. Es gibt keinen Handel ohne Protokolleintrag.
+* Globaler Not-Aus (safety/kill_switch.py): Ist er ausgeloest, wird keine Position eroeffnet; Schliessen bleibt moeglich.
+  Der Executor loest ihn selbst aus bei formal fehlerhaften Marktdaten, bei einem Protokollfehler und bei den
+  Notbremsen Tagesverlust/Drawdown. Ist sein Zustand nicht lesbar, gilt der Handel als gestoppt.
+* Jede Order-ID wird hoechstens EINMAL bearbeitet. Kommt dieselbe Order (gleiche ID, gleicher Inhalt) erneut - etwa
+  weil der Absender nach einem Zeitlimit oder Neustart nicht weiss, ob sie ankam -, wird das urspruengliche Ergebnis
+  geliefert (`replayed=True`), ohne erneut zu handeln. Gleiche ID mit ANDEREM Inhalt wird als Duplikat abgelehnt.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import functools
+import hashlib
+import json
 import threading
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, TypeVar, cast
 
 from trading.audit.event_log import EventLog
-from trading.audit.events import EventType
+from trading.audit.events import EventType, to_jsonable
 from trading.clock import Clock
 from trading.config import TradingMode
 from trading.domain.instrument import InstrumentId, MarketType, is_instrument
@@ -58,12 +66,22 @@ from trading.domain.reasons import RejectReason
 from trading.execution.costs import cost_up, gain_down
 from trading.marketdata.candles import candle_problems, is_aware
 from trading.safety.data_validator import FUTURE_TOLERANCE_S, SnapshotValidator
-from trading.safety.order_risk import is_beyond, position_stress_loss
+from trading.safety.kill_switch import HaltReason, HaltStatus, InMemoryKillSwitch, KillSwitch, check_release, clean_note
+from trading.safety.order_risk import brake_reasons_for, is_beyond, position_stress_loss
 from trading.safety.risk_manager import RiskManager
 
 ZERO = Decimal(0)
 F = TypeVar("F", bound=Callable[..., Any])
 _REQUESTED_EXITS = (ExitReason.SIGNAL, ExitReason.MANUAL)
+# Formal kaputte Daten deuten auf eine gestoerte Quelle oder Uhr -> Not-Aus. Doppelte/aeltere Kerzen dagegen sind bei
+# Wiederholungen (z. B. nach einem Neustart) normal; zu weite Spreads, Spruenge, veraltete Kurse sind Marktlagen - sie
+# blockieren nur die einzelne Order.
+FORMAL_DATA_ERRORS = frozenset({
+    RejectReason.NAIVE_TIMESTAMP, RejectReason.FUTURE_TIMESTAMP, RejectReason.MISSING_DATA,
+    RejectReason.NON_FINITE_VALUE, RejectReason.NON_POSITIVE_PRICE, RejectReason.CROSSED_BOOK,
+    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED, RejectReason.BAD_FUNDING,
+})
+_HALT_REJECT = {HaltReason.DAILY_LOSS: RejectReason.DAILY_LOSS_LIMIT, HaltReason.DRAWDOWN: RejectReason.DRAWDOWN_LIMIT}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -78,6 +96,31 @@ class ExecutorState:
     day: date
     day_start_equity: Decimal
     position_counter: int
+
+
+@dataclasses.dataclass(frozen=True)
+class KnownOrder:
+    """Eine bereits bearbeitete Order: Fingerabdruck des Auftrags und das urspruengliche Ergebnis.
+    Ist eines davon unbekannt (`None`, z. B. Eintraege aus der Zeit vor Migration 004), wird eine Wiederholung
+    abgelehnt - ein Ergebnis, das sich nicht belegen laesst, wird nie behauptet."""
+
+    fingerprint: Optional[str]
+    result: Optional[ExecutionResult]
+
+
+def order_fingerprint(intent: Any) -> Optional[str]:
+    """SHA-256 ueber den vollstaendigen Auftrag (ID, Setup, Menge, Hebel) in kanonischer Textform.
+    Nur ein Auftrag mit genau diesem Fingerabdruck gilt als Wiederholung. Nicht darstellbar -> None (nie gleich)."""
+    try:
+        text = json.dumps(to_jsonable(intent), sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                          allow_nan=False)
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# Rechnet aus dem Portfolio-Zustand den Auftrag (oder None = nicht handeln). Wird unter der Sperre aufgerufen.
+Sizer = Callable[[PortfolioState], Optional[OrderIntent]]
 
 
 def _locked(fn: F) -> F:
@@ -102,19 +145,29 @@ def _atomic(fn: F) -> F:
 
     @functools.wraps(fn)
     def wrapper(self: "PaperExecutor", *args: Any, **kwargs: Any) -> Any:
-        with self._lock:
+        # Auch den (evtl. geteilten) Not-Aus fuer die ganze Operation halten: Sonst koennte ein anderer Executor ihn
+        # zwischen "Not-Aus geprueft" und "Position eingetragen" ausloesen. Reihenfolge immer: Executor, dann Not-Aus.
+        with self._lock, self._halt.hold():
             backup = self._backup()
             self._pending = []
             self._new_order_ids = []
+            self._in_atomic = True
             try:
                 result = fn(self, *args, **kwargs)
-                for event_type, payload in self._pending:
-                    self._log.append(event_type, payload)
+                try:
+                    for event_type, payload in self._pending:
+                        self._log.append(event_type, payload)
+                except Exception as exc:
+                    # Protokoll nicht schreibbar: Operation verwerfen UND Not-Aus (ohne Protokolleintrag - es ist ja kaputt).
+                    self._restore(backup)
+                    self._trip_silently(HaltReason.PROTOCOL_ERROR, "Protokoll nicht schreibbar: %s" % type(exc).__name__)
+                    raise
                 return result
             except BaseException:
                 self._restore(backup)
                 raise
             finally:
+                self._in_atomic = False
                 self._pending = []
                 self._new_order_ids = []
 
@@ -131,6 +184,7 @@ class PaperExecutor:
         validator: SnapshotValidator,
         event_log: EventLog,
         clock: Clock,
+        kill_switch: Optional[KillSwitch] = None,
     ) -> None:
         if not is_positive_decimal(initial_equity):
             raise ValueError("Startkapital muss eine positive Decimal-Zahl sein.")
@@ -143,12 +197,19 @@ class PaperExecutor:
         self._lock = threading.RLock()
         self._pending: List[Tuple[EventType, Any]] = []
         self._new_order_ids: List[str] = []  # in der laufenden Operation neu vermerkte Order-IDs
+        self._in_atomic = False
+        # Ohne geteilten Not-Aus gilt ein eigener (nur fuer diesen Executor). Mehrere Executoren eines Prozesses
+        # teilen sich EIN Objekt; mehrere Prozesse teilen ihn ueber die Datenbank (persistence/pg_executor.py).
+        self._halt: KillSwitch = kill_switch if kill_switch is not None else InMemoryKillSwitch(clock)
+        # Ist der gemeinsame Not-Aus nicht schreibbar, stoppt wenigstens dieser Executor (fail closed) - ohne dass
+        # deswegen ein Stop-Loss oder eine Schliessung scheitert.
+        self._local_halt: Optional[HaltStatus] = None
 
         self._balance = initial_equity
         self._positions: Dict[InstrumentId, Position] = {}
         self._marks: Dict[InstrumentId, Mark] = {}
         self._last_candle_close: Dict[InstrumentId, datetime] = {}
-        self._seen_order_ids: Set[str] = set()
+        self._known_orders: Dict[str, KnownOrder] = {}
         self._closed: List[ClosedTrade] = []
         self._position_counter = 0
         self._peak_equity = initial_equity
@@ -171,9 +232,15 @@ class PaperExecutor:
         )
 
     @_locked
-    def restore_state(self, state: ExecutorState, seen_order_ids: Tuple[str, ...] = ()) -> None:
+    def restore_state(
+        self,
+        state: ExecutorState,
+        seen_order_ids: Tuple[str, ...] = (),
+        known_orders: Optional[Mapping[str, KnownOrder]] = None,
+    ) -> None:
         """Stellt einen gespeicherten Zustand wieder her (Neustart / Laden aus der Datenbank).
-        `seen_order_ids`: bereits bekannte Order-IDs (Doppel-Order-Schutz)."""
+        `seen_order_ids`: bereits bearbeitete Order-IDs ohne bekanntes Ergebnis (Wiederholung wird abgelehnt).
+        `known_orders`: bereits bearbeitete Orders MIT Ergebnis (Wiederholung liefert dieses Ergebnis)."""
         self._balance = state.balance
         self._positions = {p.instrument: p for p in state.positions}
         self._marks = dict(state.marks)
@@ -182,7 +249,8 @@ class PaperExecutor:
         self._day = state.day
         self._day_start_equity = state.day_start_equity
         self._position_counter = state.position_counter
-        self._seen_order_ids = set(seen_order_ids)
+        self._known_orders = {oid: KnownOrder(None, None) for oid in seen_order_ids}
+        self._known_orders.update(known_orders or {})
         self._closed = []
 
     def _backup(self) -> Tuple[Any, ...]:
@@ -197,7 +265,8 @@ class PaperExecutor:
          closed_len, self._position_counter, self._peak_equity, self._day, self._day_start_equity,
          validator_state) = backup
         del self._closed[closed_len:]
-        self._seen_order_ids.difference_update(self._new_order_ids)
+        for oid in self._new_order_ids:
+            self._known_orders.pop(oid, None)
         self._validator.replace_state(validator_state)
 
     def _emit(self, event_type: EventType, payload: Any) -> None:
@@ -228,6 +297,34 @@ class PaperExecutor:
     @_locked
     def portfolio_state(self) -> PortfolioState:
         now = self._clock.now()
+        unrealized, exposure, stress, margin_used, open_risk, complete = self._valuate(now)
+        equity = self._balance + unrealized
+        if now.date() > self._day:
+            # Tageswechsel: Was seit der letzten Bewertung verloren ging, zaehlt noch zum ALTEN Tag (konservativ) -
+            # sonst fiele z. B. der Verlust der Kerze, die um Mitternacht schliesst, aus der Tagesbremse heraus.
+            self._check_brakes(equity, self._day_start_equity, max(self._peak_equity, equity))
+        self._roll_day(now.date(), equity)
+        self._peak_equity = max(self._peak_equity, equity)
+        state = PortfolioState(
+            balance=self._balance,
+            unrealized_pnl=unrealized,
+            equity=equity,
+            # Unrealisierte Gewinne zaehlen NICHT als freie Margin, Verluste schon (konservativ).
+            free_margin=self._balance - margin_used + min(unrealized, ZERO),
+            day_start_equity=self._day_start_equity,
+            peak_equity=self._peak_equity,
+            open_risk=open_risk,
+            open_count=len(self._positions),
+            open_keys=frozenset(self._positions),
+            gross_exposure=exposure,
+            stress_loss=stress,
+            valuation_complete=complete,
+        )
+        self._check_brakes(equity, self._day_start_equity, self._peak_equity)
+        return state
+
+    def _valuate(self, now: datetime) -> Tuple[Decimal, Decimal, Decimal, Decimal, Decimal, bool]:
+        """(unrealisiert, Exposure, Stress-Verlust, gebundene Margin, offenes Risiko, Bewertung vollstaendig)."""
         unrealized = exposure = stress = margin_used = open_risk = ZERO
         complete = True
         for p in self._positions.values():
@@ -243,38 +340,148 @@ class PaperExecutor:
             )
             margin_used += p.margin
             open_risk += p.remaining_risk
-        equity = self._balance + unrealized
-        self._roll_day(now.date(), equity)
-        self._peak_equity = max(self._peak_equity, equity)
-        return PortfolioState(
-            balance=self._balance,
-            unrealized_pnl=unrealized,
-            equity=equity,
-            # Unrealisierte Gewinne zaehlen NICHT als freie Margin, Verluste schon (konservativ).
-            free_margin=self._balance - margin_used + min(unrealized, ZERO),
-            day_start_equity=self._day_start_equity,
-            peak_equity=self._peak_equity,
-            open_risk=open_risk,
-            open_count=len(self._positions),
-            open_keys=frozenset(self._positions),
-            gross_exposure=exposure,
-            stress_loss=stress,
-            valuation_complete=complete,
-        )
+        return unrealized, exposure, stress, margin_used, open_risk, complete
+
+    def _check_brakes(self, equity: Decimal, day_start: Decimal, peak: Decimal) -> None:
+        """Notbremse -> Not-Aus (bleibt bis zur bewussten Freigabe). Gleiche Definition wie in der Risikopruefung."""
+        for brake in brake_reasons_for(equity, day_start, peak, self._limits):
+            self._trip(HaltReason.DAILY_LOSS if brake is RejectReason.DAILY_LOSS_LIMIT else HaltReason.DRAWDOWN,
+                       "Equity %s, Tagesbeginn %s, Hoechststand %s" % (equity, day_start, peak))
+
+    # ------------------------------------------------------------------ Not-Aus
+
+    def halt_status(self) -> HaltStatus:
+        """Zustand des Not-Aus. Nicht lesbar = gestoppt (fail closed)."""
+        if self._local_halt is not None:
+            return self._local_halt
+        try:
+            status = self._halt.status()
+        except Exception as exc:  # z. B. Datenbank nicht erreichbar
+            return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)
+        return status if isinstance(status, HaltStatus) else HaltStatus(True, None, None, "Not-Aus ungueltig")
+
+    @_atomic
+    def halt(self, note: str = "") -> bool:
+        """Not-Aus von Hand. Rueckgabe: True, wenn er dadurch neu ausgeloest wurde."""
+        return self._trip(HaltReason.MANUAL, note)
+
+    @_atomic
+    def release_halt(self, operator: str, confirmation: str) -> None:
+        """Hebt den Not-Aus bewusst auf (Name + Bestaetigungstext, siehe kill_switch.RELEASE_CONFIRMATION).
+
+        Die Freigabe nimmt den bisherigen Verlust bewusst hin: Tagesbeginn und Hoechststand der Notbremsen werden auf
+        die aktuelle Equity gesetzt. Sonst loeste dieselbe Bremse sofort wieder aus, und nach einem Drawdown waere eine
+        Freigabe nie moeglich (Audit M14). Gemessen wird ab jetzt neu - mit denselben Grenzen.
+        (Teilen sich mehrere Executoren einen Schalter, gilt das nur fuer diesen; die anderen loesen bei eigener
+        Grenzverletzung wieder aus.)"""
+        name = check_release(operator, confirmation)
+        before = self.halt_status()
+        self._halt.release(name, confirmation)
+        self._local_halt = None
+        now = self._clock.now()
+        equity = self._balance + self._valuate(now)[0]
+        self._day, self._day_start_equity, self._peak_equity = now.date(), equity, equity
+        self._emit(EventType.HALT_RELEASED, {"operator": name, "previous_reason": before.reason,
+                                             "previous_since": before.since, "rearmed_at_equity": equity})
+
+    def _trip(self, reason: HaltReason, note: str) -> bool:
+        """Loest den Not-Aus aus und protokolliert das (nur beim ersten Ausloesen)."""
+        try:
+            newly = self._halt.trip(reason, note)
+        except Exception as exc:  # gemeinsamer Not-Aus nicht schreibbar: wenigstens hier stoppen, Schliessen nicht abbrechen
+            newly = self._local_halt is None
+            if newly:
+                note = "%s (gemeinsamer Not-Aus nicht schreibbar: %s)" % (note, type(exc).__name__)
+                self._local_halt = HaltStatus(True, reason, self._clock.now(), clean_note(note))
+        if not newly:
+            return False
+        payload = {"reason": reason, "note": note}
+        if self._in_atomic:
+            self._emit(EventType.HALT_ACTIVATED, payload)
+        else:
+            self._log.append(EventType.HALT_ACTIVATED, payload)
+        return True
+
+    def _trip_silently(self, reason: HaltReason, note: str) -> None:
+        try:
+            self._halt.trip(reason, note)
+        except Exception:  # noqa: BLE001 - der urspruengliche Fehler wird ohnehin weitergereicht
+            if self._local_halt is None:
+                self._local_halt = HaltStatus(True, reason, self._clock.now(), clean_note(note))
+
+    def _halted_reasons(self) -> Optional[Tuple[RejectReason, ...]]:
+        status = self.halt_status()
+        if not status.halted:
+            return None
+        extra = _HALT_REJECT.get(status.reason) if status.reason is not None else None
+        return (RejectReason.TRADING_HALTED,) + ((extra,) if extra is not None else ())
+
+    def _check_data(self, reasons: Any) -> None:
+        bad = sorted(r.value for r in reasons if r in FORMAL_DATA_ERRORS)
+        if bad:
+            self._trip(HaltReason.DATA_ERROR, "fehlerhafte Marktdaten: %s" % ", ".join(bad))
 
     # ------------------------------------------------------------------ Orders
 
     @_atomic
     def submit(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
         """Fuehrt eine Order aus - oder lehnt sie begruendet ab. Beides wird protokolliert."""
+        return self._submit_intent(intent, snapshot)
+
+    @_atomic
+    def submit_sized(
+        self, client_order_id: str, snapshot: MarketSnapshot, sizer: Sizer
+    ) -> Optional[ExecutionResult]:
+        """Groesse UNTER DER SPERRE bestimmen und sofort ausfuehren (Audit M8).
+
+        `sizer` bekommt den Portfolio-Zustand, der in derselben unteilbaren Operation auch geprueft wird, und liefert
+        den Auftrag - oder None (dann wird nichts gehandelt, Rueckgabe None). So rechnet SORA nie mit einem Zustand,
+        den ein anderer Prozess inzwischen veraendert hat: Ein kleiner gewordenes Restbudget fuehrt zu einer
+        kleineren Position statt zu einer Ablehnung. Der unabhaengige Risikomanager prueft danach wie bei `submit`."""
+        intent = sizer(self.portfolio_state())
+        if intent is None:
+            return None
+        if not isinstance(intent, OrderIntent) or intent.client_order_id != client_order_id:
+            raise ValueError("Der Auftrag gehoert nicht zur angefragten Order-ID.")  # fail closed: alles zurueck
+        return self._submit_intent(intent, snapshot)
+
+    def _submit_intent(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
+        # 1. Doppel-Order-Schutz: jede client_order_id wird hoechstens EINMAL bearbeitet, auch wenn die erste
+        #    Bearbeitung abgelehnt wurde (ein neuer Versuch braucht eine neue ID). Eine Wiederholung bekommt das
+        #    urspruengliche Ergebnis - so erkennt ein Absender nach einem Zeitlimit, was wirklich geschehen ist.
+        if intent.client_order_id in self._known_orders:
+            return self._repeat(intent, self._known_orders[intent.client_order_id])
+        self._new_order_ids.append(intent.client_order_id)
+        result = self._submit_new(intent, snapshot)
+        # Ohne Risikobewertung gespeichert: Eine Wiederholung liefert in Speicher und Datenbank dasselbe.
+        self._known_orders[intent.client_order_id] = KnownOrder(
+            order_fingerprint(intent), dataclasses.replace(result, risk=None))
+        return result
+
+    def _repeat(self, intent: OrderIntent, known: KnownOrder) -> ExecutionResult:
+        """Wiederholte Order-ID: nichts handeln. Gleicher Inhalt -> urspruengliches Ergebnis, sonst Duplikat."""
+        fingerprint = order_fingerprint(intent)
+        if known.result is None or known.fingerprint is None or fingerprint != known.fingerprint:
+            return self._reject(intent, (RejectReason.DUPLICATE_ORDER_ID,), None)
+        original = known.result
+        self._emit(
+            EventType.ORDER_REPLAYED,
+            {
+                "client_order_id": intent.client_order_id,
+                "original_status": original.status,
+                "original_reasons": original.reasons,
+                "position_id": original.position.position_id if original.position is not None else None,
+            },
+        )
+        return dataclasses.replace(original, risk=None, replayed=True)
+
+    def _submit_new(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
         setup = intent.setup
 
-        # 1. Doppel-Order-Schutz: jede client_order_id wird hoechstens EINMAL bearbeitet,
-        #    auch wenn die erste Bearbeitung abgelehnt wurde (Wiederholung braucht neue ID).
-        if intent.client_order_id in self._seen_order_ids:
-            return self._reject(intent, (RejectReason.DUPLICATE_ORDER_ID,), None)
-        self._seen_order_ids.add(intent.client_order_id)
-        self._new_order_ids.append(intent.client_order_id)
+        # 1b. Globaler Not-Aus: keine neue Position, egal was die Pruefungen danach sagen wuerden.
+        halted = self._halted_reasons()
+        if halted is not None:
+            return self._reject(intent, halted, None)
 
         # 2. Marktdaten muessen zu genau diesem Instrument gehoeren und gueltig sein.
         if not is_instrument(setup.instrument) or not isinstance(setup.side, Side):
@@ -283,14 +490,17 @@ class PaperExecutor:
             return self._reject(intent, (RejectReason.SYMBOL_MISMATCH,), None)
         validation = self._validator.validate(snapshot)
         if not validation.ok:
+            self._check_data(validation.reasons)
             return self._reject(intent, validation.reasons, None)
         self._marks[snapshot.instrument] = Mark(snapshot.mid, snapshot.timestamp)
 
         # 3. Unabhaengige Risikopruefung auf Basis des realistischen Einstiegskurses.
         quote = self._costs.quote(setup.side, snapshot)
-        decision = self._risk.evaluate(
-            setup, intent.quantity, intent.leverage, quote, self.portfolio_state()
-        )
+        state = self.portfolio_state()  # kann eine Notbremse und damit den Not-Aus ausloesen
+        halted = self._halted_reasons()
+        if halted is not None:
+            return self._reject(intent, halted, None)
+        decision = self._risk.evaluate(setup, intent.quantity, intent.leverage, quote, state)
         if not decision.approved:
             return self._reject(intent, decision.reasons, decision)
 
@@ -361,6 +571,7 @@ class PaperExecutor:
             return refuse(RejectReason.SYMBOL_MISMATCH)
         validation = self._validator.validate(snapshot)
         if not validation.ok:
+            self._check_data(validation.reasons)
             return refuse(*validation.reasons)
         self._marks[instrument] = Mark(snapshot.mid, snapshot.timestamp)
         price = self._costs.market_exit_price(position.side, snapshot)
@@ -389,6 +600,7 @@ class PaperExecutor:
                 )
         if problems:
             self._emit(EventType.DATA_REJECTED, _describe_rejected("candle", candle, problems))
+            self._check_data(problems)
             return []
 
         instrument = candle.instrument
@@ -431,6 +643,7 @@ class PaperExecutor:
             problems.append(RejectReason.FUTURE_TIMESTAMP)
         if problems:
             self._emit(EventType.DATA_REJECTED, _describe_rejected("funding", event, problems))
+            self._check_data(problems)
             return ZERO
         position = self._positions.get(event.instrument)
         if position is None or event.time <= position.last_funding_ts:

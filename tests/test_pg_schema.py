@@ -1,7 +1,8 @@
 """PostgreSQL-Trigger, Rechte und Constraints (gegen eine echte Datenbank)."""
 
-import psycopg
 import pytest
+# Ohne psycopg (z. B. Python 3.9, Kern-Pruefung) sichtbar ueberspringen statt beim Einsammeln abzubrechen.
+psycopg = pytest.importorskip("psycopg", reason="psycopg nicht installiert - Datenbank-Tests uebersprungen")
 from conftest import requires_db
 from helpers import D, T0
 
@@ -298,6 +299,34 @@ def test_closed_positions_orders_and_trades_are_immutable(pg):
             c.execute("TRUNCATE orders")
 
 
+def test_stored_order_results_are_consistent_and_immutable(pg):
+    """Migration 004: Fingerabdruck im festen Format, 'filled' immer mit (existierender) Position, sonst ohne."""
+    fp = "ab" * 32
+    ins = ("INSERT INTO orders (account_id, client_order_id, status, reasons, created_at, fingerprint, position_id)"
+           " VALUES ('a1', %s, %s, '', now(), %s, %s)")
+    with admin(pg) as c:
+        _account(c)
+        _pos(c, "P1", "AAA-USD", 10)
+    with app(pg) as c:
+        c.execute(ins, ("ok", "filled", fp, "P1"))
+        c.execute(ins, ("ok2", "rejected", fp, None))
+        for oid, status, f, pid, err in (("x1", "filled", fp, None, E.CheckViolation),       # Fill ohne Position
+                                         ("x2", "rejected", fp, "P1", E.CheckViolation),     # Ablehnung mit Position
+                                         ("x3", "filled", "kein-hash", "P1", E.CheckViolation),
+                                         ("x4", "filled", fp.upper(), "P1", E.CheckViolation),
+                                         ("x5", "filled", fp, "P9", E.ForeignKeyViolation)):  # Position gibt es nicht
+            with pytest.raises(err):
+                c.execute(ins, (oid, status, f, pid))
+        for sql in ("UPDATE orders SET fingerprint = NULL", "UPDATE orders SET position_id = NULL",
+                    "DELETE FROM orders"):
+            with pytest.raises(E.InsufficientPrivilege):
+                c.execute(sql)
+    with admin(pg) as c:
+        with pytest.raises(E.InsufficientPrivilege):  # auch der Administrator nicht (Trigger)
+            c.execute("UPDATE orders SET fingerprint = %s WHERE client_order_id = 'ok'", ("cd" * 32,))
+        assert c.execute("SELECT client_order_id FROM orders ORDER BY 1").fetchall() == [("ok",), ("ok2",)]
+
+
 def test_application_role_has_no_delete_truncate_or_ddl(pg):
     with admin(pg) as c:
         _account(c)
@@ -449,10 +478,11 @@ def test_changed_or_misnumbered_migration_files_are_refused(pg, tmp_path):
 
     gap = tmp_path / "gap"
     shutil.copytree(MIGRATIONS, gap)
-    (gap / "005_spaeter.sql").write_text("SELECT 1;", encoding="utf-8")
+    skipped = gap / ("%03d_spaeter.sql" % (len(load_migrations(MIGRATIONS)) + 2))  # eine Nummer uebersprungen
+    skipped.write_text("SELECT 1;", encoding="utf-8")
     with pytest.raises(MigrationError, match="lueckenlos"):
         load_migrations(gap)
-    (gap / "005_spaeter.sql").unlink()
+    skipped.unlink()
     (gap / "Kaputt.sql").write_text("SELECT 1;", encoding="utf-8")
     with pytest.raises(MigrationError, match="Muster"):
         load_migrations(gap)
@@ -479,7 +509,7 @@ def test_failing_migration_changes_nothing(pg, tmp_path):
 def test_database_without_version_table_is_not_touched_unless_baselined(pg_v1):
     """So sah die echte Datenbank vor Stufe 1 aus: Schema 001, aber keine Versionstabelle."""
     from conftest import MIGRATIONS
-    from trading.persistence.migrate import MigrationError, migrate
+    from trading.persistence.migrate import MigrationError, load_migrations, migrate
 
     with admin(pg_v1) as c:
         c.execute("DROP TABLE schema_migrations")  # nur in der kurzlebigen Test-DB
@@ -487,8 +517,9 @@ def test_database_without_version_table_is_not_touched_unless_baselined(pg_v1):
         migrate(pg_v1.admin_url, MIGRATIONS)
     with admin(pg_v1) as c:
         assert c.execute("SELECT to_regclass('public.instrument_state')").fetchone() == (None,)
-    assert migrate(pg_v1.admin_url, MIGRATIONS, baseline_existing=True) == [2]
-    assert [(v, note) for v, _, note in versions(pg_v1)] == [(1, "baseline: bestand bereits"), (2, "")]
+    later = [m.version for m in load_migrations(MIGRATIONS)][1:]  # alle nach 001
+    assert migrate(pg_v1.admin_url, MIGRATIONS, baseline_existing=True) == later
+    assert [(v, note) for v, _, note in versions(pg_v1)] == [(1, "baseline: bestand bereits")] + [(v, "") for v in later]
 
 
 def test_migration_002_keeps_existing_positions_trades_and_the_log(pg_v1):
@@ -518,7 +549,8 @@ def test_migration_002_keeps_existing_positions_trades_and_the_log(pg_v1):
     log = fill_log(pg_v1, 3)
     head_before = log.events()[-1].hash
 
-    assert migrate(pg_v1.admin_url, MIGRATIONS) == [2]
+    from trading.persistence.migrate import load_migrations
+    assert migrate(pg_v1.admin_url, MIGRATIONS) == [m.version for m in load_migrations(MIGRATIONS)][1:]
 
     with admin(pg_v1) as c:
         assert c.execute("SELECT position_id, status, exchange, symbol, quantity, risk_at_open FROM positions"
@@ -534,7 +566,7 @@ def test_migration_002_keeps_existing_positions_trades_and_the_log(pg_v1):
 
     # Der neue Executor arbeitet auf den migrierten Daten weiter:
     clock = FixedClock(T0)
-    ex = PostgresPaperExecutor(pg_v1.app_url, "main", D(10000), RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
+    ex = PostgresPaperExecutor(pg_v1.app_url, "main", RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
     (pos,) = ex.open_positions
     assert pos.instrument == inst("BTC-USD", MarketType.FUTURES) and pos.quantity == D(9)
     assert ex.portfolio_state().unrealized_pnl == D(9)  # bewertet zum uebernommenen Kurs 101

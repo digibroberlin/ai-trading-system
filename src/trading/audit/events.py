@@ -13,10 +13,12 @@ from typing import Any, Mapping
 class EventType(str, Enum):
     SETUP_PROPOSED = "SETUP_PROPOSED"
     AGENT_OPINION = "AGENT_OPINION"
-    SIZING_PROPOSED = "SIZING_PROPOSED"
+    SIZING_PRECHECK = "SIZING_PRECHECK"  # SORA-Vorpruefung nach RIN, vor KIBO/YUZU (nicht verbindlich, AP-12)
+    SIZING_PROPOSED = "SIZING_PROPOSED"  # endgueltige Groesse unter der Sperre des Executors
     SETUP_BLOCKED = "SETUP_BLOCKED"
     ORDER_REJECTED = "ORDER_REJECTED"
     ORDER_FILLED = "ORDER_FILLED"
+    ORDER_REPLAYED = "ORDER_REPLAYED"  # Order-ID wiederholt: urspruengliches Ergebnis erneut geliefert, nichts gehandelt
     FUNDING_APPLIED = "FUNDING_APPLIED"
     POSITION_CLOSED = "POSITION_CLOSED"
     SYSTEM_ERROR = "SYSTEM_ERROR"
@@ -27,6 +29,9 @@ class EventType(str, Enum):
     DATA_ANOMALY = "DATA_ANOMALY"  # extreme, aber formal gueltige Kerze (verarbeitet)
     BACKTEST_STARTED = "BACKTEST_STARTED"
     BACKTEST_FINISHED = "BACKTEST_FINISHED"
+    HALT_ACTIVATED = "HALT_ACTIVATED"  # globaler Not-Aus ausgeloest (Grund, Zeitpunkt, Hinweis)
+    HALT_RELEASED = "HALT_RELEASED"  # Not-Aus bewusst aufgehoben (wer)
+    ACCOUNT_CREATED = "ACCOUNT_CREATED"  # Konto von einem Administrator angelegt (Name, Startkapital)
 
 
 def to_jsonable(obj: Any) -> Any:

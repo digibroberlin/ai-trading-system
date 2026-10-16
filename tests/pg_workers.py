@@ -45,7 +45,7 @@ def make_executor(url: str, account: str, delay: float = 0.0, fault_hook: Any = 
             return decision
 
         risk.evaluate = slow  # type: ignore[method-assign]
-    return PostgresPaperExecutor(url, account, D(10000), risk, FixedClock(T0), fault_hook)
+    return PostgresPaperExecutor(url, account, risk, FixedClock(T0), fault_hook)
 
 
 def order_worker(a: Dict[str, Any]) -> None:
@@ -56,8 +56,27 @@ def order_worker(a: Dict[str, Any]) -> None:
     wait_until(a["start_at"])
     for oid, sym in a["specs"]:
         setup = make_setup(oid, symbol=sym, market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
-        res = ex.submit(OrderIntent(oid, setup, D(9), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
-        emit({"order": oid, "status": res.status.value, "reasons": [r.value for r in res.reasons]})
+        res = ex.submit(OrderIntent(oid, setup, D(a.get("qty", 9)), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
+        emit({"order": oid, "status": res.status.value, "reasons": [r.value for r in res.reasons],
+              "replayed": res.replayed, "position": res.position.position_id if res.position else None})
+    ex.close()
+
+
+def halt_worker(a: Dict[str, Any]) -> None:
+    """Loest den globalen Not-Aus aus, sobald mindestens `after_fills` Positionen eroeffnet sind - also sicher MITTEN im
+    Handel der anderen Prozesse (nicht vorher, nicht nachher; unabhaengig davon, wie schnell die Prozesse starten)."""
+    import psycopg
+
+    ex = make_executor(a["url"], a["account"])
+    wait_until(a["start_at"])
+    with psycopg.connect(a["url"], autocommit=True) as conn:
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            row = conn.execute("SELECT count(*) FROM positions").fetchone()
+            if row is not None and row[0] >= a["after_fills"]:
+                break
+            time.sleep(0.005)
+    emit({"halt": ex.halt("Mehrprozess-Test")})
     ex.close()
 
 
@@ -97,15 +116,28 @@ def pipeline_worker(a: Dict[str, Any]) -> None:
     ex = make_executor(a["url"], a["account"], 0.02)
     log = PostgresEventLog(a["url"], clock)
     rin = RuleBasedRin(TradingUniverse.of(futures=[symbol]), clock, RinConfig(), NO_SLIP)
-    sora = RuleBasedSora(SizingPolicy.from_limits(DEFAULT_LIMITS), NO_SLIP)
+    from trading.agents import SoraConfig
+
+    config = SoraConfig(risk_per_trade=D(a["risk_per_trade"])) if "risk_per_trade" in a else None
+    sora = RuleBasedSora(SizingPolicy.from_limits(DEFAULT_LIMITS), NO_SLIP, config)
+    if a.get("slow_sora"):  # Rechnete SORA ausserhalb der Konto-Sperre, saehen so alle Prozesse denselben alten Stand
+        original_size = sora.size
+
+        def slow_size(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(a["slow_sora"])
+            return original_size(*args, **kwargs)
+
+        sora.size = slow_size  # type: ignore[method-assign]
     # Weiter Stop (5 %): SORA plant je 0,4 % Risiko; fuenf Positionen passen unter alle Grenzen.
     setup = make_setup("pipe-" + symbol, symbol=symbol, market_type=MarketType.FUTURES,
                        entry=D(100), stop=D(95), tp=D(115))
     pipe = TradingPipeline(StubMomo([setup]), rin, StubKibo(), StubYuzu(), sora, AkiAgent(log), ex)
     wait_until(a["start_at"])
     outcome = pipe.run_cycle([MarketContext(snapshot(symbol=symbol, ts=T0, **FUT))])[0]
+    risk = outcome.result.risk if outcome.result is not None else None
     emit({"symbol": symbol, "executed": outcome.executed, "stage": outcome.stage,
-          "reasons": [r.value for r in outcome.reasons]})
+          "reasons": [r.value for r in outcome.reasons],
+          "risk_pct": str(risk.risk_pct) if risk is not None else None})
     ex.close()
     log.close()
 
@@ -129,7 +161,7 @@ def operation_worker(a: Dict[str, Any]) -> None:
 
     clock = FixedClock(T0 + timedelta(hours=4))
     risk = RiskManager(DEFAULT_LIMITS, NO_SLIP)
-    ex = PostgresPaperExecutor(a["url"], a["account"], D(10000), risk, clock)
+    ex = PostgresPaperExecutor(a["url"], a["account"], risk, clock)
     instrument = inst("BTC-USD", MarketType.FUTURES)
     wait_until(a["start_at"])
     if a["op"] == "funding":
@@ -145,7 +177,7 @@ def operation_worker(a: Dict[str, Any]) -> None:
     ex.close()
 
 
-WORKERS = {"order": order_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker,
+WORKERS = {"order": order_worker, "halt": halt_worker, "crash": crash_worker, "pipeline": pipeline_worker, "state": state_worker,
            "operation": operation_worker}
 
 if __name__ == "__main__":

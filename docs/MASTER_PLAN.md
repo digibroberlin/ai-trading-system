@@ -25,8 +25,8 @@ Backups · keine Server-Konfiguration.
 **Technische Schulden / bekannte Sicherheitspunkte** (Audit, `AUDIT.md`): M3 PAPER-Schutz nicht zentral · M7 Order-Wiederholung ·
 M8 Ablehnung statt Verkleinerung unter Konkurrenz · M2 Rest (App-Rolle schreibt Kontostand, legt Konten an) · H7 keine
 Wiederverbindung zur Datenbank · M9 `verify()` lädt alles · M12 Pakete ohne Prüfsummen · M14 keine Backups · Test-Hook im
-Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht von der Vorgabe des Eigners ab
-(heute RIN → KIBO → YUZU → SORA; gewünscht RIN → SORA → KIBO/YUZU).
+Produktivcode · Stress-Limit ohne Datenbank-Gurt · ~~Pipeline-Reihenfolge weicht von der Vorgabe des Eigners ab~~
+(seit AP-12 / D-017: RIN → SORA-Vorprüfung → KIBO/YUZU → SORA unter der Sperre).
 
 **Nicht getestet:** Linux/amd64 und Docker Desktop · Python 3.13+ · Dauerbetrieb/Last · echte Marktdaten · echte Börsen.
 
@@ -36,25 +36,25 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
 | AP-01 | Lokale Sicherung: Branch-Modell, `stable/*`-Tags, Geheimnis-Scan, Prüfskript, GitHub-Actions-Datei, Wiederherstellungsanleitung, Steuerdokumente | Preflight STABIL, Scan der ganzen Geschichte sauber | ✅ (lokal) |
-| AP-02 | GitHub verbinden, alles hochladen, Actions grün | Actions-Lauf grün auf `develop` und `main` | ⛔ B-001 |
-| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren | Probelauf erfolgreich, Sperr-Mechanismus wirkt | ⛔ B-002 |
+| AP-02 | GitHub verbinden, alles hochladen, Actions grün | Actions-Lauf grün auf `develop` und `main` | 🔄 `develop` grün seit 2026-10-15 19:26 UTC; `main` noch rot bis zum nächsten stabilen Stand |
+| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren; Cloud-Umgebung prüfen (PostgreSQL über `scripts/cloud_test_db.sh`, Push-Rechte auf `develop`/Tags) | Probelauf erfolgreich, Sperr-Mechanismus wirkt | ✅ 2026-10-15 (erster Routine-Lauf; Tags aus der Cloud noch nicht ausprobiert) |
 
 ### Phase B – Architekturentscheidung
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-04 | Untersuchung Hummingbot, Freqtrade, NautilusTrader, CCXT (Doku, Architektur, Lizenz) → Entscheidung in `DECISIONS.md` | begründete Entscheidung, Lizenzen geprüft | ⏳ |
-| AP-05 | Abhängigkeiten: Sicherheitsprüfung (pip-audit), Versionen mit Prüfsummen (M12) | Audit ohne bekannte Lücken, Lockfile | ⏳ |
+| AP-04 | Untersuchung Hummingbot, Freqtrade, NautilusTrader, CCXT (Doku, Architektur, Lizenz) → Entscheidung in `DECISIONS.md` | begründete Entscheidung, Lizenzen geprüft | ✅ D-006, `FRAMEWORK_ANALYSIS.md` |
+| AP-05 | Abhängigkeiten: Sicherheitsprüfung (pip-audit), Versionen mit Prüfsummen (M12) | Audit ohne bekannte Lücken, Lockfile | ✅ D-010 (Rest M12 → AP-27) |
 
 ### Phase C – Sicherheit und Robustheit (Audit Stufe 2)
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-06 | Zentraler Startpunkt mit PAPER-Schutz für jeden Prozess, breitere Schlüssel-Erkennung (M3) | jeder Einstieg prüft; Tests | ⏳ |
-| AP-07 | Globaler Kill Switch: dauerhaft in der DB, manuell und automatisch (Datenfehler, Protokollfehler, Notbremsen), Freigabe nur bewusst | Tests inkl. Mehrprozess, Gegenprobe | ⏳ |
-| AP-08 | Order-Wiederholung liefert ursprüngliches Ergebnis (M7) | Tests, auch nach Neustart | ⏳ |
-| AP-09 | Größe unter Konkurrenz innerhalb der Sperre neu berechnen (M8) | exakte Mehrprozess-Erwartung | ⏳ |
-| AP-10 | Rechte der App-Rolle (M2-Rest), Konten nur administrativ | Schema-Tests | ⏳ |
-| AP-11 | Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen (H7) | Tests mit Verbindungsabbruch | ⏳ |
-| AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ⏳ |
+| AP-06 | Zentraler Startpunkt mit PAPER-Schutz für jeden Prozess, breitere Schlüssel-Erkennung (M3) | jeder Einstieg prüft; Tests | ✅ (Gegenprobe E04–E10) |
+| AP-07 | Globaler Kill Switch: dauerhaft in der DB, manuell und automatisch (Datenfehler, Protokollfehler, Notbremsen), Freigabe nur bewusst | Tests inkl. Mehrprozess, Gegenprobe | ✅ D-011 |
+| AP-08 | Order-Wiederholung liefert ursprüngliches Ergebnis (M7) | Tests, auch nach Neustart | ✅ D-012 |
+| AP-09 | Größe unter Konkurrenz innerhalb der Sperre neu berechnen (M8) | exakte Mehrprozess-Erwartung | ✅ D-013 |
+| AP-10 | Rechte der App-Rolle (M2-Rest), Konten nur administrativ | Schema-Tests | ✅ D-014 |
+| AP-11 | Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen (H7) | Tests mit Verbindungsabbruch | ✅ D-015 |
+| AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ✅ D-017 |
 
 ### Phase D – Marktdaten und Börsen (nur lesend)
 | AP | Inhalt | Abnahme | Status |
@@ -101,7 +101,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 ## 3. Geplante stabile Stände
 
 `stable/001-phase1-3-foundation` ✅ · `stable/002-stage1-core-backtesting` ✅ · `stable/003-autonomy-baseline` ✅ (AP-01) ·
-`stable/004-safety-stage2` (AP-06…12) · `stable/005-market-data` (AP-13…15) · `stable/006-strategy-research` (AP-16…20) ·
+`stable/004-safety-stage2` (AP-06…12) ✅ · `stable/005-market-data` (AP-13…15) · `stable/006-strategy-research` (AP-16…20) ·
 `stable/007-trading-engine` (AP-21…22) · `stable/008-dashboard` (AP-23…24) · `stable/009-operations` (AP-25…28) ·
 `stable/010-release-candidate` (AP-29…30). Die Nummern folgen dem tatsächlichen Verlauf.
 

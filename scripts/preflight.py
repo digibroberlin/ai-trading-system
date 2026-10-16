@@ -28,11 +28,15 @@ ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
 
 
+LAST_OUTPUT: List[str] = []  # alle Zeilen des letzten Aufrufs (z. B. fuer die Namen fehlgeschlagener Tests)
+
+
 def run(name: str, cmd: List[str], timeout: int = 3600) -> Tuple[bool, str, float]:
     start = time.monotonic()
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env, timeout=timeout)
     lines = [line for line in (proc.stdout + proc.stderr).strip().splitlines() if line.strip()]
+    LAST_OUTPUT[:] = lines
     return proc.returncode == 0, lines[-1] if lines else "", time.monotonic() - start
 
 
@@ -62,11 +66,14 @@ def main(argv: List[str]) -> int:
     results.append(("mypy --strict", ok, last))
 
     have_db = bool(os.environ.get("TEST_ADMIN_URL") and os.environ.get("TEST_APP_PASSWORD"))
-    ok, last, secs = run("pytest", [PY, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider"])
+    ok, last, secs = run("pytest", [PY, "-m", "pytest", "-q", "-rs", "-rfE", "-p", "no:cacheprovider"])
     passed, skipped, failed = pytest_summary(last)
     tests_ok = ok and failed == 0 and skipped == 0 and passed > 0
-    detail = "%d bestanden, %d uebersprungen, %d fehlgeschlagen (%.0f s)%s" % (
-        passed, skipped, failed, secs, "" if have_db else " - KEINE Datenbank konfiguriert")
+    # Namen fehlgeschlagener Tests mitnennen - auch seltene Ausreisser muessen nachvollziehbar sein.
+    failed_names = [line.split(" - ")[0] for line in LAST_OUTPUT if line.startswith(("FAILED ", "ERROR "))]
+    detail = "%d bestanden, %d uebersprungen, %d fehlgeschlagen (%.0f s)%s%s" % (
+        passed, skipped, failed, secs, "" if have_db else " - KEINE Datenbank konfiguriert",
+        "; " + ", ".join(failed_names) if failed_names else "")
     results.append(("Tests", tests_ok, detail))
 
     if "--mutation" in argv:

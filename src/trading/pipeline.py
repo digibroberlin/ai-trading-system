@@ -1,7 +1,13 @@
 """Verbindet die Agenten zu einem Entscheidungsablauf:
 
-    MOMO (Idee) -> RIN (Validierung) -> KIBO (Technik) -> YUZU (Umfeld)
-                -> SORA (Risiko/Groesse) -> Executor (mit unabhaengigem Risikomanager)
+    MOMO (Idee) -> RIN (Validierung) -> SORA (Risiko/Groesse, Vorpruefung) -> KIBO (Technik) -> YUZU (Umfeld)
+                -> SORA (endgueltige Groesse unter der Sperre) -> Executor (mit unabhaengigem Risikomanager) -> AKI
+
+Reihenfolge nach Vorgabe des Eigners (AP-12, D-017): Was RIN oder SORA schon regelbasiert verwerfen (falsche Daten,
+kein Restbudget, Stop zu weit), erreicht KIBO und YUZU gar nicht erst - dort sitzen spaeter die teureren Bewertungen
+(KI). Die SORA-Vorpruefung rechnet mit einem vorab gelesenen Portfolio-Zustand und ist NICHT verbindlich: Die Groesse
+der Order entsteht erst unter der Sperre des Executors neu (siehe "Gleichzeitigkeit"). Lehnt SORA dort ab, obwohl die
+Vorpruefung zustimmte (anderer Prozess hat das Budget verbraucht), wird blockiert.
 
 Jede Stufe darf blockieren. AKI dokumentiert jeden Schritt. Faellt ein Agent aus (Exception),
 gilt das als Blockade ("fail closed"), nie als Freigabe.
@@ -14,11 +20,14 @@ Ausstiegssignale (`propose_exits` / `process_exit`) durchlaufen keine Chance-Ris
 Schliessung senkt das Risiko. Die Marktdaten prueft der Executor trotzdem; ohne gueltigen Kurs wird
 nicht geschlossen, und die Position bleibt mit ihrem Stop-Loss bestehen.
 
-Die Freigaberegel ist absichtlich streng und einfach: RIN, KIBO und YUZU muessen alle
+Die Freigaberegel ist absichtlich streng und einfach: RIN, SORA (Vorpruefung und endgueltig), KIBO und YUZU muessen alle
 zustimmen. Gewichtung/Scoring kommt spaeter, wenn Backtests Belege liefern.
 
 Gleichzeitigkeit: Dimensionierung (SORA) und Ausfuehrung eines Setups sind ein unteilbarer
-Schritt (Sperre). So bekommen zwei gleichzeitige Anfragen nie dasselbe Restrisiko-Budget.
+Schritt: SORA rechnet unter der Sperre des Executors (`Executor.submit_sized`) - bei PostgreSQL also
+innerhalb der Transaktion mit gesperrter Konto-Zeile, auch gegenueber anderen Prozessen. So bekommen
+zwei gleichzeitige Anfragen nie dasselbe Restrisiko-Budget, und ein geschrumpftes Budget fuehrt zu
+einer kleineren Position statt zu einer Ablehnung (Audit M8).
 """
 
 from __future__ import annotations
@@ -28,7 +37,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple, TypeVar
 
 from trading.agents.aki import AkiAgent
-from trading.agents.contracts import AgentOpinion, ExitSignal, MarketContext
+from trading.agents.contracts import AgentOpinion, ExitSignal, MarketContext, SizingProposal
 from trading.agents.kibo import KiboAgent
 from trading.agents.momo import MomoAgent
 from trading.agents.rin import RinAgent
@@ -40,6 +49,7 @@ from trading.domain.models import (
     ExitReason,
     OrderIntent,
     OrderStatus,
+    PortfolioState,
     Position,
     TradeSetup,
 )
@@ -99,7 +109,13 @@ class TradingPipeline:
         """Prueft, dimensioniert und fuehrt EIN Setup mit den Marktdaten `ctx` aus (oder blockiert es)."""
         if ctx is None:
             return self.reject_setup(setup, "PIPELINE", (RejectReason.NO_MARKET_DATA,))
-        blocked = self._opinions(setup, ctx)
+        blocked = self._opinion(setup, "RIN", lambda: self._rin.validate(setup, ctx))
+        if blocked is None:
+            blocked = self._sizing_precheck(setup, ctx)
+        if blocked is None:
+            blocked = self._opinion(setup, "KIBO", lambda: self._kibo.evaluate(setup, ctx))
+        if blocked is None:
+            blocked = self._opinion(setup, "YUZU", lambda: self._yuzu.evaluate(setup, ctx))
         if blocked is not None:
             return blocked
         with self._lock:
@@ -152,34 +168,35 @@ class TradingPipeline:
 
     # ------------------------------------------------------------------ intern
 
-    def _opinions(self, setup: TradeSetup, ctx: MarketContext) -> Optional[CycleOutcome]:
-        """RIN, KIBO, YUZU nacheinander. Gibt eine Blockade zurueck oder None (alle stimmen zu)."""
-        checks: Tuple[Tuple[str, Callable[[], AgentOpinion]], ...] = (
-            ("RIN", lambda: self._rin.validate(setup, ctx)),
-            ("KIBO", lambda: self._kibo.evaluate(setup, ctx)),
-            ("YUZU", lambda: self._yuzu.evaluate(setup, ctx)),
-        )
-        for stage, check in checks:
-            opinion = self._guarded(check)
-            if opinion is None:
-                return self.reject_setup(setup, stage, (RejectReason.AGENT_ERROR,))
-            self._aki.record_opinion(opinion)
-            if not opinion.approve:
-                return self.reject_setup(
-                    setup,
-                    stage,
-                    opinion.reject_reasons or (RejectReason.AGENT_REJECTED,),
-                    "; ".join(opinion.reasons),
-                )
+    def _opinion(
+        self, setup: TradeSetup, stage: str, check: Callable[[], AgentOpinion]
+    ) -> Optional[CycleOutcome]:
+        """Eine Meinung (RIN, KIBO oder YUZU). Gibt eine Blockade zurueck oder None (Zustimmung)."""
+        opinion = self._guarded(check)
+        if opinion is None:
+            return self.reject_setup(setup, stage, (RejectReason.AGENT_ERROR,))
+        self._aki.record_opinion(opinion)
+        if not opinion.approve:
+            return self.reject_setup(
+                setup,
+                stage,
+                opinion.reject_reasons or (RejectReason.AGENT_REJECTED,),
+                "; ".join(opinion.reasons),
+            )
         return None
 
-    def _size_and_execute(self, setup: TradeSetup, ctx: MarketContext) -> CycleOutcome:
-        sizing = self._guarded(
-            lambda: self._sora.size(setup, ctx, self._executor.portfolio_state())
-        )
+    def _sizing_precheck(self, setup: TradeSetup, ctx: MarketContext) -> Optional[CycleOutcome]:
+        """SORA-Vorpruefung nach RIN und vor KIBO/YUZU (AP-12). Nur ein Filter: Eine Zustimmung hier ist keine
+        Groesse fuer die Order und keine Erlaubnis - beides entsteht erst unter der Sperre neu."""
+        try:
+            portfolio = self._executor.portfolio_state()
+        except Exception as exc:  # noqa: BLE001 - Zustand nicht lesbar: fail closed
+            self._aki.record_system_error("EXECUTOR", repr(exc))
+            return self.reject_setup(setup, "EXECUTOR", (RejectReason.EXECUTION_ERROR,))
+        sizing = self._guarded(lambda: self._sora.size(setup, ctx, portfolio))
         if sizing is None:
             return self.reject_setup(setup, "SORA", (RejectReason.AGENT_ERROR,))
-        self._aki.record_sizing(sizing)
+        self._aki.record_sizing_precheck(sizing)
         if not sizing.approve:
             return self.reject_setup(
                 setup,
@@ -187,15 +204,48 @@ class TradingPipeline:
                 sizing.reject_reasons or (RejectReason.AGENT_REJECTED,),
                 "; ".join(sizing.reasons),
             )
-        intent = OrderIntent(
-            client_order_id=setup.setup_id,
-            setup=setup,
-            quantity=sizing.quantity,
-            leverage=sizing.leverage,
-        )
-        result = self._guarded(lambda: self._executor.submit(intent, ctx.snapshot))
-        if result is None:  # z. B. Datenbankfehler: die Transaktion wurde zurueckgerollt, nichts wurde gehandelt
+        return None
+
+    def _size_and_execute(self, setup: TradeSetup, ctx: MarketContext) -> CycleOutcome:
+        """SORA rechnet INNERHALB der Sperre des Executors (bei PostgreSQL: der Konto-Transaktion) mit genau dem
+        Zustand, gegen den der Risikomanager danach prueft (Audit M8). Ein von anderen Prozessen inzwischen
+        verbrauchtes Restbudget fuehrt so zu einer kleineren Position statt zu einer Ablehnung."""
+        sizing_box: List[SizingProposal] = []
+
+        def sizer(portfolio: PortfolioState) -> Optional[OrderIntent]:
+            try:
+                sizing = self._sora.size(setup, ctx, portfolio)
+            except Exception as exc:  # noqa: BLE001 - ein SORA-Fehler blockiert, er bricht nicht die Sperre auf
+                self._aki.record_system_error("AGENT", repr(exc))
+                return None
+            sizing_box.append(sizing)
+            self._aki.record_sizing(sizing)  # vor dem Handel protokolliert, wie bisher
+            if not sizing.approve:
+                return None
+            return OrderIntent(
+                client_order_id=setup.setup_id,
+                setup=setup,
+                quantity=sizing.quantity,
+                leverage=sizing.leverage,
+            )
+
+        try:
+            result = self._executor.submit_sized(setup.setup_id, ctx.snapshot, sizer)
+        except Exception as exc:  # noqa: BLE001 - z. B. Datenbankfehler: zurueckgerollt, nichts wurde gehandelt
+            self._aki.record_system_error("AGENT", repr(exc))
             return self.reject_setup(setup, "EXECUTOR", (RejectReason.EXECUTION_ERROR,))
+        if result is None:
+            if not sizing_box:  # SORA ist abgestuerzt
+                return self.reject_setup(setup, "SORA", (RejectReason.AGENT_ERROR,))
+            sizing = sizing_box[-1]
+            return self.reject_setup(
+                setup,
+                "SORA",
+                sizing.reject_reasons or (RejectReason.AGENT_REJECTED,),
+                "; ".join(sizing.reasons),
+            )
+        if result.replayed:  # schon frueher bearbeitet: in DIESEM Durchlauf wurde nichts gehandelt
+            return CycleOutcome(setup, False, "EXECUTOR", (RejectReason.DUPLICATE_ORDER_ID,), result=result)
         if result.status is OrderStatus.FILLED:
             return CycleOutcome(setup, True, "FILLED", result=result)
         return CycleOutcome(setup, False, "EXECUTOR", result.reasons, result=result)

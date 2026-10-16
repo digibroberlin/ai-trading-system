@@ -4,8 +4,9 @@ import random
 from datetime import timedelta
 from decimal import Decimal
 
-import psycopg
 import pytest
+# Ohne psycopg (z. B. Python 3.9, Kern-Pruefung) sichtbar ueberspringen statt beim Einsammeln abzubrechen.
+psycopg = pytest.importorskip("psycopg", reason="psycopg nicht installiert - Datenbank-Tests uebersprungen")
 from conftest import requires_db
 from helpers import D, FUT, NO_SLIP, T0, Env, inst, make_candle, make_setup, snapshot
 from stubs import StubKibo, StubMomo, StubYuzu
@@ -17,6 +18,7 @@ from trading.domain.models import ExitReason, FundingEvent, MarketType, OrderInt
 from trading.domain.reasons import RejectReason as R
 from trading.domain.universe import TradingUniverse
 from trading.execution.costs import CostModel
+from trading.execution.paper_executor import order_fingerprint
 from trading.persistence.pg_event_log import PostgresEventLog
 from trading.persistence.pg_executor import PostgresPaperExecutor
 from trading.pipeline import TradingPipeline
@@ -29,7 +31,8 @@ FUTM = {"market_type": MarketType.FUTURES}
 
 def pg_exec(pg, clock=None, fault_hook=None, account="main", costs=NO_SLIP, equity=D(10000)):
     clock = clock or FixedClock(T0)
-    ex = PostgresPaperExecutor(pg.app_url, account, equity, RiskManager(DEFAULT_LIMITS, costs), clock, fault_hook)
+    pg.create_account(account, equity, clock.now().date())
+    ex = PostgresPaperExecutor(pg.app_url, account, RiskManager(DEFAULT_LIMITS, costs), clock, fault_hook)
     return ex, clock
 
 
@@ -55,7 +58,8 @@ def scenario(ex, clock):
     identisch sein muss."""
     out = [
         ex.submit(intent("a"), snap(clock)),  # Spot Long
-        ex.submit(intent("a"), snap(clock)),  # doppelte ID
+        ex.submit(intent("a"), snap(clock)),  # gleiche Order erneut -> urspruengliches Ergebnis
+        ex.submit(intent("a", qty=D(8)), snap(clock)),  # gleiche ID, anderer Inhalt -> Duplikat
         ex.submit(intent("b", "ETH-USD", MarketType.FUTURES, lev=D(2)), snap(clock, "ETH-USD", **FUT)),
         ex.submit(intent("c", "XRP-USD", MarketType.FUTURES, Side.SHORT, lev=D(2)),
                   snapshot(symbol="XRP-USD", ts=T0 - timedelta(seconds=99), **FUT)),  # veraltet
@@ -81,7 +85,7 @@ def summary(ex, run):
     out, closed, replay, funding, close, nothing = run
     st = ex.portfolio_state()
     return {
-        "results": [(r.status, r.reasons, r.position.position_id if r.position else None) for r in out],
+        "results": [(r.status, r.reasons, r.position, r.replayed) for r in out],
         "closed": [(t.position_id, t.instrument, t.exit_reason, t.exit_price, t.net_pnl, t.fees, t.funding)
                    for t in closed],
         "replay": replay, "funding": funding,
@@ -101,8 +105,11 @@ def test_postgres_executor_gives_identical_results_to_the_in_memory_engine(pg):
     got = summary(ex, scenario(ex, clock))
     assert got == expected
     # ... und es gab wirklich etwas zu vergleichen:
-    assert [r[0] for r in got["results"]] == [OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.FILLED,
-                                             OrderStatus.REJECTED, OrderStatus.REJECTED, OrderStatus.FILLED]
+    assert [r[0] for r in got["results"]] == [OrderStatus.FILLED, OrderStatus.FILLED, OrderStatus.REJECTED,
+                                             OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.REJECTED,
+                                             OrderStatus.FILLED]
+    assert [r[3] for r in got["results"]] == [False, True, False, False, False, False, False]
+    assert got["results"][1][2] == got["results"][0][2] and got["results"][2][1] == (R.DUPLICATE_ORDER_ID,)
     assert [c[2] for c in got["closed"]] == [ExitReason.TAKE_PROFIT, ExitReason.STOP_LOSS]
     assert got["replay"] == [] and got["funding"] == [D("0.09"), D(0), D("-0.09")]
     assert got["close"][0] and got["nothing"] == (False, (R.NO_POSITION,))
@@ -123,13 +130,15 @@ def test_exact_decimals_survive_the_database_roundtrip(pg):
 def test_everything_is_stored_in_the_database(pg):
     ex, clock = pg_exec(pg)
     ex.submit(intent("a"), snap(clock))
-    ex.submit(intent("a"), snap(clock))  # Duplikat
+    ex.submit(intent("a"), snap(clock))  # Wiederholung
+    ex.submit(intent("a", qty=D(8)), snap(clock))  # Duplikat mit anderem Inhalt
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT status, exchange, market_type, symbol, quantity FROM positions").fetchall() == \
             [("OPEN", "synthetic", "spot", "BTC-USD", D(9))]
-        assert c.execute("SELECT client_order_id, status FROM orders").fetchall() == [("a", "filled")]
+        assert c.execute("SELECT client_order_id, status, position_id, fingerprint FROM orders").fetchall() == \
+            [("a", "filled", "P000001", order_fingerprint(intent("a")))]
         types = [r[0] for r in c.execute("SELECT event_type FROM event_log ORDER BY seq").fetchall()]
-        assert types == ["ORDER_FILLED", "ORDER_REJECTED"]  # auch die Blockade steht im Protokoll
+        assert types == ["ORDER_FILLED", "ORDER_REPLAYED", "ORDER_REJECTED"]  # auch die Blockade steht im Protokoll
         bal, eq, ver = c.execute("SELECT balance, equity, version FROM accounts").fetchone()
         assert bal == eq == ex.balance == D("9999.46") and ver == 1
         assert c.execute("SELECT exchange, market_type, symbol, mark, mark_ts, ref_price FROM instrument_state"
@@ -292,8 +301,11 @@ def test_peak_equity_is_persisted_by_portfolio_state(pg):
 def test_two_executor_instances_share_one_truth(pg):
     ex1, clock = pg_exec(pg)
     ex2, _ = pg_exec(pg)
-    assert ex1.submit(intent("a"), snap(clock)).status is OrderStatus.FILLED
-    assert ex2.submit(intent("a"), snap(clock)).reasons == (R.DUPLICATE_ORDER_ID,)
+    first = ex1.submit(intent("a"), snap(clock))
+    assert first.status is OrderStatus.FILLED
+    again = ex2.submit(intent("a"), snap(clock))
+    assert again.replayed and again.position == first.position
+    assert ex2.submit(intent("a", qty=D(8)), snap(clock)).reasons == (R.DUPLICATE_ORDER_ID,)
     assert ex2.submit(intent("b"), snap(clock)).reasons == (R.DUPLICATE_POSITION,)
     assert ex1.open_positions == ex2.open_positions and len(ex2.open_positions) == 1
 
@@ -306,12 +318,12 @@ def test_process_with_a_wrong_clock_cannot_reset_the_daily_loss_limit(pg):
         assert a.submit(intent("t%d" % i, qty=D(40), stop=D(99), tp=D(102)), snap(clock)).status is OrderStatus.FILLED
         feed(a, clock, make_candle(clock.now(), D(100), D(100), D(98), D("98.5")))
         clock.advance(120)
-    assert a.submit(intent("blocked", "ETH-USD"), snap(clock, "ETH-USD")).reasons == (R.DAILY_LOSS_LIMIT,)
+    assert a.submit(intent("blocked", "ETH-USD"), snap(clock, "ETH-USD")).reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
     b, _ = pg_exec(pg, FixedClock(T0 - timedelta(days=1)))
     b.portfolio_state()
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT day, day_start_equity FROM accounts").fetchone() == (T0.date(), D(10000))
-    assert a.submit(intent("still", "SOL-USD"), snap(clock, "SOL-USD")).reasons == (R.DAILY_LOSS_LIMIT,)
+    assert a.submit(intent("still", "SOL-USD"), snap(clock, "SOL-USD")).reasons == (R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
 
 
 def test_application_role_is_used_never_the_administrator(pg):
@@ -360,17 +372,66 @@ def test_database_error_during_execution_blocks_the_trade_instead_of_crashing(pg
     pipe, ex, log = make_pipeline(pg, [make_setup("p1", tp=D("102.5"))], clock)
     calls = []
 
-    def boom(stage):  # 1. Aufruf = Portfolio-Abfrage durch SORA (ok), 2. Aufruf = die Ausfuehrung (faellt aus)
+    def boom(stage):  # SORA rechnet in DERSELBEN Transaktion wie die Ausfuehrung (Audit M8): ein einziger Aufruf
         calls.append(stage)
-        if len(calls) >= 2:
-            raise RuntimeError("DB weg")
+        raise RuntimeError("DB weg")
 
     ex._fault_hook = boom
     (o,) = pipe.run_cycle([MarketContext(snap(clock))])
     assert not o.executed and o.stage == "EXECUTOR" and o.reasons == (R.EXECUTION_ERROR,)
+    assert calls == ["before_commit"]
     ex._fault_hook = None
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT count(*) FROM positions").fetchone() == (0,)
     assert log.of_type(EventType.SYSTEM_ERROR) and log.verify().ok
 
 
+
+
+# ------------------------------------------------------------------ Groesse unter der Konto-Sperre (Audit M8)
+
+
+def test_sizer_sees_the_locked_state_and_the_sized_order_is_stored_like_a_normal_one(pg):
+    ex, clock = pg_exec(pg)
+    other, _ = pg_exec(pg)
+    assert other.submit(intent("first"), snap(clock)).status is OrderStatus.FILLED  # ein anderer Executor war schneller
+    seen = []
+
+    def sizer(state):
+        seen.append(state)
+        return intent("sized", symbol="ETH-USD")
+
+    res = ex.submit_sized("sized", snap(clock, symbol="ETH-USD"), sizer)
+    assert res.status is OrderStatus.FILLED and not res.replayed
+    assert len(seen) == 1 and seen[0].open_count == 1 and seen[0].open_risk > 0  # Zustand inkl. fremder Position
+    with psycopg.connect(pg.admin_url) as c:
+        row = c.execute("SELECT status, fingerprint, position_id FROM orders WHERE client_order_id = 'sized'").fetchone()
+    assert row == ("filled", order_fingerprint(intent("sized", symbol="ETH-USD")), res.position.position_id)
+    # Gleicher Auftrag noch einmal (auch aus einem anderen Executor): urspruengliches Ergebnis, nichts Neues.
+    again = other.submit_sized("sized", snap(clock, symbol="ETH-USD"), lambda st: intent("sized", symbol="ETH-USD"))
+    assert again.replayed and again.position == res.position and len(ex.open_positions) == 2
+
+
+def test_sizer_saying_no_leaves_no_order_and_the_id_stays_free(pg):
+    ex, clock = pg_exec(pg)
+    assert ex.submit_sized("later", snap(clock), lambda st: None) is None
+    with psycopg.connect(pg.admin_url) as c:
+        assert c.execute("SELECT count(*) FROM orders").fetchone() == (0,)
+        assert c.execute("SELECT count(*) FROM positions").fetchone() == (0,)
+    assert ex.submit(intent("later"), snap(clock)).status is OrderStatus.FILLED
+
+
+@pytest.mark.parametrize("bad", ["raises", "other_id"])
+def test_failing_sizer_rolls_back_the_whole_transaction(pg, bad):
+    ex, clock = pg_exec(pg)
+
+    def sizer(state):
+        if bad == "raises":
+            raise RuntimeError("SORA kaputt")
+        return intent("someone-else")
+
+    with pytest.raises((RuntimeError, ValueError)):
+        ex.submit_sized("mine", snap(clock), sizer)
+    with psycopg.connect(pg.admin_url) as c:
+        for table in ("positions", "orders", "event_log"):
+            assert c.execute("SELECT count(*) FROM " + table).fetchone() == (0,), table

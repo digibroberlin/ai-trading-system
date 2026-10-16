@@ -52,6 +52,24 @@ Vor längeren Schritten und spätestens bei Anzeichen eines Limits: PROJECT_STAT
 aktualisieren (was erledigt, was halb, nächster konkreter Schritt), WIP-Commit auf dem Arbeitszweig, pushen.
 Limits nie umgehen, keine kostenpflichtige Mehrnutzung aktivieren.
 
+## Arbeitsort: Cloud (seit 2026-10-15, Entscheidung D-008)
+
+Maßgeblich ist GitHub (`digibroberlin/ai-trading-system`). Gearbeitet wird in Cloud-Sitzungen und der stündlichen
+Cloud-Routine (D-009). Der Mac-Ordner ist nur noch Sicherung. In einer Cloud-Sitzung zu Beginn:
+
+```bash
+python3.12 -m venv /tmp/venv && /tmp/venv/bin/pip install -q --require-hashes -r requirements/dev.lock
+bash scripts/cloud_test_db.sh && set -a && source /tmp/ai-trading-test-db.env && set +a   # Wegwerf-PostgreSQL
+/tmp/venv/bin/python scripts/preflight.py
+```
+Geprüft am 2026-10-15 (AP-03): `python3` ist in der Cloud 3.11 – deshalb ausdrücklich `python3.12`. Python 3.9 für die
+Kernprüfung gibt es über `uv venv -p 3.9`. `scripts/cloud_test_db.sh` läuft als root ohne Rückfrage (ca. 1 min).
+Die Gegenprobe dauert in der Cloud rund 40 min (Mac: ca. 11 min).
+Lässt sich in der Cloud keine Datenbank einrichten, meldet `preflight.py` ehrlich NICHT STABIL (Datenbank-Tests übersprungen):
+dann nur nach `develop` zusammenführen, **keine** `stable/*`-Tags setzen und den Umstand in `docs/BLOCKERS.md` festhalten.
+GitHub Actions prüft `main`, `develop` und `stable/*` zusätzlich mit PostgreSQL. Lässt sich ein Push auf `develop` nicht
+ausführen (Rechte der Cloud-Sitzung), die Arbeit auf dem Arbeitszweig pushen und in `docs/BLOCKERS.md` vermerken.
+
 ## Wichtige Befehle
 
 ```bash
@@ -60,6 +78,7 @@ export TEST_ADMIN_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/
 python scripts/preflight.py            # alle Prüfungen; STABIL nur ohne übersprungene Tests
 python scripts/mutation_check.py       # Gegenprobe (ca. 15 min)
 python scripts/secret_scan.py --history
+python scripts/dependency_audit.py     # bekannte Lücken in Abhängigkeiten (braucht Netz + requirements/audit.lock)
 docker-compose --env-file <Passwort-Datei> run --rm tests
 ```
 Compose heißt auf diesem Mac `docker-compose` (Colima), nicht `docker compose`. In zsh Befehle nie über Variablen wie

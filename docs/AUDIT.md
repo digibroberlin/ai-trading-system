@@ -132,7 +132,7 @@ Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
 | H4 | **behoben** (vorgezogen) | Der Handelstag wechselt nur vorwärts; Tag und Tagesstart-Kapital liegen in der Datenbank und überstehen Neustarts (getestet mit falscher Uhr und über drei Tage). |
 | H5 | **behoben** | Zwei neue Grenzen: 100 % Brutto-Exposure und 5 % Verlust bei 10 % Kursschock – gleichzeitig mit allen anderen, auf den Zustand nach der Order. Exposure zusätzlich als Datenbank-Gurt. |
 | H6 | **behoben** (vorgezogen) | Der Container `app` kennt nur die eingeschränkte Rolle; eigene Einmal-Dienste `migrate` und `tests`; Laufzeit-Image ohne Tests und Werkzeuge. |
-| H7 | offen | Wiederverbindung zur Datenbank und Zeitlimit für hängende Transaktionen fehlen weiterhin (Stufe 3). |
+| H7 | **behoben** (AP-07, AP-11) | Zeitlimit für hängende Transaktionen (`idle_in_transaction_session_timeout` 15 s, TCP-Keepalive): Ein eingefrorener Prozess blockiert Konto- und Not-Aus-Sperre höchstens ~15 s. Wiederverbindung nach Verbindungsabbruch mit begrenzten Versuchen und Wartezeit für Executor, Protokoll und Not-Aus; nie stilles Wiederholen einer Aktion mit ungewissem Ausgang (D-015). Offen: Überwachung/Alarm (AP-25). |
 | H8 | **behoben** (vorgezogen) | Nummerierte Migrationen mit Versions-Tabelle und Prüfsummen. Die bestehende Datenbank wurde nach einem Backup übernommen; Zustand danach nachweislich identisch. |
 | H9 | **behoben** | Alle 14 damals übersehenen Fehler werden jetzt bemerkt. Die Gegenprobe ist ein dauerhaftes Werkzeug (`scripts/mutation_check.py`) mit 193 Einträgen – alle entdeckt. |
 
@@ -141,19 +141,19 @@ Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
 | Nr. | Stand | Was getan wurde / was fehlt |
 |---|---|---|
 | M1 | **behoben** (vorgezogen) | Der Datenbank-Gurt schreibt die Konto-Zeile; unter `REPEATABLE READ`/`SERIALIZABLE` bricht die zweite Transaktion ab (getestet). |
-| M2 | teilweise | Offene Positionen: nur noch Schließen und Funding-Fortschritt änderbar. **Offen:** Die Anwendungsrolle darf weiterhin den Kontostand schreiben und Konten anlegen. |
-| M3 | offen | `load_settings()` wird von Vorführung und Backtest aufgerufen, nicht von einem zentralen Startpunkt; die Schlüssel-Erkennung ist nicht verbreitert. |
+| M2 | **behoben** (AP-10, D-014) | Offene Positionen: nur noch Schließen und Funding-Fortschritt änderbar. Konten legt nur ein Administrator an (Migration 005, `persistence/accounts.py`). Den Kontostand schreibt die Anwendung weiter (nötig), die Datenbank prüft aber jede Änderung: genau ein Versionsschritt, Tag und Positionszähler nur vorwärts, Tagesstart-Equity fest, Höchststand fällt nie und liegt nie unter der Equity. **Rest:** Die Beträge selbst (Guthaben, Equity) rechnet die Anwendung; ein eigenes Limit über alle Konten gibt es nicht – jedes vom Administrator angelegte Konto hat ein eigenes 2-%-Budget. |
+| M3 | **behoben** (AP-06) | Prüfung beim ersten `import trading` in jedem Prozess; Erkennung in jeder Schreibweise, `CDP_*`, weitere Börsen, CCXT, `API_KEY` u. a., zwei Inhalts-Muster; jede Schreibweise von `TRADING_MODE`. Tests starten jedes Programm als eigenen Prozess; Gegenprobe E04–E10. |
 | M4 | **behoben** (Ihre Festlegung) | Geplantes Gesamtrisiko ≤ 2 % der Netto-Equity nach bereits angefallenen Kosten; Zustand nach der Order; erwartete Gebühren, Slippage und Funding-Puffer eingerechnet; unter der Konto-Sperre atomar. |
 | M5 | **behoben** (vorgezogen) | Jede Operation des Speicher-Executors ist unteilbar; scheitert etwas (auch das Protokoll), wird alles zurückgesetzt. |
 | M6 | **behoben** (vorgezogen) | Der Referenzkurs des Sprung-Filters verfällt nach 15 Minuten; verarbeitete Kerzen schreiben ihn fort. |
-| M7 | offen | Eine wiederholte Order-ID liefert weiterhin „Duplikat“ statt des ursprünglichen Ergebnisses. |
-| M8 | offen | Unter Konkurrenz mehrerer Prozesse wird ein SORA-Vorschlag weiterhin abgelehnt statt neu berechnet (sicher, aber nicht optimal). |
+| M7 | **behoben** (AP-08, D-012) | Gleiche Order-ID mit gleichem Inhalt liefert das ursprüngliche Ergebnis (`replayed=True`), auch aus einem anderen Prozess und nach einem Neustart (Migration 004: Fingerabdruck und Position in `orders`). Gleiche ID mit anderem Inhalt bleibt ein abgelehntes Duplikat. |
+| M8 | **behoben** (AP-09, D-013) | SORA rechnet die Größe unter der Sperre des Executors, bei PostgreSQL innerhalb der Transaktion mit gesperrter Konto-Zeile (`submit_sized`). Exakte Erwartung im Mehrprozess-Test: 8 Prozesse mit Ziel 0,45 % → genau 5 Positionen, vier voll, die fünfte ins Restbudget verkleinert, keine Ablehnung durch den Risikomanager. |
 | M9 | offen | `verify()` lädt weiterhin das ganze Protokoll. |
 | M10 | **behoben** | Funding nur noch aus ausdrücklichen Ereignissen (Satz und Kurs aus den Daten), je Position höchstens einmal; ohne Funding-Satz kein Futures-Trade. |
 | M11 | weitgehend | Schließen auf Signal und per Eingriff (`close_position`), durchgängig bis in Pipeline, Backtest und Datenbank. **Offen:** Teilschließung und ein globaler Not-Aus. |
-| M12 | offen | Images und Pakete sind nicht festgeschrieben. |
+| M12 | **teilweise behoben** (AP-05, D-010) | Alle Python-Pakete fest mit Prüfsummen (`requirements/*.lock`), Prüfung auf bekannte Lücken in GitHub Actions. Offen: Basis-Image per Digest, Container ohne Internetzugang (AP-27). |
 | M13 | **behoben** | Laufend bewertete Kapitalkurve, Drawdown daraus, Sharpe/Sortino, realisiert/unrealisiert, alles netto; exakte Abstimmung des Endkapitals. |
-| M14 | offen | Kein regelmäßiges Backup; kein Freigabe-Verfahren nach der Drawdown-Bremse. (Vor Stufe 1 wurden einmalige Sicherungen nach `backups/` gezogen.) |
+| M14 | teilweise (AP-07) | Freigabe-Verfahren nach den Notbremsen: globaler Not-Aus, Aufheben nur durch einen Administrator mit Namen und Bestätigung. Offen: regelmäßiges Backup mit Rückspiel-Test (AP-26). |
 
 ## Niedrige Befunde
 

@@ -129,11 +129,11 @@ Grenze der Methode: Die Gegenprobe zeigt nur, dass **diese 193** Fehler bemerkt 
 | **Strategien** | Keine echte Handelslogik; KIBO und YUZU sind neutrale Platzhalter. |
 | **Stress-Limit ohne Datenbank-Gurt** | Nur in der Anwendung gerechnet (unter der Konto-Sperre). |
 | **Stress-Limit ist die engste Grenze** | Begrenzt die ungesicherte Gesamtgröße auf knapp 50 % des Kapitals. |
-| **Unter Konkurrenz Ablehnung statt Verkleinerung** (Audit M8) | Sicher, aber nicht optimal. |
-| **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | offen |
+| **Unter Konkurrenz Ablehnung statt Verkleinerung** (Audit M8) | **behoben** (AP-09, Nachtrag unten) |
+| **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | **behoben** (AP-08, Nachtrag unten) |
 | **PAPER-Schutz nicht an einem zentralen Startpunkt** (Audit M3) | offen; ein Live-Modus existiert im Code nicht |
-| **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | offen |
-| **Wiederverbindung zur Datenbank, hängende Transaktionen** (Audit H7) | offen |
+| **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | **behoben** (AP-10, Nachtrag unten); Beträge rechnet weiter die Anwendung |
+| **Wiederverbindung zur Datenbank, hängende Transaktionen** (Audit H7) | **behoben** (AP-07, AP-11, Nachtrag unten); Alarm fehlt noch (AP-25) |
 | **Kein regelmäßiges Backup, keine festgeschriebenen Paketversionen** (Audit M14, M12) | offen |
 | **Börsenregeln je Instrument** (Mindestgröße, Preis- und Mengenschritte) | fehlen |
 | Docker nur mit **Colima auf Apple Silicon**; nicht Docker Desktop, nicht Linux/amd64 (Hetzner) | vor dem Server-Betrieb testen |
@@ -155,3 +155,171 @@ export TEST_ADMIN_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/
 ~/venvs/trading312/bin/ruff check src tests scripts && ~/venvs/trading312/bin/mypy --strict src
 ~/venvs/trading312/bin/python scripts/mutation_check.py                           # Gegenprobe (ca. 15 Minuten)
 ```
+
+## Nachtrag 2026-10-15 – AP-05 Abhängigkeiten (erste Prüfung in der Cloud)
+
+Umgebung: Cloud-Sitzung (Linux/amd64), Python **3.12.3**, PostgreSQL **16** (Wegwerf-Datenbank über `scripts/cloud_test_db.sh`).
+
+| Prüfung | Ergebnis |
+|---|---|
+| Preflight vor der Änderung (Stand `develop`, pytest 8.4.2) | STABIL – 633/633 Tests, 0 übersprungen |
+| Preflight nach der Änderung (Werkzeuge aus `requirements/dev.lock`, pytest 9.0.3) | STABIL – **646/646** Tests, 0 übersprungen (+13 in `test_dependency_locks.py`) |
+| Installation aus allen vier Sperrdateien mit `--require-hashes` in frischen Umgebungen | erfolgreich (dev, runtime, audit unter 3.12.3; py39 unter 3.9.25) |
+| Laufzeit-Umgebung wie im Image (nur `runtime.lock`, `PYTHONPATH=src`) | Vorführung `trading.demo` läuft, Migrationsordner wird gefunden |
+| Kern-Tests unter Python 3.9.25 ohne psycopg | 552 bestanden, 5 Datenbank-Dateien **sichtbar übersprungen** (vorher: Abbruch beim Einsammeln, siehe unten) |
+| `scripts/dependency_audit.py` (pip-audit 2.10.1) | keine unbegründeten Lücken; eine begründete Ausnahme in `py39.lock` (D-010) |
+
+**Behobener Fehler:** Die fünf Datenbank-Testdateien importierten `psycopg` direkt. Ohne psycopg (Python 3.9, GitHub-Job
+„Kern ohne Datenbank“) brach pytest deshalb mit 5 Fehlern ab, statt diese Tests als „skipped“ zu melden. Jetzt
+`pytest.importorskip("psycopg")`. Unter 3.12 mit Datenbank ändert sich nichts (0 übersprungen).
+
+**Nicht geprüft:** Docker-Image-Bau in der Cloud (Docker Hub antwortete „429 Too Many Requests“); Gegenprobe nicht erneut
+ausgeführt (keine Sicherheitslogik geändert); GitHub-Actions-Ergebnis (aus der Cloud-Sitzung nicht einsehbar).
+
+## Nachtrag 2026-10-15 – AP-06 Zentraler PAPER-Schutz (Audit M3)
+
+* **Was neu ist:** Schon `import trading` prüft Modus und Umgebung (jeder Prozess, auch Migration, Prüfskripte, Test-Worker).
+  Erkannt werden Börsen-Schlüssel in jeder Schreibweise, `CDP_*` (Coinbase Developer Platform), weitere Börsen und CCXT,
+  allgemeine Namen wie `API_KEY`/`PASSPHRASE`, sowie zwei typische Inhalte (CDP-Schlüsselname, EC-Privatschlüssel) unter jedem Namen.
+* **Tests:** `tests/test_paper_guard.py` (neu) – u. a. startet jedes Programm mit `if __name__ == "__main__"` unter `src/trading`
+  sowie `scripts/restart_check.py` und `tests/pg_workers.py` als **eigenen Prozess** mit verbotener Umgebung und erwartet den Abbruch.
+  Ein Gegentest stellt sicher, dass Zugänge der Cloud-Umgebung (`AWS_SECRET_ACCESS_KEY`, `GH_TOKEN` …) den Start nicht verhindern.
+* **Gegenprobe:** neue Einträge E04–E10 – **9 von 9** (mit E02/E03) entdeckt, jeweils vom passenden Test.
+* **Gefundener Fehler in der Gegenprobe selbst:** Die Arbeitskopie enthielt seit AP-05 den Ordner `requirements/` nicht; der neue
+  Sperrdatei-Test schlug dort immer fehl, und **jeder** eingebaute Fehler hätte als „entdeckt“ gegolten. Behoben (Kopie vollständig)
+  und abgesichert: Die Gegenprobe läuft jetzt zuerst eine **Grundprobe** ohne eingebauten Fehler und bricht ab, wenn die schon scheitert.
+
+## Nachtrag 2026-10-15 – AP-07 Globaler Not-Aus (Kill Switch)
+
+Umgebung: Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Neue Tests:** `tests/test_kill_switch.py` (28, ohne Datenbank) und `tests/test_pg_kill_switch.py` (27, mit Datenbank, darunter
+  ein Mehrprozess-Test mit 8 echten Prozessen auf 6 Konten, 3× wiederholt, und ein Test mit einer 15 s hängenden Transaktion).
+  Angepasst (strenger, nicht schwächer): Tagesverlust-Bremse löst sich nicht mehr um Mitternacht, sondern erst nach Freigabe;
+  die Notbremsen werden am Zustand nach der Order gemessen (Grenzfälle mit 2,40 Gebühr neu berechnet).
+* **Preflight:** STABIL – **798/798** Tests, 0 übersprungen (mypy, ruff, Geheimnis-Scan ohne Befund).
+* **Ein Ausreißer, nicht erklärt:** Ein Preflight-Lauf während der Arbeit meldete „796 bestanden, 2 fehlgeschlagen“. In sechs
+  weiteren Komplettläufen und vier Läufen der zeitkritischen Testdateien trat das nicht wieder auf. Welche Tests es waren, ist
+  nicht bekannt, weil `preflight.py` bis dahin nur die Summe ausgab – das Skript nennt fehlgeschlagene Tests jetzt mit Namen.
+  Verdacht: zeitabhängige Mehrprozess-/Thread-Tests unter Last. Bleibt beobachtet.
+* **Unabhängige Prüfung (5 Prüf-Agenten, jeder Befund von einem zweiten Agenten gegengeprüft):** 16 bestätigte Befunde, keiner
+  „hoch“, alle behoben und mit Tests abgesichert – u. a.: Verlust der Mitternachts-Kerze fiel aus der Tagesbremse; Notbremse vor
+  statt nach der Order gemessen; geteilter Not-Aus konnte zwischen Prüfung und Fill ausgelöst werden; eine hängende Transaktion
+  blockierte den Not-Aus von außen unbegrenzt; Freigabe konnte in der Datenbank Name/Zeit einer früheren Freigabe erben;
+  Schlüssel-Erkennung übersah camelCase und Börsennamen in der Mitte (`MY_BINANCE_API_KEY`, `FREQTRADE__EXCHANGE__KEY`);
+  Docker-Testimage enthielt `Dockerfile`/`.github` nicht (2 Tests wären dort rot); Lückenprüfung übersprang Python-3.9-Pakete;
+  mehrere Tests prüften schwächer als behauptet (Trigger-Tests nur über fehlende Rechte, Mehrprozess-Test konnte trivial bestehen).
+* **Nicht geprüft:** Docker-Image-Bau (Docker Hub 429 in der Cloud); GitHub-Actions-Lauf der neuen Stände (aus dieser Sitzung
+  nicht einsehbar – die Routine kann ihn lesen); vollständige Gegenprobe aller 236 Einträge (nur die AP-06/07-Einträge, siehe unten).
+* **Gegenprobe der AP-06/07-Einträge (Cloud-Routine, 2026-10-16 02:21–02:58 UTC, mit Datenbank):** **46 von 46 entdeckt**
+  (E04–E12, N01–N17, G30–G47 sowie die angepassten P19/P26). Dabei fielen vier Einträge auf, deren Textstelle durch AP-07
+  nicht mehr im Code stand (E05, P19, P26, N06) – die volle Gegenprobe wäre an ihnen abgebrochen. Angepasst, ohne die Absicht
+  der Prüfung zu ändern. Neu: `mutation_check.py` prüft vor dem Lauf, dass **jede** Textstelle genau einmal vorkommt, und
+  bricht sonst sofort mit einer Liste ab. Die vollständige Gegenprobe aller 236 Einträge ist für AP-07 **nicht** gelaufen
+  (folgt spätestens vor `stable/004`).
+
+## Nachtrag 2026-10-16 – AP-08 Wiederholte Order liefert das ursprüngliche Ergebnis (Audit M7)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-012):** Gleiche Order-ID mit gleichem Inhalt → ursprüngliches Ergebnis (`replayed=True`, Protokoll
+  `ORDER_REPLAYED`), nichts wird gehandelt. Gleiche ID mit anderem Inhalt → weiter „Duplikat“. Migration 004 speichert
+  Fingerabdruck und Position in `orders`.
+* **Tests:** neu bzw. geändert in `test_paper_executor` (Wiederholung nach Fill und nach Ablehnung, anderer Inhalt, Not-Aus,
+  Einträge ohne Ergebnis, Fingerabdruck), `test_concurrency` (16 Threads: 1 Fill + 15 Wiederholungen mit derselben Position),
+  `test_pipeline_and_agents`, `test_pg_executor` (Speicher- und DB-Executor liefern identische Ergebnisse inkl. Wiederholung),
+  `test_pg_restart` (Wiederholung nach Neustart, auch nach Funding; Alt-Einträge ohne Fingerabdruck bleiben blockiert),
+  `test_pg_multiprocess` (8 Prozesse, dieselbe ID: 1 Fill + 7 Wiederholungen, je 3×), `test_pg_schema` (neue Constraints).
+  Die bisherigen Erwartungen „Wiederholung = Duplikat“ wurden durch die strengeren neuen ersetzt (gleiche Position, genau ein Fill).
+* **Preflight:** STABIL – **806/806** Tests, 0 übersprungen. Python 3.9: 683 bestanden, 6 Datenbank-Module übersprungen (erwartet).
+* **Gegenprobe der AP-08-Einträge:** 15/15 entdeckt. Die vollständige Gegenprobe aller Einträge steht vor `stable/004` aus.
+* **Nicht geprüft:** Docker-Image-Bau; GitHub-Actions-Lauf des neuen Stands (folgt nach dem Push).
+
+## Nachtrag 2026-10-16 – AP-09 Größe unter Konkurrenz innerhalb der Sperre (Audit M8)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-013):** SORA rechnet unter der Sperre des Executors (`submit_sized`), bei PostgreSQL in der Transaktion mit
+  gesperrter Konto-Zeile. Ein inzwischen kleiner gewordenes Restbudget ergibt eine kleinere Position statt einer Ablehnung.
+* **Neue Tests:** `test_concurrency` (8 getrennte Pipelines mit absichtlich langsamer SORA auf einem Executor: genau 5 Positionen,
+  vier mit 0,45 %, die fünfte verkleinert auf 0,1–0,25 %, Rest „zu viele Positionen“ bei SORA, keine Ablehnung beim
+  Risikomanager; je 5×; parallel = nacheinander), `test_pg_multiprocess` (dasselbe mit 8 echten Prozessen, je 3×),
+  `test_pg_executor` (Rechner sieht den gesperrten Zustand inkl. fremder Position; Order wird gespeichert und wiederholbar;
+  „nein“ hinterlässt nichts; Fehler oder fremde ID setzen alles zurück), `test_paper_executor`, `test_pipeline_and_agents`
+  (abstürzende SORA blockiert, Sperre frei, Order-ID unverbraucht).
+* **Angepasste Tests:** zwei Tests, die eine abstürzende Ausführung nachstellen, ersetzen jetzt `submit_sized` statt `submit`
+  bzw. erwarten nur noch **einen** Datenbank-Aufruf (vorher: Portfolio-Abfrage + Ausführung getrennt). Die Erwartung
+  „blockiert mit EXECUTION_ERROR, nichts gehandelt“ ist unverändert.
+* **Gegenprobe:** neue Einträge Q01–Q03 und G53, angepasst I04 und G06 (Textstellen hatten sich geändert); zusammen mit I06
+  **7/7 entdeckt**. Zusätzlich von Hand belegt: Mit der alten Logik (SORA rechnet mit vorher gelesenem Zustand) scheitert der
+  neue Mehrprozess-Test in 3 von 3 Durchläufen.
+* **Preflight:** STABIL – **821/821** Tests, 0 übersprungen. Python 3.9: 691 bestanden, 6 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.
+
+## Nachtrag 2026-10-16 – AP-10 Rechte der Anwendungsrolle am Konto (Audit M2, Rest)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-014):** Migration 005 entzieht `trading_app` das Anlegen von Konten; Konten legt nur ein Administrator an
+  (`python -m trading.persistence.accounts create KONTO STARTKAPITAL`, mit Protokolleintrag `ACCOUNT_CREATED`). Der
+  PostgreSQL-Executor legt kein Konto mehr an und startet ohne Konto nicht. Jede Kontostand-Änderung einer Rolle ohne
+  Administratorrechte wird geprüft (ein Versionsschritt, Tag und Positionszähler nur vorwärts, Tagesstart-Equity fest,
+  Höchststand fällt nie und liegt nie unter der Equity).
+* **Neue Tests:** `test_pg_accounts` (37): Anwendung kann kein Konto anlegen; Executor ohne Konto startet nicht und legt keines an;
+  Kontoanlage als Administrator mit Protokolleintrag, wiederholbar ohne Änderung; ungültige Namen und Startkapital (0, negativ,
+  NaN, Unendlich, float, int, None) werden abgelehnt; je unplausible Änderung eine Ablehnung, plausible Änderungen erlaubt;
+  Administrator darf die Bremsen neu setzen; Prüfung gilt auch für andere Rollen ohne Administratorrechte; Kommandozeile.
+* **Angepasste Tests:** Der Executor hat keinen Parameter „Startkapital“ mehr. Die Test-Hilfen legen das Konto vorher als
+  Administrator an (`TestDatabase.create_account`, ohne Protokolleintrag – reine Vorbereitung). Der Test „Neustart mit anderem
+  Startkapital setzt das Konto nicht zurück“ prüft jetzt dasselbe über eine erneute Kontoanlage. Keine Erwartung wurde gelockert.
+* **Gegenprobe:** neue Einträge G54–G65: **12/12 entdeckt**. Die Datenbank-Testliste der Gegenprobe beginnt jetzt mit den
+  schnellen Dateien (gleiche Tests, nur schnelleres Abbrechen).
+* **Preflight:** STABIL – **861/861** Tests, 0 übersprungen; ruff und mypy `--strict` ohne Befunde. Python 3.9 (ohne Datenbank):
+  694 bestanden, 7 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau; `scripts/restart_check.py`
+  gegen die echte lokale Datenbank (Mac) – das Konto `restart-check` existiert dort bereits.
+
+## Nachtrag 2026-10-16 – AP-11 Wiederverbindung zur Datenbank (Audit H7)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-015):** `persistence/db.py` → `ConnectionKeeper` baut eine abgerissene Verbindung vor der nächsten Transaktion
+  neu auf (höchstens 4 Versuche, Wartezeiten 0,5 / 1 / 2 s, je Versuch höchstens 5 s), sonst `DatabaseUnavailableError`.
+  Genutzt von PostgreSQL-Executor, -Protokoll und -Not-Aus. Aktionen werden nur wiederholt, wenn die Verbindung schon **vor** der
+  Entscheidung abgerissen war; reine Abfragen und das Auslösen des Not-Aus immer einmal.
+* **Neue Tests:** `test_db_keeper` (7, ohne Datenbank): gesunde Verbindung wird weiterverwendet; kaputte/geschlossene wird
+  ersetzt; Wartezeiten zwischen Versuchen; Aufgabe nach 4 Versuchen; beim Start kein Warten; bewusst geschlossen = nie neu.
+  `test_pg_reconnect` (9, mit Datenbank, Sitzung vom Server beendet über `pg_terminate_backend`): Executor erholt sich ohne
+  Neustart (Order, alle Abfragen, Not-Aus-Zustand); Abbruch beim COMMIT → Fehler, nichts gespeichert, dieselbe Order-ID danach
+  genau einmal ausgeführt; dauerhaft unerreichbar → begrenzte Versuche, kein Handel, Not-Aus-Zustand „gestoppt“; geschlossener
+  Executor verbindet nicht neu; Protokoll wiederholt einen unsicheren Eintrag nicht, Kette bleibt intakt; Not-Aus von außen
+  gelingt nach Abbruch; Fehler bei intakter Verbindung (Sperr-Zeitlimit) wird nicht wiederholt.
+* **Angepasste Gegenprobe-Einträge:** G08, G35, G47, G62 (Textstellen an den neuen Code angepasst, Inhalt unverändert).
+* **Gegenprobe:** neue Einträge G66–G73 und die angepassten G08, G35, G47, G62: **12/12 entdeckt**.
+* **Preflight:** STABIL – **877/877** Tests, 0 übersprungen; ruff und mypy `--strict` ohne Befunde. Python 3.9 (ohne Datenbank):
+  694 bestanden, 9 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** echter Datenbank-Neustart und echte Netzwerkausfälle (simuliert durch vom Server beendete Sitzungen);
+  volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.
+
+## Nachtrag 2026-10-16 – AP-12 Pipeline-Reihenfolge nach Vorgabe des Eigners (D-017)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten:** MOMO → RIN → SORA (Vorprüfung, Protokoll `SIZING_PRECHECK`) → KIBO → YUZU → SORA (endgültig unter der
+  Sperre des Executors, `SIZING_PROPOSED`) → Executor → AKI. Die Vorprüfung ist nur ein Filter; die Order-Größe entsteht unter
+  der Sperre. Unlesbarer Portfolio-Zustand vor der Vorprüfung blockiert (fail closed).
+* **Geänderter Test:** `test_happy_path_executes_and_documents_every_step` – erwartete Ereignisfolge an die neue Reihenfolge
+  angepasst (zusätzlich `SIZING_PRECHECK`, Reihenfolge der Meinungen RIN, KIBO, YUZU geprüft). Inhaltlich strenger als vorher.
+* **Neue Tests (8):** Reihenfolge der Agenten-Aufrufe; RIN-Veto stoppt vor SORA; Ablehnung und Absturz der Vorprüfung stoppen
+  vor KIBO/YUZU; unlesbarer Zustand blockiert; Zustimmung der Vorprüfung ist keine Erlaubnis (SORA unter der Sperre lehnt ab →
+  kein Handel); Absturz unter der Sperre gibt die Order-ID frei; Order-Größe stammt aus der endgültigen Rechnung. Dazu in
+  `test_concurrency` ein **deterministischer** Test für Audit M8: Andere handeln genau zwischen Vorprüfung und Sperre → die
+  Größe wird ins Restbudget verkleinert, der Risikomanager muss nichts ablehnen.
+* **Gefundenes Testproblem:** Der Gegenprobe-Eintrag Q01 (SORA rechnet mit veraltetem Zustand) wurde vorher nur über das
+  zufällige Zusammentreffen von Threads entdeckt; durch die Vorprüfung verschob sich das Zeitverhalten, Q01 blieb unentdeckt.
+  Der neue deterministische Test schließt die Lücke.
+* **Gegenprobe:** neue Einträge W01–W06, angepasst I01, I02, I03, I06 (Textstellen); zusammen mit I09, O07, Q01, Q03:
+  **14/14 entdeckt**.
+* **Preflight:** STABIL – **886/886** Tests, 0 übersprungen; ruff und mypy `--strict` ohne Befunde. Python 3.9 (ohne Datenbank):
+  703 bestanden, 9 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus). KIBO/YUZU sehen die SORA-Größe noch nicht.

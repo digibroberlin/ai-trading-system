@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any, List, Optional
+from contextlib import contextmanager
+from typing import Any, Iterator, List, Optional
 
 from trading.audit.event_log import (
     GENESIS_HASH,
@@ -20,7 +21,7 @@ from trading.audit.event_log import (
 )
 from trading.audit.events import EventType, to_jsonable
 from trading.clock import Clock
-from trading.persistence.db import connect
+from trading.persistence.db import ConnectionKeeper
 
 CHAIN_LOCK_KEY = 7001  # Schluessel der Advisory-Sperre fuer das Protokoll
 
@@ -51,21 +52,28 @@ class PostgresEventLog(EventLog):
 
     def __init__(self, url: str, clock: Optional[Clock] = None) -> None:
         super().__init__(clock)
-        self._conn = connect(url)
+        self._db = ConnectionKeeper(url)  # verbindet nach einem Abbruch beim naechsten Aufruf neu (Audit H7)
         self._conn_lock = threading.RLock()
 
     def close(self) -> None:
-        self._conn.close()
+        self._db.close()
+
+    @contextmanager
+    def _transaction(self) -> Iterator[Any]:
+        with self._conn_lock:
+            conn = self._db.get()
+            with conn.transaction(), conn.cursor() as cur:
+                yield cur
 
     def append(self, event_type: EventType, payload: Any) -> LoggedEvent:
         payload_json = json.dumps(
             to_jsonable(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
-        with self._conn_lock, self._conn.transaction(), self._conn.cursor() as cur:
+        with self._transaction() as cur:
             return append_raw(cur, self._clock.now().isoformat(), event_type.value, payload_json)
 
     def events(self) -> "tuple[LoggedEvent, ...]":
-        with self._conn_lock, self._conn.transaction(), self._conn.cursor() as cur:
+        with self._transaction() as cur:
             cur.execute(
                 "SELECT seq, ts_text, event_type, payload_json, prev_hash, hash"
                 " FROM event_log ORDER BY seq"
@@ -82,7 +90,7 @@ class PostgresEventLog(EventLog):
         result = verify_events(list(events))
         if not result.ok:
             return result
-        with self._conn_lock, self._conn.transaction(), self._conn.cursor() as cur:
+        with self._transaction() as cur:
             cur.execute("SELECT seq, hash FROM event_log_head WHERE id = 1")
             head = cur.fetchone()
         expected = (events[-1].seq, events[-1].hash) if events else (0, GENESIS_HASH)

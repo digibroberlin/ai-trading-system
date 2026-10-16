@@ -8,7 +8,9 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
-import psycopg
+import pytest
+# Ohne psycopg (z. B. Python 3.9, Kern-Pruefung) sichtbar ueberspringen statt beim Einsammeln abzubrechen.
+psycopg = pytest.importorskip("psycopg", reason="psycopg nicht installiert - Datenbank-Tests uebersprungen")
 from conftest import requires_db
 from helpers import D, FUT, NO_SLIP, T0, Env, inst, make_candle, make_setup, snapshot
 
@@ -17,7 +19,9 @@ from trading.clock import FixedClock
 from trading.domain.models import ExitReason, FundingEvent, MarketType, OrderIntent, OrderStatus, Side
 from trading.domain.reasons import RejectReason as R
 from trading.persistence.pg_event_log import PostgresEventLog
+from trading.persistence.kill_switch import PostgresKillSwitch
 from trading.persistence.pg_executor import PostgresPaperExecutor
+from trading.safety.kill_switch import RELEASE_CONFIRMATION, HaltReason
 from trading.safety.limits import DEFAULT_LIMITS
 from trading.safety.risk_manager import RiskManager
 
@@ -29,7 +33,8 @@ BTC, ETH = inst("BTC-USD", MarketType.SPOT), inst("ETH-USD", MarketType.FUTURES)
 
 def new_executor(pg, clock):
     """Jeder Aufruf = frischer Executor mit NEUER Verbindung und NEUEM Objektzustand (wie nach einem Neustart)."""
-    return PostgresPaperExecutor(pg.app_url, "main", D(10000), RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
+    pg.create_account("main", D(10000), clock.now().date())
+    return PostgresPaperExecutor(pg.app_url, "main", RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
 
 
 def order(oid, symbol, mt, side=Side.LONG, **kw):
@@ -125,14 +130,34 @@ def test_replayed_candles_and_funding_after_a_restart_have_no_effect(pg):
                          ).fetchall() == [("futures", T0 + timedelta(minutes=1)), ("spot", T0 + timedelta(minutes=1))]
 
 
-def test_order_ids_stay_blocked_after_a_restart(pg):
+def test_a_repeated_order_gets_its_original_result_after_a_restart(pg):
     clock = FixedClock(T0)
     a = new_executor(pg, clock)
-    a.submit(order("a", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
+    first = a.submit(order("a", "ETH-USD", MarketType.FUTURES), snapshot(symbol="ETH-USD", ts=clock.now(), **FUT))
+    stale = a.submit(order("s", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now() - timedelta(seconds=99)))
+    assert first.status is OrderStatus.FILLED and stale.status is OrderStatus.REJECTED
+    clock.set(T0 + timedelta(hours=4))
+    assert a.apply_funding(FundingEvent(ETH, clock.now(), D("0.0001"), D(100))) != 0  # Position aendert sich danach
     a.close()
     b = new_executor(pg, clock)
-    again = b.submit(order("a", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
-    assert again.reasons == (R.DUPLICATE_ORDER_ID,) and len(b.open_positions) == 1
+    again = b.submit(order("a", "ETH-USD", MarketType.FUTURES), snapshot(symbol="ETH-USD", ts=clock.now(), **FUT))
+    assert again.replayed and again.status is OrderStatus.FILLED and again.position == first.position
+    rej = b.submit(order("s", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))  # jetzt frische Daten
+    assert rej.replayed and rej.status is OrderStatus.REJECTED and rej.reasons == stale.reasons
+    other = b.submit(order("a", "ETH-USD", MarketType.FUTURES, tp=D(111)), snapshot(symbol="ETH-USD", ts=clock.now(), **FUT))
+    assert not other.replayed and other.reasons == (R.DUPLICATE_ORDER_ID,)
+    assert len(b.open_positions) == 1 and len(PostgresEventLog(pg.app_url).of_type(EventType.ORDER_FILLED)) == 1
+
+
+def test_order_ids_without_a_stored_result_stay_blocked(pg):
+    """Eintraege aus der Zeit vor Migration 004 (ohne Fingerabdruck) belegen kein Ergebnis -> weiter Duplikat."""
+    clock = FixedClock(T0)
+    a = new_executor(pg, clock)
+    with psycopg.connect(pg.admin_url) as c:
+        c.execute("INSERT INTO orders (account_id, client_order_id, status, created_at) VALUES ('main', 'old', 'filled', %s)",
+                  (T0,))
+    again = a.submit(order("old", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
+    assert not again.replayed and again.reasons == (R.DUPLICATE_ORDER_ID,) and a.open_positions == ()
 
 
 def test_price_jump_filter_keeps_its_memory_across_a_restart(pg):
@@ -197,14 +222,15 @@ def test_event_chain_stays_valid_and_continues_across_restarts(pg):
     assert log.verify().ok and len(log.of_type(EventType.ORDER_FILLED)) == 2
 
 
-def test_account_is_not_reset_when_the_system_starts_again_with_another_initial_equity(pg):
+def test_account_is_not_reset_when_it_is_created_again_with_another_initial_equity(pg):
     clock = FixedClock(T0)
     a = new_executor(pg, clock)
     a.submit(order("a", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
     balance = a.balance
     a.close()
-    # Neustart mit "falschem" Startkapital: darf das bestehende Konto NICHT ueberschreiben.
-    b = PostgresPaperExecutor(pg.app_url, "main", D(999999), RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
+    # Erneutes Anlegen mit "falschem" Startkapital, dann Neustart: das bestehende Konto bleibt unveraendert.
+    pg.create_account("main", D(999999))
+    b = PostgresPaperExecutor(pg.app_url, "main", RiskManager(DEFAULT_LIMITS, NO_SLIP), clock)
     assert b.balance == balance and len(b.open_positions) == 1
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT initial_equity FROM accounts").fetchone() == (D(10000),)
@@ -242,7 +268,7 @@ def test_trading_day_its_starting_equity_and_the_daily_loss_brake_survive_restar
         assert len(feed(ex, clock, make_candle(clock.now(), D(100), D(100), D(98), D("98.5")))) == 1
         clock.advance(120)
     assert ex.submit(big("blocked", "ETH-USD"), snapshot(symbol="ETH-USD", ts=clock.now())).reasons == (
-        R.DAILY_LOSS_LIMIT,)
+        R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
 
     # Neustart am selben Tag: Handelstag und Tagesstart sind unveraendert, die Bremse gilt weiter.
     restarted = new_executor(pg, clock)
@@ -250,10 +276,18 @@ def test_trading_day_its_starting_equity_and_the_daily_loss_brake_survive_restar
     assert state.day_start_equity == equity_day1 and state.equity == equity_day1 - D("313.432")
     assert day_in_db() == (day2, equity_day1)
     assert restarted.submit(big("after-restart", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).reasons == (
-        R.DAILY_LOSS_LIMIT,)
+        R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
 
-    # Tag 3: neuer Tagesstart beim (niedrigeren) Kapital - Handel ist wieder moeglich, auch nach einem Neustart.
+    # Tag 3: Die Bremse hat den Not-Aus ausgeloest (AP-07) - er gilt auch am neuen Tag und nach Neustart weiter,
+    # bis ein Administrator ihn bewusst aufhebt. Danach neuer Tagesstart beim (niedrigeren) Kapital.
     clock.set(T0 + timedelta(days=2))
+    fresh = new_executor(pg, clock)
+    assert fresh.halt_status().reason is HaltReason.DAILY_LOSS
+    assert fresh.submit(big("day3-halted", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).reasons == (
+        R.TRADING_HALTED, R.DAILY_LOSS_LIMIT)
+    admin_switch = PostgresKillSwitch(pg.admin_url, clock)
+    admin_switch.release("Eigner", RELEASE_CONFIRMATION)
+    admin_switch.close()
     fresh = new_executor(pg, clock)
     assert fresh.submit(big("day3", "SOL-USD"), snapshot(symbol="SOL-USD", ts=clock.now())).status is OrderStatus.FILLED
     assert day_in_db() == (clock.now().date(), equity_day1 - D("313.432"))

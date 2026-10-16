@@ -20,7 +20,9 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
    `TradingMode` kennt nur `PAPER`; jeder andere Wert bricht den Start ab.
 2. **Keine Zugangsdaten im Code, in Tests, Logs oder Doku.** Keine API-Schlüssel, keine Passwörter, keine Tokens.
    Geheimnisse kommen ausschließlich aus Umgebungsvariablen (`.env`, nie eingecheckt).
-   Börsen-Schlüssel (Coinbase/Bitget) dürfen in dieser Phase nicht einmal gesetzt sein – `load_settings()` verweigert dann den Start.
+   Börsen-Schlüssel (Coinbase/Bitget/CDP, andere Börsen, CCXT, allgemeine Namen wie `API_KEY`, jede Schreibweise) dürfen in dieser
+   Phase nicht einmal gesetzt sein – schon `import trading` bricht dann mit `ConfigError` ab (zentraler Schutz für **jeden** Prozess,
+   `trading/__init__.py` → `config.enforce_paper_process`). Neue Programme brauchen dafür nichts zu tun; sie dürfen den Schutz nie umgehen.
 3. **Keine Handelsberechtigungen.** Spätere Börsenanbindungen sind zunächst **nur lesend** (öffentliche Marktdaten).
 4. **Sicherheitslimits sind unveränderlich** (`src/trading/safety/limits.py`). Alle gelten **gleichzeitig**, gemessen am Zustand
    **nach** der Order und an der aktuellen Netto-Equity nach bereits angefallenen Kosten:
@@ -29,13 +31,17 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
    3 % Tagesverlust · 10 % Drawdown. Fehlen Daten oder ist ein Risiko nicht bestimmbar, wird **keine** Position eröffnet.
    Limits dürfen im Betrieb nur **strenger**, nie lockerer werden. Strategien, Agenten und KI-Ausgaben haben **keinen** Zugriff darauf.
    Es gibt genau **eine** Risikorechnung (`safety/order_risk.py`); niemand baut eine zweite.
-5. **Der Risikomanager ist unabhängig und regelbasiert** (keine KI, kein Lernen). Er hat immer das letzte Wort.
+5. **Globaler Not-Aus** (`safety/kill_switch.py`, Tabelle `trading_halt`): Ist er ausgelöst, eröffnet niemand eine Position;
+   Schließen bleibt erlaubt. Er löst automatisch aus bei formal fehlerhaften Daten, Protokollfehlern und den Notbremsen und wird
+   **nur** von einem Administrator mit Namen und Bestätigungstext aufgehoben – nie von der Anwendung, nie automatisch.
+   Ist sein Zustand nicht lesbar, gilt der Handel als gestoppt.
+6. **Der Risikomanager ist unabhängig und regelbasiert** (keine KI, kein Lernen). Er hat immer das letzte Wort.
    Der Executor ruft ihn selbst auf und vertraut keiner vorgelagerten Prüfung.
-6. **Fail closed.** Fehlerhafte, fehlende oder veraltete Daten, abgestürzte Agenten, unlesbare Konfiguration,
+7. **Fail closed.** Fehlerhafte, fehlende oder veraltete Daten, abgestürzte Agenten, unlesbare Konfiguration,
    beschädigtes Protokoll → **nicht handeln**. Im Zweifel blockieren.
-7. **Alles wird protokolliert.** Jeder Trade **und jedes blockierte Setup** wird mit Stufe und Gründen im
+8. **Alles wird protokolliert.** Jeder Trade **und jedes blockierte Setup** wird mit Stufe und Gründen im
    unveränderlichen Ereignisprotokoll festgehalten. Das Protokoll hat nur `append` – keine Änderungs- oder Löschfunktion.
-8. **Keine Netzwerk-Bibliotheken** im Kern (`tests/test_no_real_trading.py` prüft das). Wer später Marktdaten-Adapter ergänzt,
+9. **Keine Netzwerk-Bibliotheken** im Kern (`tests/test_no_real_trading.py` prüft das). Wer später Marktdaten-Adapter ergänzt,
    passt diesen Test bewusst und sichtbar an.
 
 ## 3. Vorher fragen (Freigabe des Projekteigners einholen)
@@ -57,8 +63,10 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
 | **YUZU** | Bewertet alternative Signale und Marktbedingungen | `evaluate(setup, ctx) -> AgentOpinion` | Schnittstelle + **neutraler Platzhalter** `NeutralYuzu` |
 | **AKI** | Dokumentiert alles, führt Kapitalkurve und Performance-Bericht | `record_*`, `record_equity`, `report()` | **implementiert** (Sicherheitsfunktion) |
 
-Ablauf (`src/trading/pipeline.py`): MOMO → RIN → KIBO → YUZU → SORA → Executor (mit Risikomanager). Jede Stufe darf blockieren;
-AKI dokumentiert jeden Schritt. Aktuelle Freigaberegel: **RIN, KIBO und YUZU müssen alle zustimmen**, SORA muss eine Größe vorschlagen.
+Ablauf (`src/trading/pipeline.py`, D-017): MOMO → RIN → SORA (Vorprüfung) → KIBO → YUZU → SORA (endgültige Größe unter der
+Sperre des Executors) → Executor (mit Risikomanager) → AKI. Jede Stufe darf blockieren; AKI dokumentiert jeden Schritt.
+Aktuelle Freigaberegel: **RIN, KIBO und YUZU müssen alle zustimmen**, SORA muss in der Vorprüfung **und** unter der Sperre eine
+Größe vorschlagen. Die Vorprüfung ist nur ein Filter (keine Größe, keine Erlaubnis).
 Vorschlagen (`propose`) und Ausführen (`process_setup`) sind getrennte Schritte mit eigenen Marktdaten: Entschieden wird mit dem,
 was bekannt ist; ausgeführt wird zum nächsten verfügbaren Kurs. Ausstiege laufen über `propose_exits` / `process_exit` und
 `Executor.close_position` – ohne gültige, aktuelle Marktdaten wird nicht geschlossen (die Position behält ihren Stop).
@@ -82,7 +90,8 @@ src/trading/
   demo.py                Synthetischer PAPER-Durchlauf (python -m trading.demo)
   domain/                instrument.py (Börse + Markttyp + Symbol), models.py (Datentypen), reasons.py (Ablehnungsgründe),
                          numeric.py (endliche Decimal-Prüfung), universe.py (erlaubte Instrumente)
-  safety/                limits.py (unveränderlich), order_risk.py (DIE Risikorechnung), risk_manager.py, data_validator.py
+  safety/                limits.py (unveränderlich), order_risk.py (DIE Risikorechnung), risk_manager.py, data_validator.py,
+                         kill_switch.py (globaler Not-Aus)
   execution/             costs.py (Gebühren, Slippage, Rundung), paper_executor.py, protocol.py (Executor-Schnittstelle)
   marketdata/            candles.py (Kerzen- und Reihenprüfung), synthetic.py (erfundene Daten), feed.py (Schnittstelle)
   agents/                base.py, contracts.py, momo/rin/sora/kibo/yuzu (abstrakt), aki (implementiert),
@@ -91,7 +100,9 @@ src/trading/
   audit/                 event_log.py (Hash-Kette), events.py, stats.py (Trade-Kennzahlen), performance.py (Kapitalkurve, Bericht)
   backtest/              data.py (geprüfter Datensatz, Datenquellen), strategy.py, engine.py, compare.py, reference.py
                          (Vorführung: python -m trading.backtest) – siehe docs/BACKTESTING.md
-  persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py
+  persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,
+                         kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release),
+                         accounts.py (Konten anlegen – nur Administrator, Kommandozeile list/create)
                          (einziges Paket, das `psycopg` importieren darf)
 tests/                   pytest; helpers.py, bt_helpers.py, stubs.py, pg_workers.py = Test-Hilfen (keine echte Strategie)
 db/                      migrations/ (nummerierte Schema-Schritte), 00_roles.sh (Anwendungsrolle), Dockerfile (PostgreSQL-Image)
@@ -129,15 +140,21 @@ backups/                 Sicherungen vor riskanten Änderungen (Archive werden n
 
 * **Jede Zustandsänderung = eine Datenbank-Transaktion**, die mit `SELECT ... FOR UPDATE` auf der Konto-Zeile beginnt. Nie Zustand lesen, außerhalb
   der Sperre rechnen und dann schreiben. Protokolleinträge gehören in **dieselbe** Transaktion wie der Handel (`append_raw`).
-* Die Anwendung verbindet sich **nur** als Rolle `trading_app` (kein Superuser, kein DDL, kein DELETE/TRUNCATE, keine Änderung von Limits/Modus).
+* Die Anwendung verbindet sich **nur** als Rolle `trading_app` (kein Superuser, kein DDL, kein DELETE/TRUNCATE, keine Änderung von Limits/Modus,
+  **keine Konten anlegen** – das darf nur ein Administrator über `trading.persistence.accounts`; fehlt das Konto, startet der Executor nicht).
+  Jede Kontostand-Änderung der Anwendung prüft die Datenbank auf Plausibilität (Migration 005, D-014).
   Das Schema ändert sich **nur über eine neue, nummerierte Migration** in `db/migrations/` (bestehende Dateien nie verändern – der
   Läufer `trading.persistence.migrate` bemerkt das an der Prüfsumme und bricht ab). **Vor jeder Migration der echten Datenbank ein Backup**
   nach `backups/`. Trigger und Constraints dürfen nie gelockert werden (Tests prüfen jeden einzeln).
 * Die Datenbank erzwingt zusätzlich: nur `mode='paper'`, `max_portfolio_risk <= 0.02`, `max_gross_exposure <= 1.0`, genau eine offene Position
   je Instrument, jede Order-ID höchstens einmal, lückenlose Hash-Kette, **Gesamtrisiko und Brutto-Exposure beim COMMIT**. Diese Ebenen bleiben
   **auch dann** bestehen, wenn der Python-Code dasselbe schon prüft. (Der Stress-Test wird nur in der Anwendung gerechnet – unter der Konto-Sperre.)
+* **Sperr-Reihenfolge:** erst Konto-Zeile, dann Not-Aus-Zeile (`trading_halt`, `FOR UPDATE`) – nie umgekehrt (sonst Verklemmung).
+  Wer den Not-Aus von außen auslöst, sperrt nur die Not-Aus-Zeile.
 * Die Datenbank führt je Instrument **eine** Marktzeitleiste (`instrument_state`). Der Container `app` kennt nur die eingeschränkte Rolle;
   Administrator-Zugang haben ausschließlich die Einmal-Dienste `migrate` und `tests`.
+* **Verbindungen nur über `persistence/db.py`** (`ConnectionKeeper`): Nach einem Abbruch wird begrenzt neu verbunden. Eine Aktion
+  wird nur automatisch wiederholt, wenn die Verbindung schon vor der Entscheidung weg war – nie, wenn ihr Ausgang ungewiss ist (D-015).
 * **Passwörter nie im Projektordner** (OneDrive synchronisiert in die Cloud): Passwort-Datei außerhalb, per `--env-file`.
 * Neue Datenbank-Tests laufen gegen eine frische Test-Datenbank (Fixture `pg`). Mehrprozess-Tests nutzen **echte Betriebssystem-Prozesse** (`tests/pg_workers.py`).
 * `docker-compose down -v` und `colima delete` löschen Daten – nur auf ausdrückliche Anweisung des Projekteigners.

@@ -4,19 +4,13 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Offen
 
-### B-001 GitHub-Konto, privates Repository und Verbindung (seit 2026-10-15)
-* **Warum nötig:** Sicherung außerhalb dieses Rechners, automatische Tests (GitHub Actions), Voraussetzung für Cloud-Routinen.
-* **Was der Eigner tut:** Konto anlegen, leeres privates Repository `ai-trading-system` anlegen, Zugriffsschlüssel hinterlegen
-  (Anleitung im Chat vom 2026-10-15 und unten). Danach den Nutzernamen mitteilen.
-* **Was Claude danach tut:** Verbindung testen, alle Zweige und `stable/*`-Tags hochladen, GitHub Actions prüfen.
-* **Bis dahin:** Arbeit lokal auf Zweigen, Tags lokal, Sicherung zusätzlich als Git-Bündel in `backups/`.
-
-### B-002 Einmalige Zustimmung zur stündlichen Cloud-Routine (seit 2026-10-15)
-* **Voraussetzung:** B-001 erledigt und GitHub in claude.ai verbunden (Claude-GitHub-App nur für dieses Repository).
-* **Was die Routine tut:** stündlich den GitHub-Stand laden, nächstes Arbeitspaket bearbeiten, Tests, sichern – mit denselben Regeln.
-* **Kosten:** keine zusätzlichen; sie verbraucht das normale Nutzungskontingent des Abos (konkurriert mit eigenen Sitzungen).
-* **Grenze:** Im Cloud-Container steht vermutlich kein Docker/PostgreSQL zur Verfügung → Datenbank-Tests dort evtl. nur über
-  GitHub Actions. Wird nach Einrichtung geprüft und dokumentiert.
+* **B-006 Geheimnis-Scan meldet Fehlalarme auf dem Zweig `ap/31-kostenoptimierung` (Hinweis, kein Eingriff des Eigners nötig).**
+  WAS: `python scripts/secret_scan.py --history` prüft alle Zweige. Zwei WIP-Commits der interaktiven AP-31-Sitzung (`965e701`,
+  `c4c36d2`) enthalten Variablen wie `input_tokens` – das sind Token-*Anzahlen* der KI-Kostenmessung, keine Zugangsdaten. Der
+  Scanner auf `develop` kennt die enge Ausnahme dafür noch nicht (sie liegt auf dem AP-31-Zweig, Commit `f4a98b1`).
+  WO: jede Sitzung, die alle Zweige holt (`git fetch --all`). WIE bis dahin: Die Cloud-Routine hat am 2026-10-16 geprüft, dass
+  die Funde nur auf dem AP-31-Zweig liegen, und für ihren eigenen Stand ohne den lokalen Verweis auf diesen Zweig gescannt
+  (auf GitHub bleibt er unverändert). WAS DANACH: Mit dem Zusammenführen von AP-31 nach `develop` ist der Punkt erledigt.
 
 ## Später (noch nicht nötig)
 
@@ -28,4 +22,7 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Erledigt
 
-(noch keine)
+* **B-001 (2026-10-15):** GitHub-Konto `digibroberlin`, privates Repository, Deploy Key nur für dieses Repository,
+  Claude-GitHub-App freigegeben. `main`, `develop` und `stable/001`–`stable/003` hochgeladen.
+* **B-002 (2026-10-15):** Cloud-Routine geprüft (AP-03, erster Lauf): PostgreSQL lässt sich in der Cloud über
+  `scripts/cloud_test_db.sh` einrichten, alle Datenbank-Tests laufen, Push auf Arbeitszweige und `develop` funktioniert.

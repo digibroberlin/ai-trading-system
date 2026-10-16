@@ -101,7 +101,9 @@ Sie stehen in `src/trading/safety/limits.py` und `src/trading/execution/costs.py
   praktisch auf **knapp 50 % des Kapitals** – die 100-%-Grenze wird selten erreicht.
 * **Beträge auf 8 Nachkommastellen**, Kosten aufgerundet, Gewinne abgerundet; bei Liquidation gilt die gesamte Margin als verloren
 * **Maximal 5× Hebel**, höchstens 5 offene Positionen
-* **Notbremsen:** keine neuen Trades ab 3 % Tagesverlust oder 10 % Drawdown vom Höchststand
+* **Notbremsen:** ab 3 % Tagesverlust oder 10 % Drawdown vom Höchststand löst der **globale Not-Aus** aus (seit AP-07). Er gilt
+  auch am nächsten Tag und nach Neustarts weiter, bis ein Mensch ihn bewusst aufhebt (früher löste sich die Tagesbremse um
+  Mitternacht von selbst).
 * **Gebühren:** 0,06 % Taker / 0,02 % Maker, Slippage 2 bp (Einstieg) bzw. 5 bp (Stop) – *Schätzwerte, keine echten Tarife*
 * **Daten gelten als veraltet** nach 15 Sekunden
 * **Spot-Short ist verboten** (nur Futures dürfen short gehen); Spot nur ohne Hebel
@@ -131,7 +133,7 @@ APP_DB_PASSWORD=...
 ### Tests ausführen
 
 ```bash
-python3.12 -m venv ~/venvs/trading312 && ~/venvs/trading312/bin/pip install pytest "psycopg[binary]" ruff mypy
+python3.12 -m venv ~/venvs/trading312 && ~/venvs/trading312/bin/pip install --require-hashes -r requirements/dev.lock
 ~/venvs/trading312/bin/pytest                      # ohne Datenbank: DB-Tests werden als "skipped" gemeldet
 ```
 
@@ -172,6 +174,24 @@ PYTHONPATH=src python3.12 -m trading.demo         # ein Paper-Durchlauf; oder: d
 PYTHONPATH=src python3.12 -m trading.backtest     # Backtest: zwei Varianten einer Referenz-Strategie im Vergleich
 ```
 
+### Globaler Not-Aus (Kill Switch)
+
+Ist er ausgelöst, eröffnet **kein** Prozess und **kein** Konto eine neue Position; Stop-Loss, Take-Profit, Ausstiegssignale und
+Funding laufen weiter. Er löst von selbst aus bei formal kaputten Marktdaten (z. B. NaN, negative Kurse, Zeitstempel aus der
+Zukunft), bei einem Fehler im Ereignisprotokoll und bei den Notbremsen. Aufheben kann ihn nur ein Administrator – mit Namen
+und dem Bestätigungstext `HANDEL FREIGEBEN`:
+
+```bash
+export DATABASE_URL="postgresql://trading_app:${APP_DB_PASSWORD}@127.0.0.1:5432/trading" PYTHONPATH=src
+python3.12 -m trading.persistence.kill_switch status                 # Zustand anzeigen
+python3.12 -m trading.persistence.kill_switch halt "Grund"           # von Hand auslösen
+export ADMIN_DATABASE_URL="postgresql://trading:${POSTGRES_PASSWORD}@127.0.0.1:5432/trading"
+python3.12 -m trading.persistence.kill_switch release "Ihr Name" "HANDEL FREIGEBEN"   # bewusst aufheben
+```
+Vor dem Aufheben die Ursache klären (Ereignisprotokoll: `HALT_ACTIVATED` nennt Grund und Hinweis). Das Aufheben nimmt den
+bisherigen Verlust bewusst hin: Tagesbeginn und Höchststand der Notbremsen werden auf das aktuelle Kapital gesetzt.
+Rückgabecodes: `status` 0 = frei, 1 = gestoppt; `halt`/`release` 0 = erledigt, 2 = nicht möglich (Meldung „FEHLER: …“).
+
 ### Neustart-Prüfung von Hand
 
 ```bash
@@ -199,13 +219,37 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **Das Stress-Limit wirkt strenger als die Exposure-Grenze** (siehe „Annahmen“): praktisch knapp 50 % Gesamtgröße.
 * **Der Stress-Test wird nur in der Anwendung gerechnet** (unter der Konto-Sperre). Die Datenbank prüft beim Commit zusätzlich
   Gesamtrisiko und Exposure, den Stress-Test nicht.
-* **PAPER-Schutz beim Start** (`load_settings`) wird von den beiden Vorführprogrammen aufgerufen, noch nicht von einem zentralen
-  Startpunkt für jeden Prozess (Audit M3). Einen Live-Modus gibt es im Code trotzdem nirgends.
-* **Die Anwendungsrolle darf noch Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) – nötig für den Betrieb, aber
-  ein zweites Konto hätte ein eigenes Risikobudget.
+* **PAPER-Schutz** läuft zentral beim ersten `import trading` in jedem Prozess (AP-06). Er erkennt Börsen-Schlüssel an typischen
+  Namen und an zwei Inhalts-Mustern (Coinbase-CDP), nicht an jedem denkbaren Namen: Ein Schlüssel unter einem frei erfundenen Namen
+  (z. B. `MEIN_WERT`) bliebe unbemerkt. Zugänge der Cloud-Umgebung wie `AWS_SECRET_ACCESS_KEY` oder `GH_TOKEN` sind bewusst erlaubt.
+  Einen Live-Modus und eine Order-Funktion an eine Börse gibt es im Code nirgends.
+* **Konten legt nur ein Administrator an** (AP-10, `python -m trading.persistence.accounts create KONTO STARTKAPITAL`).
+  Jedes Konto hat ein **eigenes** 2-%-Risikobudget – ein gemeinsames Limit über alle Konten gibt es nicht; deshalb nur so viele
+  Konten anlegen wie nötig. Den Kontostand schreibt weiterhin die Anwendung (nötig für den Betrieb); die Datenbank prüft jede
+  Änderung nur auf Plausibilität (Version, Tag, Positionszähler, Höchststand), nicht die Beträge selbst.
 * **Alt-Positionen in der lokalen Datenbank:** Im Konto `restart-check` liegen zwei Test-Positionen aus Phase 3, die die neue
   Stress-Grenze überschreiten (8,05 % statt 5 %). Sie bleiben bestehen; neue Trades in diesem Konto sind blockiert, bis sie geschlossen sind.
 * **Docker nur lokal getestet:** Colima auf macOS (Apple Silicon). Nicht getestet: Docker Desktop, Linux-Server (Hetzner), `amd64`-Architektur.
+  Seit AP-05 (Dockerfile ohne `pip install .`, nur Sperrdateien) wurde das Image **noch nicht gebaut** (Cloud: Docker Hub
+  „429 Too Many Requests“); geprüft sind nur die Installationsschritte in frischen Python-Umgebungen.
+* **Abhängigkeiten:** fest mit Prüfsummen in `requirements/*.lock` (D-010). Noch offen: Basis-Image `python:3.12-slim` nicht per Digest
+  festgeschrieben, Container mit freiem Internetzugang. Der Python-3.9-Job nutzt bewusst pytest 8.4.2 mit einer bekannten, dort nicht
+  ausnutzbaren Lücke (D-010).
+* **Not-Aus reiht alle Konten hintereinander:** Jede Aktion sperrt nach ihrem Konto auch die Not-Aus-Zeile. Damit kann kein
+  Prozess zwischen „Not-Aus gelesen“ und „Position gespeichert“ überholt werden – aber Aktionen verschiedener Konten laufen nicht
+  mehr gleichzeitig. Für den geplanten Betrieb (ein Konto) ohne Folgen. Hängt ein Prozess mitten in einer Transaktion, blockiert
+  er alle Konten und das Auslösen von außen, bis die Datenbank seine Sitzung beendet (spätestens nach rund 15 Sekunden).
+* **Wiederverbindung zur Datenbank (AP-11, D-015):** Nach einem Verbindungsabbruch verbindet sich der Prozess selbst neu
+  (höchstens 4 Versuche in rund 3,5 Sekunden, dann Fehler). Riss die Verbindung **während** einer Order ab, meldet der Executor
+  einen Fehler statt still zu wiederholen; der Aufrufer sendet dieselbe Order-ID erneut. Ein Alarm bei Verbindungsproblemen
+  fehlt noch (AP-25). Getestet mit vom Server beendeten Sitzungen, nicht mit echten Netzwerkausfällen oder Datenbank-Neustarts.
+* **Not-Aus erkennt nur formal kaputte Daten**, keine plausibel aussehenden falschen Kurse. Ausbleibende Daten (veralteter Feed)
+  lösen ihn noch nicht aus – das kommt mit der Marktüberwachung (AP-15).
+* **Wiederholte Order (AP-08):** Gleiche Order-ID mit **exakt** gleichem Inhalt liefert das ursprüngliche Ergebnis (Status,
+  Gründe, Position wie bei der Eröffnung) – ohne erneut zu handeln. Der Vergleich ist bewusst streng: Schon `100` statt `100.0`
+  oder eine andere Zeitzonen-Schreibweise gelten als anderer Inhalt und werden als Duplikat abgelehnt. Die Risikobewertung der
+  ersten Bearbeitung wird bei der Wiederholung nicht mitgeliefert (sie steht im Ereignisprotokoll). Orders aus der Zeit vor
+  Migration 004 haben keinen Fingerabdruck; ihre Wiederholung wird weiter als Duplikat abgelehnt.
 * **Python 3.13/3.14 und das neue GIL-freie Python** wurden nicht getestet (Ziel ist 3.12).
 * **Ein Konto = ein Flaschenhals:** Die Konto-Sperre reiht alle Aktionen eines Kontos hintereinander ein (bewusst, Sicherheit vor Tempo). Dauert eine Aktion länger als 10 Sekunden
   auf die Sperre, wird sie abgebrochen und gilt als blockiert (`EXECUTION_ERROR`). Auch `portfolio_state()` nimmt kurz die Sperre.
@@ -220,13 +264,16 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **Kein Orderbuch-Modell:** Slippage ist ein fester Wert, unabhängig von der Ordergröße.
 * **Keine Teilausführungen, keine Teilschließungen, keine Limit-Einstiegsorders, kein Trailing-Stop.**
 * **Pipeline-Freigaberegel ist bewusst simpel** (alle müssen zustimmen); eine gewichtete Entscheidung braucht Belege aus Backtests.
+* **SORA wird zweimal gefragt** (D-017): als Vorprüfung nach RIN und endgültig unter der Sperre des Executors. KIBO und YUZU
+  sehen die vorgeschlagene Größe noch nicht (Schnittstelle unverändert).
 * **Python 3.9-Kompatibilität** wurde in Phase 1/2 geprüft; ab Phase 3 laufen die offiziellen Tests unter Python 3.12. Der Kern (ohne Datenbank) ist weiter 3.9-kompatibel, `trading.persistence` getestet nur unter 3.12.
 * **Risiko-Limit gilt zum Zeitpunkt der Freigabe.** Fällt das Eigenkapital später (Verluste, ungünstige Kurse), kann das *geplante* Risiko offener Positionen
   rechnerisch über 2 % des dann kleineren Kapitals steigen. Es werden dann keine neuen Trades zugelassen, bestehende laufen mit ihrem Stop weiter.
 * **SORA kennt nur das Kapital und die Positionen des Executors.** Aufträge, die erst *geplant*, aber noch nicht ausgeführt sind, zählen nicht – deshalb werden
   Dimensionierung und Ausführung in der Pipeline unteilbar ausgeführt. Mehrere *getrennte* Pipelines auf demselben Executor sind dadurch ebenfalls sicher,
-  Über mehrere Prozesse hinweg sichert die Datenbank-Sperre (siehe oben) das Limit; dort kann eine Freigabe von SORA durch den Risikomanager noch *abgelehnt* werden,
-  wenn ein anderer Prozess inzwischen Risiko belegt hat (sicher, aber ohne automatische Verkleinerung).
+  Über mehrere Prozesse hinweg rechnet SORA innerhalb der Datenbank-Transaktion mit gesperrter Konto-Zeile (`submit_sized`, D-013): Hat ein anderer Prozess
+  inzwischen Risiko belegt, wird die Position kleiner statt abgelehnt. Folge: Solange SORA rechnet, warten die anderen Prozesse – SORA muss deshalb schnell und
+  regelbasiert bleiben (keine KI-Aufrufe unter der Sperre).
 * **Mengenschritt und Mindestgröße** (0,0001 / 10 USD) sind für alle Symbole gleich angenommen; echte Börsenregeln je Paar kommen mit den Adaptern.
 
 ## Sicherheits-Checkliste für später (VPS)

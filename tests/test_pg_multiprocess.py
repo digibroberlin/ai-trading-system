@@ -8,8 +8,9 @@ import sys
 import time
 from pathlib import Path
 
-import psycopg
 import pytest
+# Ohne psycopg (z. B. Python 3.9, Kern-Pruefung) sichtbar ueberspringen statt beim Einsammeln abzubrechen.
+psycopg = pytest.importorskip("psycopg", reason="psycopg nicht installiert - Datenbank-Tests uebersprungen")
 from conftest import requires_db
 from helpers import D, T0
 from pg_workers import make_executor
@@ -42,6 +43,7 @@ def run_workers(kind, arg_list, lead_time=4.0, timeout=120):
 
 
 def init_account(pg):
+    pg.create_account("main")
     make_executor(pg.app_url, "main").close()
 
 
@@ -77,9 +79,12 @@ def test_same_order_id_from_many_processes_executes_exactly_once(pg, run):
     init_account(pg)
     res = run_workers("order", [dict(url=pg.app_url, account="main", specs=[["same", "BTC-USD"]])
                                 for _ in range(8)])
-    assert sorted(r["status"] for r in res) == ["filled"] + ["rejected"] * 7
-    assert all(r["reasons"] == ["DUPLICATE_ORDER_ID"] for r in res if r["status"] == "rejected")
-    assert db_facts(pg)["open"] == 1
+    # Genau ein Prozess handelt; die 7 anderen bekommen dessen Ergebnis (dieselbe Position) als Wiederholung.
+    assert sorted(r["replayed"] for r in res) == [False] + [True] * 7
+    assert all(r["status"] == "filled" and r["reasons"] == [] and r["position"] == "P000001" for r in res)
+    assert db_facts(pg)["open"] == 1 and db_facts(pg)["orders"] == 1
+    log = PostgresEventLog(pg.app_url)
+    assert len(log.of_type(EventType.ORDER_FILLED)) == 1 and len(log.of_type(EventType.ORDER_REPLAYED)) == 7
 
 
 @pytest.mark.parametrize("run", range(REPEATS))
@@ -118,6 +123,27 @@ def test_full_pipelines_in_separate_processes_share_the_risk_budget_and_one_log(
     log = PostgresEventLog(pg.app_url)
     assert len(log.of_type(EventType.SETUP_PROPOSED)) == 8
     assert log.verify().ok  # AKI-Eintraege und Executor-Eintraege liegen in EINER gueltigen Kette
+
+
+@pytest.mark.parametrize("run", range(REPEATS))
+def test_competing_processes_shrink_into_the_remaining_budget_instead_of_being_rejected(pg, run):
+    """Audit M8: Ziel 0,45 % je Trade. Vier passen voll, der fuenfte bekommt das Restbudget in KLEINERER Groesse -
+    weil SORA in der Transaktion mit gesperrter Konto-Zeile rechnet. (Vorher: 2 von 8 Pipelines fuehrten aus.)"""
+    init_account(pg)
+    res = run_workers("pipeline", [dict(url=pg.app_url, account="main", symbol="Q%d-USD" % i,
+                                        risk_per_trade="0.0045", slow_sora=0.05) for i in range(8)])
+    executed = [r for r in res if r["executed"]]
+    assert len(executed) == 5, res
+    risks = sorted(D(r["risk_pct"]) for r in executed)
+    assert all(x > D("0.0044") for x in risks[1:]) and D("0.001") < risks[0] < D("0.0025"), risks
+    blocked = [r for r in res if not r["executed"]]
+    assert all(r["stage"] == "SORA" and r["reasons"] == ["TOO_MANY_POSITIONS"] for r in blocked), blocked
+    f = db_facts(pg)
+    assert f["open"] == 5 and f["orders"] == 5  # keine abgelehnte Order mehr beim Risikomanager
+    assert f["remaining_risk"] <= f["cap"] * f["equity"]
+    log = PostgresEventLog(pg.app_url)
+    assert len(log.of_type(EventType.SIZING_PROPOSED)) == 8 and not log.of_type(EventType.ORDER_REJECTED)
+    assert log.verify().ok
 
 
 # ------------------------------------------------------------------ Absturz
@@ -167,6 +193,7 @@ def open_base_position(pg):
     from helpers import FUT, make_setup, snapshot
     from trading.domain.models import MarketType, OrderIntent
 
+    pg.create_account("main")
     ex = make_executor(pg.app_url, "main")
     setup = make_setup("base", market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
     assert ex.submit(OrderIntent("base", setup, D(9), D(2)), snapshot(ts=T0, **FUT)).status.value == "filled"

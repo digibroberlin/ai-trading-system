@@ -44,6 +44,10 @@ PF = "src/trading/audit/performance.py"
 LI = "src/trading/safety/limits.py"
 EL = "src/trading/audit/event_log.py"
 CF = "src/trading/config.py"
+IN = "src/trading/__init__.py"
+KS = "src/trading/safety/kill_switch.py"
+PK = "src/trading/persistence/kill_switch.py"
+DB = "src/trading/persistence/db.py"
 EN = "src/trading/backtest/engine.py"
 DA = "src/trading/backtest/data.py"
 CM = "src/trading/backtest/compare.py"
@@ -52,12 +56,18 @@ PL = "src/trading/persistence/pg_event_log.py"
 MG = "src/trading/persistence/migrate.py"
 S1 = "db/migrations/001_initial.sql"
 S2 = "db/migrations/002_instruments_and_exposure.sql"
+S3 = "db/migrations/003_kill_switch.sql"
+S4 = "db/migrations/004_order_replay.sql"
+S5 = "db/migrations/005_account_rights.sql"
+AC = "src/trading/persistence/accounts.py"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 BT_PG = BT + ["tests/test_backtest_pg.py"]
-PG = ["tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
-      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py"]
+# Schnelle Dateien zuerst: pytest bricht beim ersten Fehlschlag ab (-x), die Mehrprozess-Tests dauern am laengsten.
+PG = ["tests/test_pg_accounts.py", "tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
+      "tests/test_pg_kill_switch.py", "tests/test_backtest_pg.py", "tests/test_pg_multiprocess.py"]
+RC = ["tests/test_db_keeper.py", "tests/test_pg_reconnect.py"]  # Wiederverbindung (AP-11)
 
 KERN: List[Mutant] = []
 
@@ -111,15 +121,27 @@ m("P14","Noch laufende Kerze wird verarbeitet",PE,"problems.append(RejectReason.
 m("P15","Doppelte/aeltere Kerze wird verarbeitet",PE,"if last_close is not None and candle.open_time < last_close:\n                problems.append(","if False:\n                problems.append(")
 m("P16","Veraltete Bewertungskurse nicht erkannt",PE,"if mark is None or (now - mark.time).total_seconds() > self._limits.max_mark_age_s:","if mark is None:")
 m("P17","Kein Zuruecksetzen nach Fehler (nicht atomar)",PE,"            except BaseException:\n                self._restore(backup)\n                raise","            except BaseException:\n                raise")
-m("P18","Doppelte Order-ID wird ausgefuehrt",PE,"if intent.client_order_id in self._seen_order_ids:","if False:")
-m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
+m("P18","Doppelte Order-ID wird ausgefuehrt",PE,"if intent.client_order_id in self._known_orders:","if False:")
+# ---- Wiederholte Order liefert das urspruengliche Ergebnis (AP-08)
+m("O01","Gleiche ID mit anderem Inhalt bekommt das fremde Ergebnis",PE,"if known.result is None or known.fingerprint is None or fingerprint != known.fingerprint:","if known.result is None:")
+m("O02","Order-ID ohne belegtes Ergebnis wird als Wiederholung beantwortet",PE,"if known.result is None or known.fingerprint is None or fingerprint != known.fingerprint:","if known.result is None or fingerprint != known.fingerprint:")
+m("O03","Fingerabdruck ohne Menge und Hebel",PE,"        text = json.dumps(to_jsonable(intent),","        text = json.dumps(to_jsonable(intent.setup),")
+m("O04","Wiederholung wird nicht protokolliert",PE,"        self._emit(\n            EventType.ORDER_REPLAYED,","        (lambda *a: None)(\n            EventType.ORDER_REPLAYED,")
+m("O05","Wiederholung ist nicht als solche gekennzeichnet",PE,"        return dataclasses.replace(original, risk=None, replayed=True)","        return dataclasses.replace(original, risk=None)")
+m("O06","Order-ID bleibt nach zurueckgesetzter Operation vergeben",PE,"            self._known_orders.pop(oid, None)","            pass")
+m("O07","Pipeline meldet eine Wiederholung als neu ausgefuehrt",PI,"        if result.replayed:","        if False:")
+# ---- Groesse unter der Sperre neu berechnen (AP-09, Audit M8)
+m("Q01","Pipeline: SORA rechnet mit vorab gelesenem Zustand (ausserhalb der Sperre)",PI,"        try:\n            result = self._executor.submit_sized(setup.setup_id, ctx.snapshot, sizer)","        stale = self._executor.portfolio_state()\n        try:\n            result = self._executor.submit_sized(setup.setup_id, ctx.snapshot, lambda _p: sizer(stale))")
+m("Q03","Pipeline: SORA-Absturz wird nicht als Fehler gemeldet",PI,"            if not sizing_box:  # SORA ist abgestuerzt\n                return self.reject_setup(setup, \"SORA\", (RejectReason.AGENT_ERROR,))","            if not sizing_box:  # SORA ist abgestuerzt\n                return self.reject_setup(setup, \"SORA\", (RejectReason.AGENT_REJECTED,))")
+m("Q02","Executor: Auftrag mit fremder Order-ID wird ausgefuehrt",PE,"        if not isinstance(intent, OrderIntent) or intent.client_order_id != client_order_id:","        if not isinstance(intent, OrderIntent):")
+m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
 m("P20","Funding: auch Shorts zahlen bei positivem Satz",PE,"cost = cost_up(position.side.sign * event.rate * position.quantity * event.mark_price)","cost = cost_up(event.rate * position.quantity * event.mark_price)")
 m("P21","Funding auf Spot-Instrument akzeptiert",PE,"problems.append(RejectReason.BAD_FUNDING)  # Funding gibt es nur bei Futures","pass")
 m("P22","Schliessen mit beliebigem Grund (z. B. als Take-Profit)",PE,"if reason not in _REQUESTED_EXITS:","if False:")
 m("P23","Datenluecke wird nicht protokolliert",PE,"if last_close is not None and candle.open_time > last_close:","if False:")
 m("P24","Einstiegsgebuehr wird nicht abgebucht",PE,"        self._balance -= decision.entry_fee\n","")
 m("P25","Marktdaten fuer ein anderes Instrument akzeptiert (Order)",PE,"        if snapshot.instrument != setup.instrument:\n            return self._reject(intent, (RejectReason.SYMBOL_MISMATCH,), None)","")
-m("P26","Ungueltige Marktdaten bei Order akzeptiert",PE,"        if not validation.ok:\n            return self._reject(intent, validation.reasons, None)","")
+m("P26","Ungueltige Marktdaten bei Order akzeptiert",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return self._reject(intent, validation.reasons, None)\n","")
 m("P27","Ereignisse sofort statt am Ende (bei Fehler bleibt Protokoll stehen)",PE,"        self._pending.append((event_type, payload))","        self._log.append(event_type, payload)")
 m("P28","Zukuenftiges Funding wird gebucht",PE,"        if not problems and (event.time - self._clock.now()).total_seconds() > FUTURE_TOLERANCE_S:\n            problems.append(RejectReason.FUTURE_TIMESTAMP)","")
 m("P29","Auffaellige Kerze wird nicht protokolliert",PE,"            > self._limits.max_price_jump\n        ):","            > self._limits.max_price_jump * 1000\n        ):")
@@ -181,15 +203,22 @@ m("R13","RIN: Netto-CRV-Minimum abgeschaltet",RI,"if net_rr < cfg.min_net_reward
 m("R14","RIN: Mindest-Stop ohne Kostenbezug",RI,"min_bps = max(cfg.min_stop_bps, cfg.min_stop_cost_multiple * roundtrip_bps)","min_bps = cfg.min_stop_bps")
 m("R15","RIN: Marktdaten-Pruefung uebersprungen",RI,"        for code in validation.reasons:\n            fail(code, \"Marktdaten: %s\" % code.value)","")
 # ---- Pipeline
-m("I01","Pipeline: KIBO-Veto ignoriert",PI,'            ("KIBO", lambda: self._kibo.evaluate(setup, ctx)),\n',"")
-m("I02","Pipeline: YUZU-Veto ignoriert",PI,'            ("YUZU", lambda: self._yuzu.evaluate(setup, ctx)),\n',"")
-m("I03","Pipeline: abgestuerzter Agent zaehlt als Zustimmung",PI,"            if opinion is None:\n                return self.reject_setup(setup, stage, (RejectReason.AGENT_ERROR,))","            if opinion is None:\n                continue")
-m("I04","Pipeline: Fehler der Ausfuehrung reisst alles ab",PI,"result = self._guarded(lambda: self._executor.submit(intent, ctx.snapshot))","result = self._executor.submit(intent, ctx.snapshot)")
+m("I01","Pipeline: KIBO-Veto ignoriert",PI,'        if blocked is None:\n            blocked = self._opinion(setup, "KIBO", lambda: self._kibo.evaluate(setup, ctx))\n',"")
+m("I02","Pipeline: YUZU-Veto ignoriert",PI,'        if blocked is None:\n            blocked = self._opinion(setup, "YUZU", lambda: self._yuzu.evaluate(setup, ctx))\n',"")
+m("I03","Pipeline: abgestuerzter Agent zaehlt als Zustimmung",PI,"        if opinion is None:\n            return self.reject_setup(setup, stage, (RejectReason.AGENT_ERROR,))","        if opinion is None:\n            return None")
+m("I04","Pipeline: Fehler der Ausfuehrung reisst alles ab",PI,"        except Exception as exc:  # noqa: BLE001 - z. B. Datenbankfehler: zurueckgerollt, nichts wurde gehandelt","        except ZeroDivisionError as exc:")
 m("I05","Pipeline: Vorschlaege werden nicht protokolliert",PI,"        for setup in setups:\n            self._aki.record_setup(setup)\n","")
-m("I06","Pipeline: SORA-Ablehnung ignoriert",PI,"        if not sizing.approve:","        if False:")
+m("I06","Pipeline: SORA-Ablehnung ignoriert",PI,"            if not sizing.approve:\n                return None","            if False:\n                return None")
 m("I07","Pipeline: ohne Marktdaten wird trotzdem verarbeitet (Ausstieg)",PI,"        if ctx is None:\n            return self._exit_blocked(signal, (RejectReason.NO_MARKET_DATA,))\n        snapshot = ctx.snapshot","        snapshot = ctx.snapshot if ctx is not None else None")
 m("I08","Pipeline: Ausstiegssignale nicht protokolliert",PI,"        for signal in signals:\n            self._aki.record_exit_signal(signal)\n","")
 m("I09","Pipeline: Blockade ohne Protokoll",PI,"        self._aki.record_blocked(setup, stage, reasons, details)\n","")
+# ---- Pipeline-Reihenfolge nach Vorgabe des Eigners (AP-12, D-017): RIN -> SORA-Vorpruefung -> KIBO/YUZU -> SORA endgueltig
+m("W01","Pipeline: SORA-Vorpruefung entfaellt",PI,"        if blocked is None:\n            blocked = self._sizing_precheck(setup, ctx)\n","")
+m("W02","Pipeline: alte Reihenfolge (SORA-Vorpruefung erst nach YUZU)",PI,"        if blocked is None:\n            blocked = self._sizing_precheck(setup, ctx)\n        if blocked is None:\n            blocked = self._opinion(setup, \"KIBO\", lambda: self._kibo.evaluate(setup, ctx))\n        if blocked is None:\n            blocked = self._opinion(setup, \"YUZU\", lambda: self._yuzu.evaluate(setup, ctx))\n","        if blocked is None:\n            blocked = self._opinion(setup, \"KIBO\", lambda: self._kibo.evaluate(setup, ctx))\n        if blocked is None:\n            blocked = self._opinion(setup, \"YUZU\", lambda: self._yuzu.evaluate(setup, ctx))\n        if blocked is None:\n            blocked = self._sizing_precheck(setup, ctx)\n")
+m("W03","Pipeline: Ablehnung der SORA-Vorpruefung ignoriert",PI,"        self._aki.record_sizing_precheck(sizing)\n        if not sizing.approve:","        self._aki.record_sizing_precheck(sizing)\n        if False:")
+m("W04","Pipeline: unlesbarer Zustand vor der Vorpruefung wird uebergangen",PI,"            self._aki.record_system_error(\"EXECUTOR\", repr(exc))\n            return self.reject_setup(setup, \"EXECUTOR\", (RejectReason.EXECUTION_ERROR,))","            self._aki.record_system_error(\"EXECUTOR\", repr(exc))\n            return None")
+m("W05","Pipeline: Absturz in der SORA-Vorpruefung zaehlt als Zustimmung",PI,"        if sizing is None:\n            return self.reject_setup(setup, \"SORA\", (RejectReason.AGENT_ERROR,))","        if sizing is None:\n            return None")
+m("W06","Pipeline: SORA-Vorpruefung nicht protokolliert",PI,"        self._aki.record_sizing_precheck(sizing)\n","")
 # ---- Statistik
 m("T01","Gewinnrate zaehlt Nullsummen-Trades als Gewinn",ST,"winners = [t.net_pnl for t in trades if t.net_pnl > 0]","winners = [t.net_pnl for t in trades if t.net_pnl >= 0]")
 m("T02","Drawdown gegen ersten Punkt statt Startkapital",PF,"    peak = initial_equity\n    peak_time","    peak = points[0].equity if points else initial_equity\n    peak_time")
@@ -210,6 +239,34 @@ m("L06","Bewertungsalter-Obergrenze nicht geprueft",LI,'            ("max_mark_a
 m("E01","Beschaedigte Protokolldatei wird beim Start akzeptiert",EL,"            if not result.ok:\n                raise EventLogCorruptedError(","            if False:\n                raise EventLogCorruptedError(")
 m("E02","Erkennung von Boersen-Schluesseln abgeschaltet",CF,"    if offending:\n","    if False:\n")
 m("E03","Anderer Modus als PAPER erlaubt",CF,"    if raw_mode != TradingMode.PAPER.value:","    if False:")
+# ---- Zentraler PAPER-Schutz (AP-06, Audit M3)
+m("E04","PAPER-Schutz beim Import abgeschaltet",IN,"\n_enforce_paper_process()\n","\n")
+m("E05","Schluessel-Namen nur in Grossschrift erkannt",CF,'return re.sub(r"[^A-Z0-9]+", "_", split.upper()).strip("_")','return re.sub(r"[^A-Z0-9]+", "_", split).strip("_")')
+m("E06","Boersen-Praefixe (CDP, Binance, CCXT ...) nicht erkannt",CF,"    return _mentions_exchange(norm.split(\"_\")) and any(p in norm for p in _SECRET_PARTS)","    return False")
+m("E11","Boersenname nur am Anfang des Namens erkannt",CF,"    return any(p in _EXCHANGE_PREFIXES or p.startswith(_LONG_EXCHANGE_PREFIXES) for p in parts)","    return parts[0] in _EXCHANGE_PREFIXES")
+m("E12","camelCase-Namen nicht zerlegt",CF,'    split = re.sub(r"([a-z0-9])([A-Z])", r"\\1_\\2", name)',"    split = name")
+m("E07","Allgemeine Namen (API_KEY ...) nicht erkannt",CF," or norm in _GENERIC_NAMES"," ")
+m("E08","Schluessel-Inhalte unter fremdem Namen nicht erkannt",CF,"if _is_credential_name(name) or _CREDENTIAL_VALUE.search(value):","if _is_credential_name(name):")
+m("E09","TRADING_MODE in Kleinschreibung ignoriert",CF,'if _normalized(k) == "TRADING_MODE"]','if k == "TRADING_MODE"]')
+m("E10","Passphrase unter beliebigem Namen nicht erkannt",CF,' or "PASSPHRASE" in norm:',':')
+# ---- Globaler Not-Aus (AP-07)
+m("N01","Not-Aus vor der Datenpruefung nicht beachtet",PE,"        halted = self._halted_reasons()\n        if halted is not None:\n            return self._reject(intent, halted, None)\n\n        # 2. Marktdaten","        # 2. Marktdaten")
+m("N02","Not-Aus nach der Bewertung nicht beachtet",PE,"        halted = self._halted_reasons()\n        if halted is not None:\n            return self._reject(intent, halted, None)\n        decision","        decision")
+m("N03","Ausgeloester Not-Aus wird ignoriert",PE,"        if not status.halted:\n            return None","        if True:\n            return None")
+m("N04","Datenfehler loesen keinen Not-Aus aus",PE,"        if bad:\n            self._trip(HaltReason.DATA_ERROR","        if False:\n            self._trip(HaltReason.DATA_ERROR")
+m("N05","Wiederholte Kerzen loesen den Not-Aus aus",PE,"    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED,","    RejectReason.BAD_CANDLE, RejectReason.CANDLE_MISALIGNED, RejectReason.DUPLICATE_CANDLE,")
+m("N06","Notbremsen loesen keinen Not-Aus aus",PE,"        for brake in brake_reasons_for(equity, day_start, peak, self._limits):","        for brake in ():")
+m("N07","Protokollfehler loest keinen Not-Aus aus",PE,'                    self._trip_silently(HaltReason.PROTOCOL_ERROR, "Protokoll nicht schreibbar: %s" % type(exc).__name__)',"                    pass")
+m("N08","Freigabe ohne Bestaetigungstext",KS,"    if confirmation != RELEASE_CONFIRMATION:","    if False:")
+m("N09","Freigabe ohne Namen",KS,"    if not name:\n","    if False:\n")
+m("N10","Unlesbarer Not-Aus gilt als frei",PE,'            return HaltStatus(True, None, None, "Not-Aus nicht lesbar: %s" % type(exc).__name__)',"            return HaltStatus(False)")
+m("N11","Zweiter Ausloeser ueberschreibt den ersten Grund",KS,"            if self._state.halted:\n                return False\n","")
+m("N12","Tagesverlust-Bremse loest den Not-Aus nicht mehr aus (eine Definition fuer beide)",OR,"        if day_loss >= limits.max_daily_loss:","        if day_loss > limits.max_daily_loss * 2:")
+m("N13","Verlust der Mitternachts-Kerze zaehlt fuer keinen Tag",PE,"        if now.date() > self._day:\n            # Tageswechsel","        if False:\n            # Tageswechsel")
+m("N14","Notbremsen vor statt nach der Order gemessen",OR,"    reasons.extend(brake_reasons_for(equity_after, portfolio.day_start_equity","    reasons.extend(brake_reasons_for(portfolio.equity, portfolio.day_start_equity")
+m("N15","Geteilter Not-Aus wird waehrend der Order nicht festgehalten",KS,"    def hold(self) -> ContextManager[object]:\n        return self._lock\n","")
+m("N16","Fehler beim Ausloesen bricht Stop-Loss ab",PE,"        except Exception as exc:  # gemeinsamer Not-Aus nicht schreibbar: wenigstens hier stoppen, Schliessen nicht abbrechen\n","        except ZeroDivisionError as exc:  # eingebauter Fehler\n")
+m("N17","Freigabe setzt die Bezugswerte der Notbremsen nicht neu",PE,"        self._day, self._day_start_equity, self._peak_equity = now.date(), equity, equity\n","")
 
 
 BACKTEST: List[Mutant] = [
@@ -256,9 +313,9 @@ DATENBANK: List[Mutant] = [
  ("G03","DB-Gurt Exposure entfernt",[EXPO], PG),
  ("G04","Sperre UND beide DB-Gurte entfernt",[LOCK,RISK,EXPO], PG),
  ("G05","DB prueft den Hash neuer Protokolleintraege nicht",[(S1,"IF NEW.hash <> expected THEN","IF false THEN")], PG),
- ("G06","Order-IDs nach Neustart vergessen",[(EX,"seen = order is not None and self._order_seen(cur, order.client_order_id)","seen = False")], PG),
+ ("G06","Order-IDs nach Neustart vergessen",[(EX,"known = self._known_order(cur, order_id) if order_id is not None else None","known = None")], PG),
  ("G07","Hoechststand wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(), after.peak_equity, after.day,",'new_vals = (after.balance, engine.equity(), account["peak_equity"], after.day,')], PG),
- ("G08","Kein Rollback (autocommit statt Transaktion)",[(EX,"with self._conn_lock, self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:\n            yield cur","with self._conn_lock, self._conn.cursor(row_factory=dict_row) as cur:\n            self._conn.autocommit = True\n            yield cur")], PG),
+ ("G08","Kein Rollback (autocommit statt Transaktion)",[(EX,"            with conn.transaction(), conn.cursor(row_factory=dict_row) as cur:\n                yield cur","            conn.autocommit = True\n            with conn.cursor(row_factory=dict_row) as cur:\n                yield cur")], PG),
  ("G09","Offene Positionen werden nach Neustart nicht geladen",[(EX,"AND status = 'OPEN' ORDER BY position_id","AND status = 'NEVER' ORDER BY position_id")], PG),
  ("G10","Protokoll ohne Reihenfolge-Sperre",[(PL,'c.execute("SELECT pg_advisory_xact_lock(%s)", (CHAIN_LOCK_KEY,))',"pass")], PG),
  ("G11","Marktzustand (Kurs, letzte Kerze) wird nicht gespeichert",[(EX,"            if new_row != old_row:","            if False:")], PG),
@@ -278,9 +335,53 @@ DATENBANK: List[Mutant] = [
  ("G25","DB prueft die Verkettung nicht",[(S1,"IF NEW.prev_hash <> head.hash THEN","IF false THEN")], PG),
  ("G26","Geschlossene Positionen aenderbar",[(S1,"IF OLD.status = 'CLOSED' THEN","IF false THEN")], PG),
  ("G27","Bestehende Datenbank wird ohne Rueckfrage als migriert markiert",[(MG,"                if not baseline_existing:","                if False:")], PG),
- ("G28","Order-Vermerk wird nicht gespeichert",[(EX,"        if order is not None:\n            oid, result = order","        if False:\n            oid, result = order")], PG),
+ ("G28","Order-Vermerk wird nicht gespeichert",[(EX,"        if order is not None:\n            intent, result = order","        if False:\n            intent, result = order")], PG),
  ("G29","Geschlossene Position bleibt in der DB offen",[(EX,"                    \"UPDATE positions SET status = 'CLOSED', closed_at = %s\"","                    \"UPDATE positions SET status = status, closed_at = %s\"")], PG),
  ("G30","Guthaben wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(),",'new_vals = (account["balance"], engine.equity(),')], PG),
+ ("G31","Anwendung darf den Not-Aus aufheben",[(S3,"        IF current_user = 'trading_app' THEN\n            RAISE EXCEPTION 'Not-Aus darf nur","        IF false THEN\n            RAISE EXCEPTION 'Not-Aus darf nur")], PG),
+ ("G32","DB-Gurt: neue Position trotz Not-Aus",[(S3,"    IF COALESCE((SELECT halted FROM trading_halt WHERE id = 1), true) THEN","    IF false THEN")], PG),
+ ("G33","Erster Grund des Not-Aus ueberschreibbar",[(S3,"IF NEW.reason IS DISTINCT FROM OLD.reason OR NEW.since IS DISTINCT FROM OLD.since\n           OR NEW.note IS DISTINCT FROM OLD.note THEN","IF false THEN")], PG),
+ ("G34","Vom Programm ausgeloester Not-Aus wird nicht gespeichert",[(EX,"            write_trip(cur, halt_after)\n","            pass\n")], PG),
+ ("G35","Protokoll-Schreibfehler setzt keinen Not-Aus",[(EX,"                    trip_in_new_transaction(self._db.get(), self._clock, HaltReason.PROTOCOL_ERROR,\n                                            \"Protokoll nicht schreibbar","                    (lambda *a: None)(self._db.get(), self._clock, HaltReason.PROTOCOL_ERROR,\n                                            \"Protokoll nicht schreibbar")], PG),
+ ("G36","Executor liest den Not-Aus nicht aus der Datenbank",[(EX,"halt = read_halt(cur, lock=True)","halt = HaltStatus(False)")], PG),
+ ("G37","Fehlende Not-Aus-Zeile gilt als frei",[(PK,'return HaltStatus(True, None, None, "Not-Aus-Zeile fehlt")',"return RUNNING")], PG),
+ ("G38","Beschaedigtes Protokoll bei der Pruefung setzt keinen Not-Aus",[(EX,"        if not ok:\n            with self._conn_lock:","        if False:\n            with self._conn_lock:")], PG),
+ ("G39","Not-Aus wird ohne Sicherungspunkt protokolliert (kaputtes Protokoll verhindert ihn)",[(PK,"                with conn.transaction():\n                    log_event(","                if True:\n                    log_event(")], PG),
+ ("G40","Not-Aus-Zeile ohne Sperre gelesen (Wettlauf mit Ausloesern)",[(EX,"halt = read_halt(cur, lock=True)","halt = read_halt(cur)")], PG),
+ ("G41","Not-Aus-Zeile loesch-/neu anlegbar (Freigabe ohne Namen)",[(S3,"CREATE TRIGGER trading_halt_no_insert_delete BEFORE INSERT OR DELETE ON trading_halt","CREATE TRIGGER trading_halt_no_insert_delete BEFORE UPDATE OF id ON trading_halt")], PG),
+ ("G42","Not-Aus-Tabelle leerbar (TRUNCATE)",[(S3,"CREATE TRIGGER trading_halt_no_truncate BEFORE TRUNCATE ON trading_halt","CREATE TRIGGER trading_halt_no_truncate AFTER INSERT ON trading_halt")], PG),
+ ("G43","Freigabe erbt Name und Zeitpunkt einer frueheren Freigabe",[(S3,"           OR NEW.released_at IS NOT DISTINCT FROM OLD.released_at OR NEW.released_at < OLD.since THEN","           THEN")], PG),
+ ("G44","Haengende Transaktionen ohne Zeitlimit",[(DB,'            " -c idle_in_transaction_session_timeout=15000"\n',"")], PG),
+ ("G45","Freigabe setzt die Notbremsen der Konten nicht neu",[(PK,'"UPDATE accounts SET day = %s, day_start_equity = equity, peak_equity = equity,"\n                " version = version + 1, updated_at = now()",','"SELECT %s::date",')], PG),
+ ("G46","Freigabe ohne Not-Aus-Zeile meldet Erfolg",[(PK,"            if cur.rowcount != 1:  # Zeile fehlt","            if False:  # Zeile fehlt")], PG),
+ ("G47","Ausloesen von aussen ohne Wiederholung bei belegter Sperre",[(PK,"                retry = isinstance(exc, psycopg.errors.LockNotAvailable) or self._db.is_lost()","                retry = self._db.is_lost()")], PG),
+ ("G48","Wiederholung aus der DB liefert die Position mit spaeterem Funding",[(EX,"            position = dataclasses.replace(opened, last_funding_ts=opened.opened_at, funding_paid=Decimal(0))","            position = opened")], PG),
+ ("G49","Fingerabdruck wird nicht gespeichert",[(EX,"self._clock.now(), order_fingerprint(intent),","self._clock.now(), None,")], PG),
+ ("G50","DB-Gurt: Fill ohne Position erlaubt",[(S4,"        fingerprint IS NULL OR ((status = 'filled') = (position_id IS NOT NULL))),","        true),")], PG),
+ ("G51","DB: Fingerabdruck in beliebigem Format",[(S4,"ADD COLUMN fingerprint TEXT CHECK (fingerprint ~ '^[0-9a-f]{64}$'),","ADD COLUMN fingerprint TEXT,")], PG),
+ ("G52","DB: Order verweist auf nicht vorhandene Position",[(S4,",\n    ADD CONSTRAINT orders_position_fk FOREIGN KEY (account_id, position_id) REFERENCES positions (account_id, position_id);",";")], PG),
+ ("G53","Groessen-Order: Order-ID nicht geprueft und nicht gespeichert",[(EX,"                         client_order_id, lambda: built[-1] if built else None)","                         None, lambda: built[-1] if built else None)")], PG),
+ ("G54","DB: Anwendung darf wieder Konten anlegen",[(S5,"REVOKE INSERT ON accounts FROM trading_app;","GRANT INSERT ON accounts TO trading_app;")], PG),
+ ("G55","DB: Kontoaenderung ohne genau einen Versionsschritt",[(S5,"    IF NEW.version <> OLD.version + 1 THEN","    IF NEW.version < OLD.version THEN")], PG),
+ ("G56","DB: Positionszaehler darf sinken",[(S5,"    IF NEW.position_counter < OLD.position_counter THEN","    IF false THEN")], PG),
+ ("G57","DB: Handelstag darf zurueckspringen",[(S5,"    IF NEW.day < OLD.day THEN","    IF false THEN")], PG),
+ ("G58","DB: Tagesstart-Equity innerhalb des Tages aenderbar",[(S5,"    IF NEW.day = OLD.day AND NEW.day_start_equity <> OLD.day_start_equity THEN","    IF false THEN")], PG),
+ ("G59","DB: Hoechststand darf sinken",[(S5,"    IF NEW.peak_equity < OLD.peak_equity OR NEW.peak_equity < NEW.equity THEN","    IF NEW.peak_equity < NEW.equity THEN")], PG),
+ ("G60","DB: Hoechststand darf unter der Equity liegen",[(S5,"    IF NEW.peak_equity < OLD.peak_equity OR NEW.peak_equity < NEW.equity THEN","    IF NEW.peak_equity < OLD.peak_equity THEN")], PG),
+ ("G61","DB: Plausibilitaetspruefung gilt nur fuer die Rolle trading_app",[(S5,"    IF (SELECT rolsuper FROM pg_roles WHERE rolname = current_user) THEN","    IF current_user <> 'trading_app' THEN")], PG),
+ ("G62","Executor legt fehlendes Konto nicht an, startet aber trotzdem",[(EX,"        if not self._read(exists):\n            raise AccountMissingError(","        if False:\n            raise AccountMissingError(")], PG),
+ ("G63","Kontoanlage ohne Protokolleintrag",[(AC,"            if created:  # in derselben Transaktion: ohne Protokolleintrag kein Konto","            if False:")], PG),
+ ("G64","Kontoanlage prueft das Startkapital nicht",[(AC,"    if not is_positive_decimal(initial_equity):","    if initial_equity is None:")], PG),
+ ("G65","Kontoanlage prueft den Kontonamen nicht",[(AC,"    if not isinstance(account_id, str) or not _ACCOUNT_ID.match(account_id):","    if not isinstance(account_id, str):")], PG),
+    # AP-11 Wiederverbindung (Audit H7)
+ ("G66","Abgerissene Verbindung wird nie neu aufgebaut",[(DB,"        if self.is_lost():\n            self._reconnect()","        if self._conn is None:\n            self._reconnect()")], PG + RC),
+ ("G67","Order wird nach Abbruch beim COMMIT still wiederholt",[(EX,"                if attempt == 0 and not decided and self._db.is_lost():","                if attempt == 0 and self._db.is_lost():")], RC),
+ ("G68","Wiederverbindung ohne Begrenzung der Versuche",[(DB,"        for attempt in range(len(self._delays) + 1):","        for attempt in iter(int, 1):")], RC),
+ ("G69","Wiederverbindung ohne Wartezeit",[(DB,"                self._sleep(self._delays[attempt - 1])","                pass")], RC),
+ ("G70","Geschlossene Verbindung verbindet sich selbst neu",[(DB,"        if self._closed:\n            raise","        if False:\n            raise")], PG + RC),
+ ("G71","Fehler ohne Verbindungsverlust (z. B. Sperr-Zeitlimit) wird wiederholt",[(EX,"                if attempt == 0 and not decided and self._db.is_lost():","                if attempt == 0 and not decided:")], RC),
+ ("G72","Lesen ohne Wiederverbindung",[(EX,"                if attempt == 0 and self._db.is_lost():\n                    continue\n                raise","                raise")], RC),
+ ("G73","Not-Aus von aussen scheitert an abgerissener Verbindung",[(PK,"                retry = isinstance(exc, psycopg.errors.LockNotAvailable) or self._db.is_lost()","                retry = isinstance(exc, psycopg.errors.LockNotAvailable)")], RC),
 ]
 
 
@@ -296,10 +397,26 @@ def copy_project(workdir: Path) -> Path:
     """Legt EINMAL eine Arbeitskopie an; jeder eingebaute Fehler wird danach wieder zurueckgenommen."""
     copy = workdir / "projekt"
     copy.mkdir()
-    for folder in ("src", "tests", "db", "scripts"):
+    # Alles, was die Tests lesen (auch Sperrdateien, Dockerfile, CI-Datei) - sonst schlagen Tests in der Kopie schon ohne
+    # eingebauten Fehler fehl, und jeder Eintrag gaelte faelschlich als "entdeckt".
+    for folder in ("src", "tests", "db", "scripts", "requirements", ".github"):
         shutil.copytree(ROOT / folder, copy / folder, ignore=shutil.ignore_patterns("__pycache__"))
-    shutil.copy(ROOT / "pyproject.toml", copy)
+    for name in ("pyproject.toml", "Dockerfile"):
+        shutil.copy(ROOT / name, copy)
     return copy
+
+
+def stale_entries() -> List[str]:
+    """Eintraege, deren Textstelle nicht genau einmal im Projekt steht. Vor dem Lauf geprueft, damit ein veralteter Eintrag
+    nicht erst nach langer Laufzeit auffaellt - und damit kein Fehler an einer unbeabsichtigten zweiten Stelle eingebaut wird."""
+    stale = []
+    for group in GROUPS.values():
+        for key, _, edits, _ in group:
+            for path, old, _ in edits:
+                count = (ROOT / path).read_text(encoding="utf-8").count(old)
+                if count != 1:
+                    stale.append("%s (%s: %d Fundstellen)" % (key, path, count))
+    return stale
 
 
 def check(mutant: Mutant, copy: Path, with_db: bool) -> Tuple[bool, str]:
@@ -343,11 +460,22 @@ def main(argv: Sequence[str]) -> int:
     keys = [mt[0] for group in GROUPS.values() for mt in group]
     assert len(keys) == len(set(keys)), "Kennungen muessen eindeutig sein"
 
+    stale = stale_entries()
+    if stale:
+        raise SystemExit("Veraltete Eintraege - bitte an den aktuellen Code anpassen:\n  " + "\n  ".join(stale))
+
     found = missed = skipped = 0
     survivors: List[str] = []
     workdir = Path(tempfile.mkdtemp(prefix="mutation-check-"))
     try:
         copy = copy_project(workdir)
+        # Grundprobe: OHNE eingebauten Fehler muessen alle Tests in der Kopie bestehen. Sonst waere jedes "ENTDECKT"
+        # wertlos, weil die Tests ohnehin fehlschlagen.
+        broken, detail = check(("BASIS", "Kopie ohne Fehler", [], ALL_TESTS), copy, HAVE_DB)
+        if broken:
+            raise SystemExit("Grundprobe fehlgeschlagen: Die Tests scheitern in der Kopie schon ohne eingebauten Fehler "
+                             "(%s). Erst das beheben." % detail)
+        print("[BASIS] Kopie ohne eingebauten Fehler: alle Tests bestanden", flush=True)
         for group in wanted:
             for mutant in GROUPS[group]:
                 key, name, _, tests = mutant
