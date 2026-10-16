@@ -32,6 +32,8 @@ class EventType(str, Enum):
     HALT_ACTIVATED = "HALT_ACTIVATED"  # globaler Not-Aus ausgeloest (Grund, Zeitpunkt, Hinweis)
     HALT_RELEASED = "HALT_RELEASED"  # Not-Aus bewusst aufgehoben (wer)
     ACCOUNT_CREATED = "ACCOUNT_CREATED"  # Konto von einem Administrator angelegt (Name, Startkapital)
+    AI_CALL = "AI_CALL"  # jede KI-Analyse-Stufe: Agent, Anlass, Setup, Modell, Tokens, Kosten (auch Regeln/Cache/uebersprungen)
+    OPERATING_COST = "OPERATING_COST"  # Betriebskosten (Server, Marktdaten, Sonstiges) fuer einen Zeitraum
 
 
 def to_jsonable(obj: Any) -> Any:

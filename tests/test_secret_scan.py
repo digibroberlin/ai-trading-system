@@ -73,3 +73,32 @@ def test_without_git_all_files_are_scanned(monkeypatch):
     assert "scripts/secret_scan.py" in files and "src/trading/config.py" in files
     assert not [f for f in files if f.startswith(".git/") or "__pycache__" in f]
     assert scan.scan_working_tree() == [] or all("backups/" in f for f in scan.scan_working_tree())
+
+
+@pytest.mark.parametrize("line", [
+    "        tokens_in: Dict[str, int] = defaultdict(int)",
+    "    usage = TokenUsage(cache_write_tokens=prompt_bytes + REQUEST_OVERHEAD_TOKENS, output_tokens=max_out)",
+    "    input_tokens_by_agent: Mapping[str, int]  # inkl. Cache",
+    "TokenUsage(input_tokens=prompt_bytes_total, output_tokens=40)",
+])
+def test_token_counts_of_ai_cost_metering_are_not_secrets(line):
+    assert scan.check_line(line) == [], line
+
+
+@pytest.mark.parametrize("line", [
+    "GH_TOKEN=" + RANDOM * 2,
+    "access_token = '" + RANDOM + "'",
+    "bearer_tokens = '" + RANDOM + "'",  # Mehrzahl, aber mit weiterem heiklen Wort
+    "api_key_tokens: " + RANDOM,
+    "secret_tokens = '" + RANDOM + "'",
+    "API_TOKENS=" + RANDOM * 2,  # Mehrzahl, aber kein Zaehler-Name
+    "ACCESS_TOKENS=" + RANDOM * 2,
+    "refresh_tokens = '" + RANDOM + "'",
+    "id_tokens = '" + RANDOM + "'",
+    "TOKENSERVICE_TOKEN=" + RANDOM * 2,
+    "AUTH_TOKENS: " + RANDOM,
+    "GITHUB_TOKENS=" + RANDOM * 2,
+    "input_tokens_secret = '" + RANDOM + "'",  # Zaehler-Name nur als Teil eines laengeren Namens
+])
+def test_real_tokens_are_still_found_even_with_plural_names(line):
+    assert scan.check_line(line), line

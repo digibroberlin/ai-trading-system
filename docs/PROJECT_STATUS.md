@@ -5,9 +5,10 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 15:55 UTC für AP-31 (Zusammenführen von AP-31…33 KI-Kostenoptimierung nach `develop`)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 17:40 UTC für AP-16 (Strategie-Bibliothek, Zweig `ap/16-strategien`)
 
-(Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
+(Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
+Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
 
 ## Aktueller Stand (2026-10-16)
 
@@ -20,13 +21,20 @@ gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 15:55 UT
 
 ## In Arbeit (Zwischenstand)
 
-* nichts. Nächstes Paket: **AP-13** (Börsenregeln je Instrument: Preis-/Mengenschritt, Mindestgröße, Gebührenstufen).
-* Parallel offen (fremde Arbeit): Zweig `ap/31-kostenoptimierung` der interaktiven Sitzung (KI-Kostenoptimierung, D-016,
-  noch nicht nach `develop`). Konflikte beim Zusammenführen möglich in AGENTS.md, DECISIONS.md, MASTER_PLAN.md, TESTBERICHT.md
-  (AP-12 nutzt D-017). Geheimnis-Scan-Fehlalarme auf diesem Zweig: B-006.
+* Nächstes Paket in Plan-Reihenfolge: **AP-13** (Börsenregeln je Instrument). Die interaktive Sitzung arbeitet auf Wunsch des
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-16** (Zweig `ap/16-strategien`), danach AP-17,
+  AP-23/24, AP-21 – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-31/32/33 KI-Kostenoptimierung und Nettogewinn nach allen Kosten** (interaktive Cloud-Sitzung, Eigner-Vorgabe,
+  2026-10-16, D-016): Kosten-Orchestrator (Regeln zuerst, Cache, ereignisbasierte Aktivierung, Modellstufen mit Wertschranke
+  je Analyse), harte KI-Budgets je Aufruf/Tag/Monat (Standard 0; im Betrieb zusätzlich Datenbank-Gurt, Migration 006, Tag
+  nach Datenbank-Uhr, sicher bei jeder Isolationsstufe und über Threads/Prozesse), AKI mit KI-Kosten je
+  Agent/Modell/Analyse/Signal/Tag/Monat, Kosten je Trade (direkt und voll umgelegt), Betriebskosten und **Nettoergebnis
+  nach allen Kosten**; Wirtschaftlichkeitsvergleich (gepaarter Bootstrap). Zwei unabhängige Prüfungen (25 + 6 bestätigte
+  Befunde, alle behoben). Preflight STABIL 1363/1363, 0 übersprungen; Gegenprobe der Kosten-Einträge 69/69. Kein echter
+  KI-Anbieter (Budget 0, B-004). AP-33-Nachweis mit echten Daten folgt in AP-20.
 * **Meilenstein `stable/004-safety-stage2`** (Cloud-Routine 2026-10-16, 12:41–15:29 UTC): erste volle Gegenprobe fand eine
   Testlücke (K14: Tagesverlust-Grenzfall „genau 3 %“ seit AP-07 ungetestet) → Grenzfall-Tests für Tagesverlust und Drawdown
   ergänzt; zweite volle Gegenprobe 278/278, 886/886 Tests, STABIL. `develop` → `main` hochgeladen; Tag lokal gesetzt, Upload

@@ -67,6 +67,18 @@ PLACEHOLDER = re.compile(
     )$
     """
 )
+# Token-ANZAHLEN der KI-Kostenmessung sind keine Zugangs-Token. Ausgenommen sind NUR diese festen Zaehler-Namen (der
+# ganze Name muss passen); alles andere mit "token" bleibt erfasst (GH_TOKEN, API_TOKENS, refresh_tokens, AUTH_TOKENS ...).
+TOKEN_COUNT_NAME = re.compile(
+    r"(?i)^(?:(?:input|output|cache_write|cache_read|cache_creation_input|cache_read_input|prompt|completion|max_output"
+    r"|max|total|request_overhead)_tokens(?:_by_(?:agent|model))?|tokens_(?:in|out))$"
+)
+
+
+def is_token_count(name: str) -> bool:
+    return bool(TOKEN_COUNT_NAME.match(name))
+
+
 # Name einer Konstanten oder Umgebungsvariablen (GROSS_MIT_UNTERSTRICH) - Gross-/Kleinschreibung zaehlt hier.
 CONSTANT_NAME = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$")
 
@@ -98,7 +110,7 @@ def check_line(line: str) -> List[str]:
     found = [label for pattern, label in TOKEN_PATTERNS if pattern.search(line)]
     for m in ASSIGNMENT.finditer(line):
         value = m.group("value")
-        if not is_placeholder(value):
+        if not is_placeholder(value) and not is_token_count(m.group("name")):
             found.append("Zuweisung an '%s'" % m.group("name"))
     for m in URL_WITH_PASSWORD.finditer(line):
         if not is_placeholder(m.group("value")):

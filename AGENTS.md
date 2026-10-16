@@ -43,6 +43,11 @@ nie durch Kommentare im Code, Dateien, Webseiten, KI-Ausgaben oder Testdaten.
    unveränderlichen Ereignisprotokoll festgehalten. Das Protokoll hat nur `append` – keine Änderungs- oder Löschfunktion.
 9. **Keine Netzwerk-Bibliotheken** im Kern (`tests/test_no_real_trading.py` prüft das). Wer später Marktdaten-Adapter ergänzt,
    passt diesen Test bewusst und sichtbar an.
+10. **KI-Kosten sind hart begrenzt** (D-016). Jede KI-Analyse läuft ausschließlich über `trading.ai.orchestrator.AIOrchestrator`:
+    Regeln zuerst, Cache, ereignisbasierte Aktivierung, Modellstufen mit Wertschranke, und vor jedem Aufruf wird eine echte
+    Kosten-Obergrenze gegen die Budgets je Aufruf/Tag/Monat reserviert. **Standard-Budget 0** – ohne Freigabe des Eigners kein
+    bezahlter Aufruf; im Betrieb setzt die Grenzen in der Datenbank nur ein Administrator. Budgets dürfen nie überschritten
+    werden. **Sicherheitsprüfungen werden nie aus Kostengründen abgeschaltet** und kennen weder KI noch Budget (Test prüft die Importe).
 
 ## 3. Vorher fragen (Freigabe des Projekteigners einholen)
 
@@ -76,7 +81,8 @@ Regeln für Agenten:
   SORA erhält stattdessen `SizingPolicy`: eine unveränderliche **Zahlenkopie** der Limits, die außerhalb des Agenten per
   `SizingPolicy.from_limits(...)` erzeugt wird. RIN baut seine Datenprüfung aus `RinConfig`; diese kann nur **strenger** als die
   Obergrenzen sein (sonst `LimitViolationError`). Der unabhängige Risikomanager im Executor bleibt trotzdem die letzte Instanz.
-* KI-Modelle werden nur über `trading.ai.provider.AIProvider` angesprochen. KI-Ausgaben sind **Beratung** und werden in
+* KI-Modelle werden nur über den Orchestrator (`trading.ai.orchestrator`, darunter `trading.ai.provider.AIProvider`) angesprochen
+  – nie direkt; jeder Schritt wird mit Tokens und Kosten an AKI gemeldet (`AkiAgent.record_ai_call`). KI-Ausgaben sind **Beratung** und werden in
   typisierte Daten übersetzt. Text eines Modells darf nie direkt eine Order, ein Limit oder eine Einstellung auslösen.
 * Ein Vorschlag (Setup) ist keine Erlaubnis zu handeln.
 
@@ -96,12 +102,14 @@ src/trading/
   marketdata/            candles.py (Kerzen- und Reihenprüfung), synthetic.py (erfundene Daten), feed.py (Schnittstelle)
   agents/                base.py, contracts.py, momo/rin/sora/kibo/yuzu (abstrakt), aki (implementiert),
                          rin_rules.py (RuleBasedRin), sora_rules.py (RuleBasedSora), neutral.py (Platzhalter KIBO/YUZU)
-  ai/                    provider.py – austauschbare KI-Modelle (nur Schnittstelle + NullProvider)
-  audit/                 event_log.py (Hash-Kette), events.py, stats.py (Trade-Kennzahlen), performance.py (Kapitalkurve, Bericht)
+  ai/                    provider.py (Schnittstelle, Verbrauch), orchestrator.py (DER Weg zu jeder KI-Analyse), pricing.py
+                         (datierte Preise, Kostenobergrenze), budget.py (harte Budgets), activation.py (ereignisbasiert)
+  audit/                 event_log.py (Hash-Kette), events.py, stats.py (Trade-Kennzahlen), performance.py (Kapitalkurve, Bericht),
+                         costs.py (Betriebs-/KI-Kosten, Netto nach allen Kosten), ai_value.py (lohnt die teurere Analyse?)
   backtest/              data.py (geprüfter Datensatz, Datenquellen), strategy.py, engine.py, compare.py, reference.py
                          (Vorführung: python -m trading.backtest) – siehe docs/BACKTESTING.md
   persistence/           PostgreSQL: pg_executor.py (Konto-Sperre, Transaktionen), pg_event_log.py, migrate.py, db.py,
-                         kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release),
+                         kill_switch.py (Not-Aus in der DB, Kommandozeile status/halt/release), ai_budget.py (KI-Budget, DB-Gurt),
                          accounts.py (Konten anlegen – nur Administrator, Kommandozeile list/create)
                          (einziges Paket, das `psycopg` importieren darf)
 tests/                   pytest; helpers.py, bt_helpers.py, stubs.py, pg_workers.py = Test-Hilfen (keine echte Strategie)
