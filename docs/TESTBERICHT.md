@@ -211,3 +211,9 @@ Umgebung: Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
   mehrere Tests prüften schwächer als behauptet (Trigger-Tests nur über fehlende Rechte, Mehrprozess-Test konnte trivial bestehen).
 * **Nicht geprüft:** Docker-Image-Bau (Docker Hub 429 in der Cloud); GitHub-Actions-Lauf der neuen Stände (aus dieser Sitzung
   nicht einsehbar – die Routine kann ihn lesen); vollständige Gegenprobe aller 236 Einträge (nur die AP-06/07-Einträge, siehe unten).
+* **Gegenprobe der AP-06/07-Einträge (Cloud-Routine, 2026-10-16 02:21–02:58 UTC, mit Datenbank):** **46 von 46 entdeckt**
+  (E04–E12, N01–N17, G30–G47 sowie die angepassten P19/P26). Dabei fielen vier Einträge auf, deren Textstelle durch AP-07
+  nicht mehr im Code stand (E05, P19, P26, N06) – die volle Gegenprobe wäre an ihnen abgebrochen. Angepasst, ohne die Absicht
+  der Prüfung zu ändern. Neu: `mutation_check.py` prüft vor dem Lauf, dass **jede** Textstelle genau einmal vorkommt, und
+  bricht sonst sofort mit einer Liste ab. Die vollständige Gegenprobe aller 236 Einträge ist für AP-07 **nicht** gelaufen
+  (folgt spätestens vor `stable/004`).

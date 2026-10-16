@@ -5,11 +5,11 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Routine (Lauf 2026-10-16 02:08 UTC) seit 2026-10-16 02:10 UTC für AP-07 (verwaiste Sperre der interaktiven Sitzung vom 2026-10-15 19:37 UTC übernommen)
+keine
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.)
 
-## Aktueller Stand (2026-10-15)
+## Aktueller Stand (2026-10-16)
 
 * **Letzter stabiler Stand:** `stable/003-autonomy-baseline` (633 Tests, Gegenprobe 193/193, Preflight STABIL).
 * **Zweige:** `main` (stabil), `develop` (Integration).
@@ -19,12 +19,15 @@ gesperrt von Cloud-Routine (Lauf 2026-10-16 02:08 UTC) seit 2026-10-16 02:10 UTC
 
 ## In Arbeit (Zwischenstand)
 
-* **AP-07 Not-Aus** auf Zweig `ap/07-not-aus` (WIP-Commit 37d87a0, hochgeladen): Code, Migration 003, Tests fertig und grün.
-  Nächster Schritt: Ergebnis der Gegenprobe `python scripts/mutation_check.py --only N01 … N12 G31 … G40` prüfen,
-  Testbericht ergänzen, Preflight, nach `develop` zusammenführen.
+* nichts. Nächstes Paket: **AP-08** (Order-Wiederholung liefert ursprüngliches Ergebnis, Audit M7).
 
 ## Zuletzt erledigt
 
+* AP-07 Globaler Not-Aus (interaktive Sitzung 2026-10-15; abgeschlossen von der Cloud-Routine 2026-10-16 02:08–03:10 UTC,
+  nachdem deren Sperre verwaist war): dauerhaft in der Datenbank (Migration 003), automatisch bei kaputten Daten,
+  Protokollfehlern und Notbremsen, Freigabe nur durch einen Administrator mit Namen und `HANDEL FREIGEBEN` (D-011).
+  Preflight STABIL 798/798, 0 übersprungen (mit PostgreSQL 16). Gegenprobe der AP-06/07-Einträge 46/46 entdeckt; vier veraltete
+  Einträge angepasst, Gegenprobe prüft Textstellen jetzt vorab. Volle Gegenprobe (236) steht vor `stable/004` noch aus.
 * AP-03 (Cloud-Routine, erster Lauf 2026-10-15 19:08–20:00 UTC): Cloud-Umgebung geprüft. Python 3.12.3 (Achtung: `python3` ist
   dort 3.11) und 3.9.25 über `uv`; Wegwerf-PostgreSQL 16 über `scripts/cloud_test_db.sh` läuft als root ohne Rückfrage;
   Preflight STABIL inkl. Datenbank (633/633 auf Stand `ae639e5`); Gegenprobe 193/193 (ca. 41 min, rund viermal langsamer als
