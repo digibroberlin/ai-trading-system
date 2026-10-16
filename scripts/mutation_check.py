@@ -126,6 +126,10 @@ m("O04","Wiederholung wird nicht protokolliert",PE,"        self._emit(\n       
 m("O05","Wiederholung ist nicht als solche gekennzeichnet",PE,"        return dataclasses.replace(original, risk=None, replayed=True)","        return dataclasses.replace(original, risk=None)")
 m("O06","Order-ID bleibt nach zurueckgesetzter Operation vergeben",PE,"            self._known_orders.pop(oid, None)","            pass")
 m("O07","Pipeline meldet eine Wiederholung als neu ausgefuehrt",PI,"        if result.replayed:","        if False:")
+# ---- Groesse unter der Sperre neu berechnen (AP-09, Audit M8)
+m("Q01","Pipeline: SORA rechnet mit vorab gelesenem Zustand (ausserhalb der Sperre)",PI,"        try:\n            result = self._executor.submit_sized(setup.setup_id, ctx.snapshot, sizer)","        stale = self._executor.portfolio_state()\n        try:\n            result = self._executor.submit_sized(setup.setup_id, ctx.snapshot, lambda _p: sizer(stale))")
+m("Q03","Pipeline: SORA-Absturz wird nicht als Fehler gemeldet",PI,"            if not sizing_box:  # SORA ist abgestuerzt\n                return self.reject_setup(setup, \"SORA\", (RejectReason.AGENT_ERROR,))","            if not sizing_box:  # SORA ist abgestuerzt\n                return self.reject_setup(setup, \"SORA\", (RejectReason.AGENT_REJECTED,))")
+m("Q02","Executor: Auftrag mit fremder Order-ID wird ausgefuehrt",PE,"        if not isinstance(intent, OrderIntent) or intent.client_order_id != client_order_id:","        if not isinstance(intent, OrderIntent):")
 m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
 m("P20","Funding: auch Shorts zahlen bei positivem Satz",PE,"cost = cost_up(position.side.sign * event.rate * position.quantity * event.mark_price)","cost = cost_up(event.rate * position.quantity * event.mark_price)")
 m("P21","Funding auf Spot-Instrument akzeptiert",PE,"problems.append(RejectReason.BAD_FUNDING)  # Funding gibt es nur bei Futures","pass")
@@ -198,7 +202,7 @@ m("R15","RIN: Marktdaten-Pruefung uebersprungen",RI,"        for code in validat
 m("I01","Pipeline: KIBO-Veto ignoriert",PI,'            ("KIBO", lambda: self._kibo.evaluate(setup, ctx)),\n',"")
 m("I02","Pipeline: YUZU-Veto ignoriert",PI,'            ("YUZU", lambda: self._yuzu.evaluate(setup, ctx)),\n',"")
 m("I03","Pipeline: abgestuerzter Agent zaehlt als Zustimmung",PI,"            if opinion is None:\n                return self.reject_setup(setup, stage, (RejectReason.AGENT_ERROR,))","            if opinion is None:\n                continue")
-m("I04","Pipeline: Fehler der Ausfuehrung reisst alles ab",PI,"result = self._guarded(lambda: self._executor.submit(intent, ctx.snapshot))","result = self._executor.submit(intent, ctx.snapshot)")
+m("I04","Pipeline: Fehler der Ausfuehrung reisst alles ab",PI,"        except Exception as exc:  # noqa: BLE001 - z. B. Datenbankfehler: zurueckgerollt, nichts wurde gehandelt","        except ZeroDivisionError as exc:")
 m("I05","Pipeline: Vorschlaege werden nicht protokolliert",PI,"        for setup in setups:\n            self._aki.record_setup(setup)\n","")
 m("I06","Pipeline: SORA-Ablehnung ignoriert",PI,"        if not sizing.approve:","        if False:")
 m("I07","Pipeline: ohne Marktdaten wird trotzdem verarbeitet (Ausstieg)",PI,"        if ctx is None:\n            return self._exit_blocked(signal, (RejectReason.NO_MARKET_DATA,))\n        snapshot = ctx.snapshot","        snapshot = ctx.snapshot if ctx is not None else None")
@@ -298,7 +302,7 @@ DATENBANK: List[Mutant] = [
  ("G03","DB-Gurt Exposure entfernt",[EXPO], PG),
  ("G04","Sperre UND beide DB-Gurte entfernt",[LOCK,RISK,EXPO], PG),
  ("G05","DB prueft den Hash neuer Protokolleintraege nicht",[(S1,"IF NEW.hash <> expected THEN","IF false THEN")], PG),
- ("G06","Order-IDs nach Neustart vergessen",[(EX,"known = self._known_order(cur, order.client_order_id) if order is not None else None","known = None")], PG),
+ ("G06","Order-IDs nach Neustart vergessen",[(EX,"known = self._known_order(cur, order_id) if order_id is not None else None","known = None")], PG),
  ("G07","Hoechststand wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(), after.peak_equity, after.day,",'new_vals = (after.balance, engine.equity(), account["peak_equity"], after.day,')], PG),
  ("G08","Kein Rollback (autocommit statt Transaktion)",[(EX,"with self._conn_lock, self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:\n            yield cur","with self._conn_lock, self._conn.cursor(row_factory=dict_row) as cur:\n            self._conn.autocommit = True\n            yield cur")], PG),
  ("G09","Offene Positionen werden nach Neustart nicht geladen",[(EX,"AND status = 'OPEN' ORDER BY position_id","AND status = 'NEVER' ORDER BY position_id")], PG),
@@ -345,6 +349,7 @@ DATENBANK: List[Mutant] = [
  ("G50","DB-Gurt: Fill ohne Position erlaubt",[(S4,"        fingerprint IS NULL OR ((status = 'filled') = (position_id IS NOT NULL))),","        true),")], PG),
  ("G51","DB: Fingerabdruck in beliebigem Format",[(S4,"ADD COLUMN fingerprint TEXT CHECK (fingerprint ~ '^[0-9a-f]{64}$'),","ADD COLUMN fingerprint TEXT,")], PG),
  ("G52","DB: Order verweist auf nicht vorhandene Position",[(S4,",\n    ADD CONSTRAINT orders_position_fk FOREIGN KEY (account_id, position_id) REFERENCES positions (account_id, position_id);",";")], PG),
+ ("G53","Groessen-Order: Order-ID nicht geprueft und nicht gespeichert",[(EX,"                         client_order_id, lambda: built[-1] if built else None)","                         None, lambda: built[-1] if built else None)")], PG),
 ]
 
 

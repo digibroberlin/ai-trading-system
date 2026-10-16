@@ -17,6 +17,7 @@ from trading.agents import (
     RuleBasedRin,
     RuleBasedSora,
     SizingPolicy,
+    SoraConfig,
 )
 from trading.audit.events import EventType
 from trading.domain.models import ExitReason, FundingEvent, MarketType, OrderStatus, TradeSetup
@@ -201,6 +202,72 @@ def test_parallel_and_sequential_runs_end_in_the_same_risk_state():
         return s.open_count, s.open_risk / s.equity <= D("0.02")
 
     assert run(True) == run(False) == (5, True)
+
+
+class SlowSora(RuleBasedSora):
+    """Rechnet absichtlich langsam. Rechnete SORA ausserhalb der Sperre des Executors, saehen so alle Pipelines
+    denselben (leeren) Zustand und schluegen dieselbe Groesse vor - die spaeten wuerden dann abgelehnt (Audit M8)."""
+
+    def size(self, setup, context, portfolio):
+        time.sleep(0.01)
+        return super().size(setup, context, portfolio)
+
+
+def separate_pipelines(env, symbols, risk_per_trade):
+    """Je Markt eine EIGENE Pipeline (eigene Sperre) - wie mehrere Prozesse, die sich nur den Executor teilen."""
+    universe = TradingUniverse.of(futures=symbols)
+    policy = SizingPolicy.from_limits(DEFAULT_LIMITS)
+    momo = OneSetupPerMarketMomo()  # gemeinsam, damit jede Setup-ID nur einmal vorkommt
+    return [
+        TradingPipeline(momo, RuleBasedRin(universe, env.clock, RinConfig(), env.risk.costs),
+                        StubKibo(), StubYuzu(),
+                        SlowSora(policy, env.risk.costs, SoraConfig(risk_per_trade=risk_per_trade)),
+                        AkiAgent(env.log), env.executor)
+        for _ in symbols
+    ]
+
+
+@pytest.mark.parametrize("run", range(N_PARALLEL_REPEATS))
+def test_competing_pipelines_shrink_into_the_remaining_budget_instead_of_being_rejected(run):
+    """Audit M8: Ziel 0,45 % je Trade -> vier passen, das Restbudget (ca. 0,2 %) bekommt der fuenfte in KLEINERER
+    Groesse. Dass SORA unter der Sperre rechnet, macht das Ergebnis exakt - egal, wer zuerst kommt."""
+    env = Env()
+    symbols = ["RS%d-USD" % i for i in range(8)]
+    pipes = separate_pipelines(env, symbols, D("0.0045"))
+
+    def cycle(i):
+        return pipes[i].run_cycle([MarketContext(env.snap(symbol=symbols[i], mid=D(100), **FUT))])[0]
+
+    outcomes = run_parallel(8, cycle)
+    executed = [o for o in outcomes if o.executed]
+    state = env.executor.portfolio_state()
+    assert len(executed) == 5 and state.open_count == 5  # Positionslimit, nicht ein veralteter SORA-Vorschlag
+    risks = sorted(o.result.risk.risk_pct for o in executed)
+    assert all(r > D("0.0044") for r in risks[1:])  # vier in voller Groesse
+    assert D("0.001") < risks[0] < D("0.0025")  # der fuenfte verkleinert ins Restbudget
+    assert state.open_risk / state.equity <= D("0.02")
+    blocked = [o for o in outcomes if not o.executed]
+    assert all(o.stage == "SORA" and o.reasons == (R.TOO_MANY_POSITIONS,) for o in blocked), blocked
+    assert env.log.of_type(EventType.ORDER_REJECTED) == ()  # der Risikomanager musste nichts mehr ablehnen
+    assert env.log.verify().ok
+
+
+def test_competing_pipelines_end_exactly_like_a_sequential_run():
+    def run(parallel):
+        env = Env()
+        symbols = ["RQ%d-USD" % i for i in range(8)]
+        pipes = separate_pipelines(env, symbols, D("0.0045"))
+        fn = lambda i: pipes[i].run_cycle([MarketContext(env.snap(symbol=symbols[i], mid=D(100), **FUT))])
+        if parallel:
+            run_parallel(8, fn)
+        else:
+            [fn(i) for i in range(8)]
+        s = env.executor.portfolio_state()
+        return s.open_count, sorted(p.quantity for p in env.executor.open_positions), s.open_risk
+
+    parallel, sequential = run(True), run(False)
+    # Gleiche Mengen (die Reihenfolge der Maerkte darf abweichen) und gleiches Gesamtrisiko.
+    assert parallel == sequential
 
 
 # ------------------------------------------------------------------ Stufe 1: neue Operationen unter Parallelitaet

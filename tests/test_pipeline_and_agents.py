@@ -22,6 +22,7 @@ from trading.agents import (
 )
 from trading.ai.provider import AIRequest, NullProvider, ProviderRegistry
 from trading.audit.events import EventType
+from trading.domain.models import OrderStatus
 from trading.domain.reasons import RejectReason as R
 from trading.pipeline import TradingPipeline
 
@@ -127,6 +128,23 @@ def test_sora_declining_blocks():
     pipe, _ = build(env, sora=StubSora(env.risk.costs, approve=False))
     out = pipe.run_cycle(ctx(env))
     assert out[0].stage == "SORA" and not out[0].executed
+
+
+def test_crashing_sora_blocks_with_agent_error_and_nothing_is_traded():
+    """SORA rechnet unter der Sperre des Executors (Audit M8): Ein Absturz dort blockiert, haelt keine Sperre fest und
+    hinterlaesst keine Order - die Order-ID bleibt frei."""
+    env = Env()
+
+    class ExplodingSora(StubSora):
+        def size(self, setup, context, portfolio):
+            raise RuntimeError("SORA abgestuerzt")
+
+    pipe, _ = build(env, sora=ExplodingSora(env.risk.costs))
+    out = pipe.run_cycle(ctx(env))
+    assert not out[0].executed and out[0].stage == "SORA" and out[0].reasons == (R.AGENT_ERROR,)
+    assert len(env.log.of_type(EventType.SYSTEM_ERROR)) == 1 and not env.log.of_type(EventType.ORDER_REJECTED)
+    assert env.executor.open_positions == ()
+    assert env.order(out[0].setup.setup_id).status is OrderStatus.FILLED  # Sperre frei, ID unverbraucht
 
 
 def test_crashing_agent_blocks_instead_of_approving():
@@ -318,15 +336,15 @@ def test_crashing_executor_blocks_the_trade_and_the_next_setup_is_still_processe
     der Zyklus laeuft weiter - ein Fehler reisst nicht das ganze System ab."""
     env = Env()
     pipe, _ = build(env, setups=[make_setup("s1"), make_setup("s2")])
-    real, calls = env.executor.submit, []
+    real, calls = env.executor.submit_sized, []
 
-    def flaky(intent, snapshot):
-        calls.append(intent.client_order_id)
+    def flaky(client_order_id, snapshot, sizer):  # die Pipeline fuehrt ueber submit_sized aus (Audit M8)
+        calls.append(client_order_id)
         if len(calls) == 1:
             raise ConnectionError("Verbindung zur Datenbank verloren")
-        return real(intent, snapshot)
+        return real(client_order_id, snapshot, sizer)
 
-    env.executor.submit = flaky
+    env.executor.submit_sized = flaky
     first, second = pipe.run_cycle(ctx(env))
     assert not first.executed and first.stage == "EXECUTOR" and first.reasons == (R.EXECUTION_ERROR,)
     assert second.executed  # das naechste Setup wird ganz normal ausgefuehrt

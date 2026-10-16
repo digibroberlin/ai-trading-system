@@ -126,7 +126,26 @@ class PostgresPaperExecutor:
     # ------------------------------------------------------------------ oeffentliche API
 
     def submit(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
-        return self._run(snapshot.instrument, lambda engine: engine.submit(intent, snapshot), intent)
+        return self._run(snapshot.instrument, lambda engine: engine.submit(intent, snapshot),
+                         intent.client_order_id, lambda: intent)
+
+    def submit_sized(
+        self, client_order_id: str, snapshot: MarketSnapshot, sizer: Callable[[PortfolioState], Optional[OrderIntent]]
+    ) -> Optional[ExecutionResult]:
+        """Wie `PaperExecutor.submit_sized`: Die Groesse wird INNERHALB der Transaktion mit gesperrter Konto-Zeile
+        berechnet - aus genau dem Zustand, gegen den danach geprueft und gespeichert wird (Audit M8).
+        Der Rechner darf selbst nichts an Konto oder Not-Aus aendern; er laeuft, bevor die Protokoll-Kette gesperrt
+        wird (so kann ein eigener Protokolleintrag, z. B. von AKI ueber eine andere Verbindung, nicht verklemmen)."""
+        built: List[OrderIntent] = []
+
+        def capture(state: PortfolioState) -> Optional[OrderIntent]:
+            intent = sizer(state)
+            if intent is not None:
+                built.append(intent)
+            return intent
+
+        return self._run(snapshot.instrument, lambda engine: engine.submit_sized(client_order_id, snapshot, capture),
+                         client_order_id, lambda: built[-1] if built else None)
 
     def close_position(
         self, instrument: InstrumentId, snapshot: MarketSnapshot, reason: ExitReason, request_id: str
@@ -202,20 +221,24 @@ class PostgresPaperExecutor:
         self,
         instrument: Any,
         operation: Callable[[PaperExecutor], T],
-        order: Optional[OrderIntent] = None,
+        order_id: Optional[str] = None,
+        order_of: Callable[[], Optional[OrderIntent]] = lambda: None,
     ) -> T:
-        """Sperren -> laden -> Engine entscheidet -> Differenz und Protokoll speichern -> COMMIT."""
+        """Sperren -> laden -> Engine entscheidet -> Differenz und Protokoll speichern -> COMMIT.
+        `order_id`/`order_of`: die bearbeitete Order (ID vorab, Auftrag erst nach der Entscheidung bekannt)."""
         try:
             with self._transaction() as cur:
                 account = self._lock_account(cur)
                 halt = read_halt(cur, lock=True)  # immer NACH der Konto-Sperre (feste Reihenfolge)
-                known = self._known_order(cur, order.client_order_id) if order is not None else None
+                known = self._known_order(cur, order_id) if order_id is not None else None
                 loaded = self._load(cur, account, instrument,
-                                    {order.client_order_id: known} if order is not None and known else {}, halt)
+                                    {order_id: known} if order_id is not None and known else {}, halt)
                 result = operation(loaded.engine)
                 new_order = None
-                if order is not None and known is None:
-                    assert isinstance(result, ExecutionResult)
+                order = order_of()
+                if order_id is not None and known is None and result is not None:
+                    assert isinstance(result, ExecutionResult) and order is not None
+                    assert order.client_order_id == order_id
                     new_order = (order, result)
                 self._persist(cur, loaded, new_order)
                 return result

@@ -18,7 +18,10 @@ Die Freigaberegel ist absichtlich streng und einfach: RIN, KIBO und YUZU muessen
 zustimmen. Gewichtung/Scoring kommt spaeter, wenn Backtests Belege liefern.
 
 Gleichzeitigkeit: Dimensionierung (SORA) und Ausfuehrung eines Setups sind ein unteilbarer
-Schritt (Sperre). So bekommen zwei gleichzeitige Anfragen nie dasselbe Restrisiko-Budget.
+Schritt: SORA rechnet unter der Sperre des Executors (`Executor.submit_sized`) - bei PostgreSQL also
+innerhalb der Transaktion mit gesperrter Konto-Zeile, auch gegenueber anderen Prozessen. So bekommen
+zwei gleichzeitige Anfragen nie dasselbe Restrisiko-Budget, und ein geschrumpftes Budget fuehrt zu
+einer kleineren Position statt zu einer Ablehnung (Audit M8).
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple, TypeVar
 
 from trading.agents.aki import AkiAgent
-from trading.agents.contracts import AgentOpinion, ExitSignal, MarketContext
+from trading.agents.contracts import AgentOpinion, ExitSignal, MarketContext, SizingProposal
 from trading.agents.kibo import KiboAgent
 from trading.agents.momo import MomoAgent
 from trading.agents.rin import RinAgent
@@ -40,6 +43,7 @@ from trading.domain.models import (
     ExitReason,
     OrderIntent,
     OrderStatus,
+    PortfolioState,
     Position,
     TradeSetup,
 )
@@ -174,28 +178,43 @@ class TradingPipeline:
         return None
 
     def _size_and_execute(self, setup: TradeSetup, ctx: MarketContext) -> CycleOutcome:
-        sizing = self._guarded(
-            lambda: self._sora.size(setup, ctx, self._executor.portfolio_state())
-        )
-        if sizing is None:
-            return self.reject_setup(setup, "SORA", (RejectReason.AGENT_ERROR,))
-        self._aki.record_sizing(sizing)
-        if not sizing.approve:
+        """SORA rechnet INNERHALB der Sperre des Executors (bei PostgreSQL: der Konto-Transaktion) mit genau dem
+        Zustand, gegen den der Risikomanager danach prueft (Audit M8). Ein von anderen Prozessen inzwischen
+        verbrauchtes Restbudget fuehrt so zu einer kleineren Position statt zu einer Ablehnung."""
+        sizing_box: List[SizingProposal] = []
+
+        def sizer(portfolio: PortfolioState) -> Optional[OrderIntent]:
+            try:
+                sizing = self._sora.size(setup, ctx, portfolio)
+            except Exception as exc:  # noqa: BLE001 - ein SORA-Fehler blockiert, er bricht nicht die Sperre auf
+                self._aki.record_system_error("AGENT", repr(exc))
+                return None
+            sizing_box.append(sizing)
+            self._aki.record_sizing(sizing)  # vor dem Handel protokolliert, wie bisher
+            if not sizing.approve:
+                return None
+            return OrderIntent(
+                client_order_id=setup.setup_id,
+                setup=setup,
+                quantity=sizing.quantity,
+                leverage=sizing.leverage,
+            )
+
+        try:
+            result = self._executor.submit_sized(setup.setup_id, ctx.snapshot, sizer)
+        except Exception as exc:  # noqa: BLE001 - z. B. Datenbankfehler: zurueckgerollt, nichts wurde gehandelt
+            self._aki.record_system_error("AGENT", repr(exc))
+            return self.reject_setup(setup, "EXECUTOR", (RejectReason.EXECUTION_ERROR,))
+        if result is None:
+            if not sizing_box:  # SORA ist abgestuerzt
+                return self.reject_setup(setup, "SORA", (RejectReason.AGENT_ERROR,))
+            sizing = sizing_box[-1]
             return self.reject_setup(
                 setup,
                 "SORA",
                 sizing.reject_reasons or (RejectReason.AGENT_REJECTED,),
                 "; ".join(sizing.reasons),
             )
-        intent = OrderIntent(
-            client_order_id=setup.setup_id,
-            setup=setup,
-            quantity=sizing.quantity,
-            leverage=sizing.leverage,
-        )
-        result = self._guarded(lambda: self._executor.submit(intent, ctx.snapshot))
-        if result is None:  # z. B. Datenbankfehler: die Transaktion wurde zurueckgerollt, nichts wurde gehandelt
-            return self.reject_setup(setup, "EXECUTOR", (RejectReason.EXECUTION_ERROR,))
         if result.replayed:  # schon frueher bearbeitet: in DIESEM Durchlauf wurde nichts gehandelt
             return CycleOutcome(setup, False, "EXECUTOR", (RejectReason.DUPLICATE_ORDER_ID,), result=result)
         if result.status is OrderStatus.FILLED:
