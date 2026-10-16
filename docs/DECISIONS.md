@@ -128,3 +128,24 @@ erkennen, ob eine Position besteht.
 * Datenbank: Migration 004 ergänzt `orders` um `fingerprint` (festes Format) und `position_id` (Fremdschlüssel auf
   `positions`; bei „filled“ Pflicht, sonst verboten). Die Tabelle bleibt unveränderlich.
 * Pipeline: Eine Wiederholung zählt im Durchlauf als **nicht ausgeführt** (Stufe EXECUTOR, Grund `DUPLICATE_ORDER_ID`).
+
+## D-013 · 2026-10-16 · SORA rechnet die Größe unter der Konto-Sperre (AP-09, Audit M8)
+**Problem:** SORA las den Portfolio-Zustand **vor** der Ausführung. Hatte ein anderer Prozess (oder eine andere Pipeline auf
+demselben Executor) in der Zwischenzeit Risiko belegt, lehnte der Risikomanager SORAs Vorschlag ab, obwohl eine kleinere
+Position noch gepasst hätte (sicher, aber nicht optimal; Audit: „2 von 8 Pipelines führten aus“).
+**Entscheidung:**
+* Neue Executor-Methode `submit_sized(order_id, snapshot, sizer)`: Der Executor ruft den Größen-Rechner **unter seiner Sperre**
+  auf – beim PostgreSQL-Executor innerhalb der Transaktion mit gesperrter Konto-Zeile – und gibt ihm genau den Zustand, gegen den
+  der Risikomanager danach prüft. Liefert der Rechner nichts, wird nichts gehandelt und keine Order-ID verbraucht.
+* Die Pipeline führt Einstiege nur noch so aus. SORA bekommt dabei weiterhin **keinen** Executor, keine Limits und keinen
+  Risikomanager; die Pipeline reicht nur eine Funktion „Zustand → Auftrag“ weiter. Der Risikomanager hat weiter das letzte Wort.
+* Ein Auftrag mit fremder Order-ID oder ein Fehler im Rechner bricht die ganze Operation ab (alles zurückgesetzt, fail closed).
+  Ein SORA-Absturz wird als Blockade auf Stufe SORA (`AGENT_ERROR`) gemeldet.
+* AKI protokolliert SORAs Vorschlag weiterhin **vor** dem Handel. Beim PostgreSQL-Protokoll geschieht das über eine eigene
+  Verbindung, während die Konto-Sperre gehalten wird. Das verklemmt nicht, weil die Protokoll-Kette erst danach (beim Speichern)
+  gesperrt wird und kein anderer Ablauf die Kette hält, während er auf Konto- oder Not-Aus-Zeile wartet. Scheitert die
+  Ausführung danach, bleibt der Vorschlag im Protokoll stehen – wie bisher.
+* `submit` bleibt für direkte Aufträge (Tests, Backtest-Werkzeuge) erhalten.
+**Folge:** SORA muss schnell und deterministisch bleiben (keine KI-Aufrufe, kein Netz), weil die Konto-Sperre während der
+Rechnung gehalten wird. Wird SORA später durch KI beraten, geschieht das **vor** dem Sperr-Abschnitt; unter der Sperre
+läuft nur die Regelrechnung.

@@ -19,10 +19,15 @@ gesperrt von Cloud-Routine seit 2026-10-16 04:08 UTC für AP-09
 
 ## In Arbeit (Zwischenstand)
 
-* nichts. Nächstes Paket: **AP-09** (Größe unter Konkurrenz innerhalb der Sperre neu berechnen, Audit M8).
+* nichts. Nächstes Paket: **AP-10** (Rechte der App-Rolle, Audit M2-Rest: Konten nur administrativ anlegen, Kontostand-Spalten).
 
 ## Zuletzt erledigt
 
+* AP-09 Größe unter Konkurrenz innerhalb der Sperre (Cloud-Routine 2026-10-16 04:08–04:35 UTC, Audit M8, D-013):
+  SORA rechnet jetzt unter der Sperre des Executors (`submit_sized`), bei PostgreSQL in der Transaktion mit gesperrter
+  Konto-Zeile. Ist das Restbudget durch einen anderen Prozess kleiner geworden, wird die Position verkleinert statt abgelehnt.
+  Exakter Mehrprozess-Test: 8 Prozesse, Ziel 0,45 % → genau 5 Positionen (4 voll, 1 verkleinert). Preflight STABIL 821/821,
+  0 übersprungen; Python 3.9: 691 bestanden. Gegenprobe der AP-09-Einträge 7/7. Volle Gegenprobe steht vor `stable/004` aus.
 * AP-08 Wiederholte Order liefert das ursprüngliche Ergebnis (Cloud-Routine 2026-10-16 03:08–03:40 UTC, Audit M7, D-012):
   Gleiche Order-ID mit gleichem Inhalt bekommt Status, Gründe und Position der ersten Bearbeitung (`replayed=True`,
   Protokoll `ORDER_REPLAYED`) – auch aus anderen Prozessen und nach einem Neustart; anderer Inhalt bleibt „Duplikat“.

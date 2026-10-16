@@ -42,3 +42,13 @@ Git: `58edf21` auf `ap/08-order-wiederholung` + Arbeitskopie (Test für O02) · 
 - ✅ Gegenprobe (nur AP-08-Einträge P18, O01–O07, G06, G28, G48–G52, mit Datenbank): 15 von 15 entdeckt
   (O02 erst nach einem zusätzlichen Test; vorher 14/15)
 - ✅ Kern unter Python 3.9.25 ohne psycopg: 683 bestanden, 6 Datenbank-Module sichtbar übersprungen
+
+### 2026-10-16 04:20 UTC - STABIL
+Git: `26edcdc` auf `ap/09-resize-under-lock` · Python 3.12.3 · Linux (Cloud-Routine, AP-09) · PostgreSQL 16
+
+- ✅ Geheimnis-Scan (inkl. Geschichte): GEHEIMNIS-SCAN: keine Funde (Arbeitsstand und gesamte Geschichte).
+- ✅ ruff: All checks passed!
+- ✅ mypy --strict: Success: no issues found in 57 source files
+- ✅ Tests: 821 bestanden, 0 uebersprungen, 0 fehlgeschlagen (207 s)
+- ✅ Gegenprobe (nur AP-09-Einträge Q01–Q03, I04, I06, G06, G53, mit Datenbank): 7 von 7 entdeckt
+- ✅ Kern unter Python 3.9.25 ohne psycopg: 691 bestanden, 6 Datenbank-Module sichtbar übersprungen

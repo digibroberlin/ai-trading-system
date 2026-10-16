@@ -129,7 +129,7 @@ Grenze der Methode: Die Gegenprobe zeigt nur, dass **diese 193** Fehler bemerkt 
 | **Strategien** | Keine echte Handelslogik; KIBO und YUZU sind neutrale Platzhalter. |
 | **Stress-Limit ohne Datenbank-Gurt** | Nur in der Anwendung gerechnet (unter der Konto-Sperre). |
 | **Stress-Limit ist die engste Grenze** | Begrenzt die ungesicherte Gesamtgröße auf knapp 50 % des Kapitals. |
-| **Unter Konkurrenz Ablehnung statt Verkleinerung** (Audit M8) | Sicher, aber nicht optimal. |
+| **Unter Konkurrenz Ablehnung statt Verkleinerung** (Audit M8) | **behoben** (AP-09, Nachtrag unten) |
 | **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | **behoben** (AP-08, Nachtrag unten) |
 | **PAPER-Schutz nicht an einem zentralen Startpunkt** (Audit M3) | offen; ein Live-Modus existiert im Code nicht |
 | **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | offen |
@@ -234,3 +234,24 @@ Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Dat
 * **Preflight:** STABIL – **806/806** Tests, 0 übersprungen. Python 3.9: 683 bestanden, 6 Datenbank-Module übersprungen (erwartet).
 * **Gegenprobe der AP-08-Einträge:** 15/15 entdeckt. Die vollständige Gegenprobe aller Einträge steht vor `stable/004` aus.
 * **Nicht geprüft:** Docker-Image-Bau; GitHub-Actions-Lauf des neuen Stands (folgt nach dem Push).
+
+## Nachtrag 2026-10-16 – AP-09 Größe unter Konkurrenz innerhalb der Sperre (Audit M8)
+
+Umgebung: Cloud-Routine (Linux/amd64), Python 3.12.3, PostgreSQL 16 (Wegwerf-Datenbank). Alle Daten synthetisch.
+
+* **Verhalten (D-013):** SORA rechnet unter der Sperre des Executors (`submit_sized`), bei PostgreSQL in der Transaktion mit
+  gesperrter Konto-Zeile. Ein inzwischen kleiner gewordenes Restbudget ergibt eine kleinere Position statt einer Ablehnung.
+* **Neue Tests:** `test_concurrency` (8 getrennte Pipelines mit absichtlich langsamer SORA auf einem Executor: genau 5 Positionen,
+  vier mit 0,45 %, die fünfte verkleinert auf 0,1–0,25 %, Rest „zu viele Positionen“ bei SORA, keine Ablehnung beim
+  Risikomanager; je 5×; parallel = nacheinander), `test_pg_multiprocess` (dasselbe mit 8 echten Prozessen, je 3×),
+  `test_pg_executor` (Rechner sieht den gesperrten Zustand inkl. fremder Position; Order wird gespeichert und wiederholbar;
+  „nein“ hinterlässt nichts; Fehler oder fremde ID setzen alles zurück), `test_paper_executor`, `test_pipeline_and_agents`
+  (abstürzende SORA blockiert, Sperre frei, Order-ID unverbraucht).
+* **Angepasste Tests:** zwei Tests, die eine abstürzende Ausführung nachstellen, ersetzen jetzt `submit_sized` statt `submit`
+  bzw. erwarten nur noch **einen** Datenbank-Aufruf (vorher: Portfolio-Abfrage + Ausführung getrennt). Die Erwartung
+  „blockiert mit EXECUTION_ERROR, nichts gehandelt“ ist unverändert.
+* **Gegenprobe:** neue Einträge Q01–Q03 und G53, angepasst I04 und G06 (Textstellen hatten sich geändert); zusammen mit I06
+  **7/7 entdeckt**. Zusätzlich von Hand belegt: Mit der alten Logik (SORA rechnet mit vorher gelesenem Zustand) scheitert der
+  neue Mehrprozess-Test in 3 von 3 Durchläufen.
+* **Preflight:** STABIL – **821/821** Tests, 0 übersprungen. Python 3.9: 691 bestanden, 6 Datenbank-Module übersprungen (erwartet).
+* **Nicht geprüft:** volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.

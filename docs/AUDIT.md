@@ -147,7 +147,7 @@ Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
 | M5 | **behoben** (vorgezogen) | Jede Operation des Speicher-Executors ist unteilbar; scheitert etwas (auch das Protokoll), wird alles zurückgesetzt. |
 | M6 | **behoben** (vorgezogen) | Der Referenzkurs des Sprung-Filters verfällt nach 15 Minuten; verarbeitete Kerzen schreiben ihn fort. |
 | M7 | **behoben** (AP-08, D-012) | Gleiche Order-ID mit gleichem Inhalt liefert das ursprüngliche Ergebnis (`replayed=True`), auch aus einem anderen Prozess und nach einem Neustart (Migration 004: Fingerabdruck und Position in `orders`). Gleiche ID mit anderem Inhalt bleibt ein abgelehntes Duplikat. |
-| M8 | offen | Unter Konkurrenz mehrerer Prozesse wird ein SORA-Vorschlag weiterhin abgelehnt statt neu berechnet (sicher, aber nicht optimal). |
+| M8 | **behoben** (AP-09, D-013) | SORA rechnet die Größe unter der Sperre des Executors, bei PostgreSQL innerhalb der Transaktion mit gesperrter Konto-Zeile (`submit_sized`). Exakte Erwartung im Mehrprozess-Test: 8 Prozesse mit Ziel 0,45 % → genau 5 Positionen, vier voll, die fünfte ins Restbudget verkleinert, keine Ablehnung durch den Risikomanager. |
 | M9 | offen | `verify()` lädt weiterhin das ganze Protokoll. |
 | M10 | **behoben** | Funding nur noch aus ausdrücklichen Ereignissen (Satz und Kurs aus den Daten), je Position höchstens einmal; ohne Funding-Satz kein Futures-Trade. |
 | M11 | weitgehend | Schließen auf Signal und per Eingriff (`close_position`), durchgängig bis in Pipeline, Backtest und Datenbank. **Offen:** Teilschließung und ein globaler Not-Aus. |
