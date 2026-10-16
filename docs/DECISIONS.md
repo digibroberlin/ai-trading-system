@@ -239,6 +239,18 @@ abgeleitet, nicht aus der Liste). Vor echtem Einsatz gegen die aktuelle Preislis
   Entsperren ebenso (`unblocked_by`/`unblocked_at`); eine frühere Freigabe gilt nicht weiter.
 * Geheimnis-Scan: Nur feste Zähler-Namen (`input_tokens`, `output_tokens`, `max_tokens`, `tokens_in` …) sind ausgenommen,
   nicht jeder Name mit „tokens“.
+**Zweite unabhängige Prüfung (der Korrekturen selbst):**
+* **Schwer, durch die Korrekturen entstanden:** Seit der Orchestrator den Anbieteraufruf ohne Sperre macht, rufen mehrere
+  Threads das PostgreSQL-Budget gleichzeitig über **eine** Verbindung auf – die zweite Transaktion wurde nur ein Savepoint
+  der ersten, Reservierungen und Sperren gingen verloren. Jetzt: Sperre im `PostgresBudgetLedger` um jede Transaktion, und
+  in einer fremden offenen Transaktion wird nie gebucht (dann gilt das Budget als gesperrt).
+* Der Datenbank-Gurt serialisiert Reservierungen **schreibend** (Zähler `reservations` in der Grenzen-Zeile) statt mit einer
+  reinen Lesesperre: Unter REPEATABLE READ zählte eine wartende Reservierung sonst einen veralteten Stand; jetzt bricht sie
+  ab. Test über alle drei Isolationsstufen.
+* Auch ein Cache-Treffer (oder das Warten auf eine parallel laufende gleiche Analyse) ersetzt nie sicherere Regeln.
+* AKI merkt sich einen KI-Messpunkt vor dem Protokollieren – scheitert das Protokoll, fehlen die Kosten nicht im Nettobericht.
+* Weitere Tests: gelöschter Freigabe-/Entsperr-Zeitpunkt, Abrechnungszeit von der Datenbank, Trigger der Anwendungsrolle
+  auch bei breiteren Spaltenrechten.
 **Grenzen:** KIBO/YUZU sind noch neutrale Platzhalter – die Orchestrierung ist die Infrastruktur, an die sie mit echter
 Regel-Logik (AP-17) und später mit KI (AP-22, nach Budgetfreigabe) angeschlossen werden. Der Nutzen jeder KI-Analyse ist
 bis zum Nachweis (AP-33 mit echten Daten) unbewiesen.

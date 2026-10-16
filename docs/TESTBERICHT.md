@@ -335,7 +335,7 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 
   `audit/costs.py` (Betriebskosten, KI-Kosten je Agent/Modell/Analyse/Signal/Tag/Monat, Kosten je Trade, Nettoergebnis nach
   allen Kosten), `audit/ai_value.py` (gepaarter Bootstrap-Vergleich zweier Methoden), `persistence/ai_budget.py` +
   Migration 006 (Budget als Datenbank-Gurt).
-* **Tests:** `test_ai_orchestration` (61), `test_operating_costs` (12), `test_pg_ai_budget` (19, mit Datenbank),
+* **Tests:** `test_ai_orchestration` (65), `test_operating_costs` (14), `test_pg_ai_budget` (26, mit Datenbank),
   Geheimnis-Scan-Fälle für Token-Zähler und echte Token-Variablen.
 * **Unabhängige Prüfung** (8 Prüf-Agenten mit Gegenprüfung): **25 bestätigte Befunde**, alle behoben und mit Tests belegt.
   Die wichtigsten: (1) Meldete der Anbieter keinen Verbrauch, wurden 0 USD gebucht – das Budget war damit wirkungslos; jetzt
@@ -346,6 +346,14 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 
   Entsperren). (6) Die Ausnahme im Geheimnis-Scan war zu breit (jeder Name mit „tokens“); jetzt nur feste Zähler-Namen.
   Weitere: Modell-Abweichung des Anbieters, Ausgabe über `max_tokens`, Fehler in Protokoll/Abrechnung, Sperre während des
   Netzwerkaufrufs, unbegrenzter Cache, Kostenzuordnung über Zeitraumgrenzen, Sommerzeit bei Betriebskosten, schwache Tests.
+* **Zweite unabhängige Prüfung** (der Korrekturen selbst, 4 Prüfer + Gegenprüfung): 6 bestätigte Befunde, alle behoben.
+  Schwer: (1) Die Korrektur „keine Sperre während des Anbieteraufrufs“ ließ mehrere Threads gleichzeitig über **eine**
+  Datenbank-Verbindung buchen – Reservierungen und Sperren gingen verloren (nachgestellt: 45 % über dem Tagesbudget). Jetzt
+  Sperre um jede Budget-Transaktion; Tests mit einem gemeinsamen Budget aus 8 Threads und einem erzwungenen Wettlauf.
+  (2) Unter REPEATABLE READ zählte der Datenbank-Gurt einen veralteten Stand (zwei Reservierungen über der Tagesgrenze);
+  jetzt schreibende Serialisierung, Test über alle drei Isolationsstufen. Mittel/leicht: Cache-Treffer konnten sicherere
+  Regeln ersetzen; AKI verlor den Messpunkt bei Protokollfehler; fünf eingebaute Fehler im Gurt blieben unentdeckt (jetzt
+  getestet). ERGEBNIS_ZWEITE_PRUEFUNG
 * **Vorfall:** Ein Zwischenstand wurde hochgeladen, obwohl der Geheimnis-Scan einen (falschen) Fund meldete – die
   Befehlskette hatte den Fehlercode verschluckt. Es war kein Geheimnis betroffen (Token-**Anzahlen**). Seitdem wird nur noch
   mit `if secret_scan; then push` hochgeladen.
@@ -353,4 +361,4 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 
 * **Preflight:** ERGEBNIS_PREFLIGHT
 * **Nicht geprüft:** echter KI-Anbieter (bewusst, Budget 0, B-004); ob KI-Analysen ihr Geld wert sind (AP-33 mit echten Daten
   in AP-20); Monatswechsel im Datenbank-Budget nur mit vorab eingefügten Einträgen (die Datenbank-Uhr lässt sich nicht
-  verstellen); volle Gegenprobe aller Einträge (steht vor `stable/004` aus); Docker-Image-Bau.
+  verstellen); volle Gegenprobe aller Einträge (erst vor `stable/005`); Docker-Image-Bau.
