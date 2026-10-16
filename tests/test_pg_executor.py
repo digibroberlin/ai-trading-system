@@ -18,6 +18,7 @@ from trading.domain.models import ExitReason, FundingEvent, MarketType, OrderInt
 from trading.domain.reasons import RejectReason as R
 from trading.domain.universe import TradingUniverse
 from trading.execution.costs import CostModel
+from trading.execution.paper_executor import order_fingerprint
 from trading.persistence.pg_event_log import PostgresEventLog
 from trading.persistence.pg_executor import PostgresPaperExecutor
 from trading.pipeline import TradingPipeline
@@ -56,7 +57,8 @@ def scenario(ex, clock):
     identisch sein muss."""
     out = [
         ex.submit(intent("a"), snap(clock)),  # Spot Long
-        ex.submit(intent("a"), snap(clock)),  # doppelte ID
+        ex.submit(intent("a"), snap(clock)),  # gleiche Order erneut -> urspruengliches Ergebnis
+        ex.submit(intent("a", qty=D(8)), snap(clock)),  # gleiche ID, anderer Inhalt -> Duplikat
         ex.submit(intent("b", "ETH-USD", MarketType.FUTURES, lev=D(2)), snap(clock, "ETH-USD", **FUT)),
         ex.submit(intent("c", "XRP-USD", MarketType.FUTURES, Side.SHORT, lev=D(2)),
                   snapshot(symbol="XRP-USD", ts=T0 - timedelta(seconds=99), **FUT)),  # veraltet
@@ -82,7 +84,7 @@ def summary(ex, run):
     out, closed, replay, funding, close, nothing = run
     st = ex.portfolio_state()
     return {
-        "results": [(r.status, r.reasons, r.position.position_id if r.position else None) for r in out],
+        "results": [(r.status, r.reasons, r.position, r.replayed) for r in out],
         "closed": [(t.position_id, t.instrument, t.exit_reason, t.exit_price, t.net_pnl, t.fees, t.funding)
                    for t in closed],
         "replay": replay, "funding": funding,
@@ -102,8 +104,11 @@ def test_postgres_executor_gives_identical_results_to_the_in_memory_engine(pg):
     got = summary(ex, scenario(ex, clock))
     assert got == expected
     # ... und es gab wirklich etwas zu vergleichen:
-    assert [r[0] for r in got["results"]] == [OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.FILLED,
-                                             OrderStatus.REJECTED, OrderStatus.REJECTED, OrderStatus.FILLED]
+    assert [r[0] for r in got["results"]] == [OrderStatus.FILLED, OrderStatus.FILLED, OrderStatus.REJECTED,
+                                             OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.REJECTED,
+                                             OrderStatus.FILLED]
+    assert [r[3] for r in got["results"]] == [False, True, False, False, False, False, False]
+    assert got["results"][1][2] == got["results"][0][2] and got["results"][2][1] == (R.DUPLICATE_ORDER_ID,)
     assert [c[2] for c in got["closed"]] == [ExitReason.TAKE_PROFIT, ExitReason.STOP_LOSS]
     assert got["replay"] == [] and got["funding"] == [D("0.09"), D(0), D("-0.09")]
     assert got["close"][0] and got["nothing"] == (False, (R.NO_POSITION,))
@@ -124,13 +129,15 @@ def test_exact_decimals_survive_the_database_roundtrip(pg):
 def test_everything_is_stored_in_the_database(pg):
     ex, clock = pg_exec(pg)
     ex.submit(intent("a"), snap(clock))
-    ex.submit(intent("a"), snap(clock))  # Duplikat
+    ex.submit(intent("a"), snap(clock))  # Wiederholung
+    ex.submit(intent("a", qty=D(8)), snap(clock))  # Duplikat mit anderem Inhalt
     with psycopg.connect(pg.admin_url) as c:
         assert c.execute("SELECT status, exchange, market_type, symbol, quantity FROM positions").fetchall() == \
             [("OPEN", "synthetic", "spot", "BTC-USD", D(9))]
-        assert c.execute("SELECT client_order_id, status FROM orders").fetchall() == [("a", "filled")]
+        assert c.execute("SELECT client_order_id, status, position_id, fingerprint FROM orders").fetchall() == \
+            [("a", "filled", "P000001", order_fingerprint(intent("a")))]
         types = [r[0] for r in c.execute("SELECT event_type FROM event_log ORDER BY seq").fetchall()]
-        assert types == ["ORDER_FILLED", "ORDER_REJECTED"]  # auch die Blockade steht im Protokoll
+        assert types == ["ORDER_FILLED", "ORDER_REPLAYED", "ORDER_REJECTED"]  # auch die Blockade steht im Protokoll
         bal, eq, ver = c.execute("SELECT balance, equity, version FROM accounts").fetchone()
         assert bal == eq == ex.balance == D("9999.46") and ver == 1
         assert c.execute("SELECT exchange, market_type, symbol, mark, mark_ts, ref_price FROM instrument_state"
@@ -293,8 +300,11 @@ def test_peak_equity_is_persisted_by_portfolio_state(pg):
 def test_two_executor_instances_share_one_truth(pg):
     ex1, clock = pg_exec(pg)
     ex2, _ = pg_exec(pg)
-    assert ex1.submit(intent("a"), snap(clock)).status is OrderStatus.FILLED
-    assert ex2.submit(intent("a"), snap(clock)).reasons == (R.DUPLICATE_ORDER_ID,)
+    first = ex1.submit(intent("a"), snap(clock))
+    assert first.status is OrderStatus.FILLED
+    again = ex2.submit(intent("a"), snap(clock))
+    assert again.replayed and again.position == first.position
+    assert ex2.submit(intent("a", qty=D(8)), snap(clock)).reasons == (R.DUPLICATE_ORDER_ID,)
     assert ex2.submit(intent("b"), snap(clock)).reasons == (R.DUPLICATE_POSITION,)
     assert ex1.open_positions == ex2.open_positions and len(ex2.open_positions) == 1
 

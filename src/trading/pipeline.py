@@ -196,6 +196,8 @@ class TradingPipeline:
         result = self._guarded(lambda: self._executor.submit(intent, ctx.snapshot))
         if result is None:  # z. B. Datenbankfehler: die Transaktion wurde zurueckgerollt, nichts wurde gehandelt
             return self.reject_setup(setup, "EXECUTOR", (RejectReason.EXECUTION_ERROR,))
+        if result.replayed:  # schon frueher bearbeitet: in DIESEM Durchlauf wurde nichts gehandelt
+            return CycleOutcome(setup, False, "EXECUTOR", (RejectReason.DUPLICATE_ORDER_ID,), result=result)
         if result.status is OrderStatus.FILLED:
             return CycleOutcome(setup, True, "FILLED", result=result)
         return CycleOutcome(setup, False, "EXECUTOR", result.reasons, result=result)

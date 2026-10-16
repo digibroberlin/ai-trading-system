@@ -566,18 +566,81 @@ def test_closing_frees_risk_exposure_and_the_instrument():
 # ------------------------------------------------------------------ Doppel-Orders
 
 
-def test_same_order_id_is_executed_only_once():
+def test_same_order_is_executed_only_once_and_a_repeat_gets_the_original_result():
     env = Env()
-    assert env.order("dup").status is OrderStatus.FILLED
+    first = env.order("dup")
+    assert first.status is OrderStatus.FILLED and not first.replayed
+    balance = env.executor.balance
     again = env.order("dup")
-    assert again.status is OrderStatus.REJECTED and again.reasons == (R.DUPLICATE_ORDER_ID,)
-    assert len(env.executor.open_positions) == 1 and len(env.log.of_type(EventType.ORDER_FILLED)) == 1
+    assert again.replayed and again.status is OrderStatus.FILLED and again.reasons == ()
+    assert again.position == first.position and again.risk is None
+    assert env.executor.balance == balance and len(env.executor.open_positions) == 1
+    assert len(env.log.of_type(EventType.ORDER_FILLED)) == 1
+    replay = env.log.of_type(EventType.ORDER_REPLAYED)
+    assert [(e.payload["client_order_id"], e.payload["original_status"], e.payload["position_id"])
+            for e in replay] == [("dup", "filled", first.position.position_id)]
 
 
-def test_rejected_order_id_cannot_be_retried_with_same_id():
+def test_rejected_order_id_cannot_be_retried_and_a_repeat_gets_the_original_rejection():
     env = Env()
-    assert env.order("x", snap_kw={"ts": T0 - timedelta(seconds=99)}).status is OrderStatus.REJECTED
-    assert env.order("x").reasons == (R.DUPLICATE_ORDER_ID,)
+    first = env.order("x", snap_kw={"ts": T0 - timedelta(seconds=99)})
+    assert first.status is OrderStatus.REJECTED and R.STALE_DATA in first.reasons
+    again = env.order("x", snap_kw={"ts": T0 - timedelta(seconds=99)})  # gleicher Auftrag, auch mit frischen Daten
+    fresh = env.order("x")
+    for r in (again, fresh):
+        assert r.replayed and r.status is OrderStatus.REJECTED and r.reasons == first.reasons and r.position is None
+    assert env.executor.open_positions == ()
+
+
+def test_same_order_id_with_different_content_is_rejected_as_duplicate():
+    env = Env()
+    first = env.order("dup")
+    for changed in (env.order("dup", qty=D(39)), env.order("dup", lev=D(2)), env.order("dup", stop=D(94))):
+        assert not changed.replayed and changed.status is OrderStatus.REJECTED
+        assert changed.reasons == (R.DUPLICATE_ORDER_ID,) and changed.position is None
+    assert env.executor.open_positions == (first.position,)
+    assert len(env.log.of_type(EventType.ORDER_REPLAYED)) == 0
+
+
+def test_repeat_is_answered_even_while_the_kill_switch_is_active():
+    env = Env()
+    first = env.order("dup")
+    env.executor.halt("Test")
+    again = env.order("dup")
+    assert again.replayed and again.position == first.position
+    assert env.order("new", symbol="ETH-USD", snap_kw={"symbol": "ETH-USD"}).reasons == (R.TRADING_HALTED,)
+
+
+def test_order_ids_restored_without_a_result_stay_blocked():
+    env = Env()
+    state = env.executor.export_state()
+    env.executor.restore_state(state, ("old",))
+    r = env.order("old")
+    assert not r.replayed and r.reasons == (R.DUPLICATE_ORDER_ID,) and env.executor.open_positions == ()
+
+
+def test_known_order_without_fingerprint_is_never_answered_as_a_repeat():
+    from trading.domain.models import ExecutionResult
+    from trading.execution.paper_executor import KnownOrder
+
+    env = Env()
+    unproven = ExecutionResult(OrderStatus.REJECTED, "k", (R.STALE_DATA,))
+    env.executor.restore_state(env.executor.export_state(), known_orders={"k": KnownOrder(None, unproven)})
+    r = env.order("k")
+    assert not r.replayed and r.reasons == (R.DUPLICATE_ORDER_ID,)
+
+
+def test_order_fingerprint_covers_the_whole_intent():
+    from trading.execution.paper_executor import order_fingerprint
+
+    base = OrderIntent("a", make_setup("a"), D(40), D(1))
+    assert order_fingerprint(base) == order_fingerprint(OrderIntent("a", make_setup("a"), D(40), D(1)))
+    variants = [OrderIntent("b", base.setup, D(40), D(1)), OrderIntent("a", base.setup, D(41), D(1)),
+                OrderIntent("a", base.setup, D(40), D(2)), OrderIntent("a", make_setup("a", tp=D(111)), D(40), D(1)),
+                OrderIntent("a", make_setup("a", symbol="ETH-USD"), D(40), D(1))]
+    assert len({order_fingerprint(v) for v in variants} | {order_fingerprint(base)}) == 6
+    assert order_fingerprint(OrderIntent("a", base.setup, D("NaN"), D(1))) is None
+    assert order_fingerprint(object()) is None
 
 
 def test_second_position_in_same_instrument_is_blocked():

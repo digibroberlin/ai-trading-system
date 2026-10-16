@@ -19,6 +19,10 @@ Wie mehrere Prozesse sicher zusammenarbeiten ("Teamrisiko"):
      Konto, dann Not-Aus - so koennen sich Prozesse nicht gegenseitig blockieren. Folge: Aktionen verschiedener
      Konten laufen nacheinander statt gleichzeitig (Sicherheit vor Tempo).
 
+Wiederholte Order-ID: Die Tabelle `orders` haelt je Order Fingerabdruck, Ergebnis und eroeffnete Position (Migration 004).
+Kommt dieselbe Order erneut - auch aus einem anderen Prozess oder nach einem Neustart -, liefert die Engine das
+urspruengliche Ergebnis, ohne zu handeln.
+
 Ein Neustart ist daher trivial: Es gibt keinen Zustand im Prozess, der verloren gehen koennte. Auch der
 Stand der Kerzen-Verarbeitung je Instrument liegt in der Datenbank - wiederholt gelieferte Kerzen und
 Funding-Ereignisse bleiben nach einem Neustart wirkungslos.
@@ -26,6 +30,7 @@ Funding-Ereignisse bleiben nach einem Neustart wirkungslos.
 
 from __future__ import annotations
 
+import dataclasses
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -49,12 +54,14 @@ from trading.domain.models import (
     Mark,
     MarketSnapshot,
     OrderIntent,
+    OrderStatus,
     PortfolioState,
     Position,
     Side,
 )
 from trading.domain.numeric import is_positive_decimal
-from trading.execution.paper_executor import ExecutorState, PaperExecutor
+from trading.domain.reasons import RejectReason
+from trading.execution.paper_executor import ExecutorState, KnownOrder, PaperExecutor, order_fingerprint
 from trading.persistence.db import connect
 from trading.persistence.kill_switch import read_halt, trip_in_new_transaction, write_trip
 from trading.persistence.pg_event_log import append_raw
@@ -202,14 +209,14 @@ class PostgresPaperExecutor:
             with self._transaction() as cur:
                 account = self._lock_account(cur)
                 halt = read_halt(cur, lock=True)  # immer NACH der Konto-Sperre (feste Reihenfolge)
-                seen = order is not None and self._order_seen(cur, order.client_order_id)
+                known = self._known_order(cur, order.client_order_id) if order is not None else None
                 loaded = self._load(cur, account, instrument,
-                                    (order.client_order_id,) if order is not None and seen else (), halt)
+                                    {order.client_order_id: known} if order is not None and known else {}, halt)
                 result = operation(loaded.engine)
                 new_order = None
-                if order is not None and not seen:
+                if order is not None and known is None:
                     assert isinstance(result, ExecutionResult)
-                    new_order = (order.client_order_id, result)
+                    new_order = (order, result)
                 self._persist(cur, loaded, new_order)
                 return result
         except ProtocolWriteError as exc:
@@ -248,12 +255,37 @@ class PostgresPaperExecutor:
 
     # ------------------------------------------------------------------ Laden
 
-    def _order_seen(self, cur: Any, client_order_id: str) -> bool:
+    def _known_order(self, cur: Any, client_order_id: str) -> Optional[KnownOrder]:
+        """Schon bearbeitete Order samt urspruenglichem Ergebnis - oder None, wenn die ID neu ist.
+        Laesst sich das Ergebnis nicht vollstaendig belegen, bleibt es unbekannt (Wiederholung wird abgelehnt)."""
         cur.execute(
-            "SELECT 1 FROM orders WHERE account_id = %s AND client_order_id = %s",
+            "SELECT status, reasons, fingerprint, position_id FROM orders"
+            " WHERE account_id = %s AND client_order_id = %s",
             (self._account_id, client_order_id),
         )
-        return cur.fetchone() is not None
+        row = cur.fetchone()
+        if row is None:
+            return None
+        if row["fingerprint"] is None:
+            return KnownOrder(None, None)
+        try:
+            status = OrderStatus(row["status"])
+            reasons = tuple(RejectReason(r) for r in row["reasons"].split(",") if r)
+        except ValueError:
+            return KnownOrder(None, None)
+        position = None
+        if row["position_id"] is not None:
+            cur.execute("SELECT * FROM positions WHERE account_id = %s AND position_id = %s",
+                        (self._account_id, row["position_id"]))
+            prow = cur.fetchone()
+            if prow is None:
+                return KnownOrder(None, None)
+            opened = _position_from_row(prow)
+            # So, wie sie eroeffnet wurde: spaeteres Funding gehoert nicht zum Ergebnis der Order.
+            position = dataclasses.replace(opened, last_funding_ts=opened.opened_at, funding_paid=Decimal(0))
+        if (status is OrderStatus.FILLED) != (position is not None):
+            return KnownOrder(None, None)
+        return KnownOrder(row["fingerprint"], ExecutionResult(status, client_order_id, reasons, position))
 
     def _load_positions(self, cur: Any) -> List[Position]:
         cur.execute(
@@ -263,7 +295,7 @@ class PostgresPaperExecutor:
         return [_position_from_row(r) for r in cur.fetchall()]
 
     def _load(
-        self, cur: Any, account: Dict[str, Any], instrument: Any, seen: Tuple[str, ...], halt: HaltStatus
+        self, cur: Any, account: Dict[str, Any], instrument: Any, known: Dict[str, KnownOrder], halt: HaltStatus
     ) -> _Loaded:
         positions = self._load_positions(cur)
         wanted: Set[InstrumentId] = {p.instrument for p in positions}
@@ -306,7 +338,7 @@ class PostgresPaperExecutor:
                 day_start_equity=account["day_start_equity"],
                 position_counter=int(account["position_counter"]),
             ),
-            seen,
+            known_orders=known,
         )
         return _Loaded(account, engine, sink, validator, {p.position_id: p for p in positions}, instruments,
                        halt, switch)
@@ -314,7 +346,7 @@ class PostgresPaperExecutor:
     # ------------------------------------------------------------------ Speichern
 
     def _persist(
-        self, cur: Any, loaded: _Loaded, order: Optional[Tuple[str, ExecutionResult]]
+        self, cur: Any, loaded: _Loaded, order: Optional[Tuple[OrderIntent, ExecutionResult]]
     ) -> None:
         engine, account, before = loaded.engine, loaded.account, loaded.positions
         after = engine.export_state()
@@ -368,12 +400,13 @@ class PostgresPaperExecutor:
                 )
 
         if order is not None:
-            oid, result = order
+            intent, result = order
             cur.execute(
-                "INSERT INTO orders (account_id, client_order_id, status, reasons, created_at)"
-                " VALUES (%s, %s, %s, %s, %s)",
-                (self._account_id, oid, result.status.value,
-                 ",".join(r.value for r in result.reasons), self._clock.now()),
+                "INSERT INTO orders (account_id, client_order_id, status, reasons, created_at, fingerprint,"
+                " position_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (self._account_id, intent.client_order_id, result.status.value,
+                 ",".join(r.value for r in result.reasons), self._clock.now(), order_fingerprint(intent),
+                 result.position.position_id if result.position is not None else None),
             )
 
         halt_after = loaded.switch.status()

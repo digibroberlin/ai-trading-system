@@ -251,11 +251,16 @@ class RiskDecision:
 
 @dataclass(frozen=True)
 class ExecutionResult:
+    """Ergebnis einer Order. `replayed=True`: Diese Order-ID war schon bearbeitet; geliefert wird das URSPRUENGLICHE
+    Ergebnis (Status, Gruende, Position wie bei der Eroeffnung) - es wurde dabei nichts Neues gehandelt. Die
+    Risikobewertung (`risk`) steht dann nur im Ereignisprotokoll der ersten Bearbeitung."""
+
     status: OrderStatus
     client_order_id: str
     reasons: Tuple[RejectReason, ...] = ()
     position: Optional[Position] = None
     risk: Optional[RiskDecision] = None
+    replayed: bool = False
 
 
 @dataclass(frozen=True)

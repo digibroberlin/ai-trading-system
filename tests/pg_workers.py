@@ -57,7 +57,8 @@ def order_worker(a: Dict[str, Any]) -> None:
     for oid, sym in a["specs"]:
         setup = make_setup(oid, symbol=sym, market_type=MarketType.FUTURES, stop=D(95), tp=D(110))
         res = ex.submit(OrderIntent(oid, setup, D(a.get("qty", 9)), D(2)), snapshot(symbol=sym, ts=T0, **FUT))
-        emit({"order": oid, "status": res.status.value, "reasons": [r.value for r in res.reasons]})
+        emit({"order": oid, "status": res.status.value, "reasons": [r.value for r in res.reasons],
+              "replayed": res.replayed, "position": res.position.position_id if res.position else None})
     ex.close()
 
 

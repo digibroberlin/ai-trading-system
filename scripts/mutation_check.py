@@ -57,6 +57,7 @@ MG = "src/trading/persistence/migrate.py"
 S1 = "db/migrations/001_initial.sql"
 S2 = "db/migrations/002_instruments_and_exposure.sql"
 S3 = "db/migrations/003_kill_switch.sql"
+S4 = "db/migrations/004_order_replay.sql"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
@@ -116,7 +117,15 @@ m("P14","Noch laufende Kerze wird verarbeitet",PE,"problems.append(RejectReason.
 m("P15","Doppelte/aeltere Kerze wird verarbeitet",PE,"if last_close is not None and candle.open_time < last_close:\n                problems.append(","if False:\n                problems.append(")
 m("P16","Veraltete Bewertungskurse nicht erkannt",PE,"if mark is None or (now - mark.time).total_seconds() > self._limits.max_mark_age_s:","if mark is None:")
 m("P17","Kein Zuruecksetzen nach Fehler (nicht atomar)",PE,"            except BaseException:\n                self._restore(backup)\n                raise","            except BaseException:\n                raise")
-m("P18","Doppelte Order-ID wird ausgefuehrt",PE,"if intent.client_order_id in self._seen_order_ids:","if False:")
+m("P18","Doppelte Order-ID wird ausgefuehrt",PE,"if intent.client_order_id in self._known_orders:","if False:")
+# ---- Wiederholte Order liefert das urspruengliche Ergebnis (AP-08)
+m("O01","Gleiche ID mit anderem Inhalt bekommt das fremde Ergebnis",PE,"if known.result is None or known.fingerprint is None or fingerprint != known.fingerprint:","if known.result is None:")
+m("O02","Order-ID ohne belegtes Ergebnis wird als Wiederholung beantwortet",PE,"if known.result is None or known.fingerprint is None or fingerprint != known.fingerprint:","if known.result is None or fingerprint != known.fingerprint:")
+m("O03","Fingerabdruck ohne Menge und Hebel",PE,"        text = json.dumps(to_jsonable(intent),","        text = json.dumps(to_jsonable(intent.setup),")
+m("O04","Wiederholung wird nicht protokolliert",PE,"        self._emit(\n            EventType.ORDER_REPLAYED,","        (lambda *a: None)(\n            EventType.ORDER_REPLAYED,")
+m("O05","Wiederholung ist nicht als solche gekennzeichnet",PE,"        return dataclasses.replace(original, risk=None, replayed=True)","        return dataclasses.replace(original, risk=None)")
+m("O06","Order-ID bleibt nach zurueckgesetzter Operation vergeben",PE,"            self._known_orders.pop(oid, None)","            pass")
+m("O07","Pipeline meldet eine Wiederholung als neu ausgefuehrt",PI,"        if result.replayed:","        if False:")
 m("P19","Schliessen mit ungueltigen Marktdaten",PE,"        if not validation.ok:\n            self._check_data(validation.reasons)\n            return refuse(*validation.reasons)","        if False:\n            return refuse(*validation.reasons)")
 m("P20","Funding: auch Shorts zahlen bei positivem Satz",PE,"cost = cost_up(position.side.sign * event.rate * position.quantity * event.mark_price)","cost = cost_up(event.rate * position.quantity * event.mark_price)")
 m("P21","Funding auf Spot-Instrument akzeptiert",PE,"problems.append(RejectReason.BAD_FUNDING)  # Funding gibt es nur bei Futures","pass")
@@ -289,7 +298,7 @@ DATENBANK: List[Mutant] = [
  ("G03","DB-Gurt Exposure entfernt",[EXPO], PG),
  ("G04","Sperre UND beide DB-Gurte entfernt",[LOCK,RISK,EXPO], PG),
  ("G05","DB prueft den Hash neuer Protokolleintraege nicht",[(S1,"IF NEW.hash <> expected THEN","IF false THEN")], PG),
- ("G06","Order-IDs nach Neustart vergessen",[(EX,"seen = order is not None and self._order_seen(cur, order.client_order_id)","seen = False")], PG),
+ ("G06","Order-IDs nach Neustart vergessen",[(EX,"known = self._known_order(cur, order.client_order_id) if order is not None else None","known = None")], PG),
  ("G07","Hoechststand wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(), after.peak_equity, after.day,",'new_vals = (after.balance, engine.equity(), account["peak_equity"], after.day,')], PG),
  ("G08","Kein Rollback (autocommit statt Transaktion)",[(EX,"with self._conn_lock, self._conn.transaction(), self._conn.cursor(row_factory=dict_row) as cur:\n            yield cur","with self._conn_lock, self._conn.cursor(row_factory=dict_row) as cur:\n            self._conn.autocommit = True\n            yield cur")], PG),
  ("G09","Offene Positionen werden nach Neustart nicht geladen",[(EX,"AND status = 'OPEN' ORDER BY position_id","AND status = 'NEVER' ORDER BY position_id")], PG),
@@ -311,7 +320,7 @@ DATENBANK: List[Mutant] = [
  ("G25","DB prueft die Verkettung nicht",[(S1,"IF NEW.prev_hash <> head.hash THEN","IF false THEN")], PG),
  ("G26","Geschlossene Positionen aenderbar",[(S1,"IF OLD.status = 'CLOSED' THEN","IF false THEN")], PG),
  ("G27","Bestehende Datenbank wird ohne Rueckfrage als migriert markiert",[(MG,"                if not baseline_existing:","                if False:")], PG),
- ("G28","Order-Vermerk wird nicht gespeichert",[(EX,"        if order is not None:\n            oid, result = order","        if False:\n            oid, result = order")], PG),
+ ("G28","Order-Vermerk wird nicht gespeichert",[(EX,"        if order is not None:\n            intent, result = order","        if False:\n            intent, result = order")], PG),
  ("G29","Geschlossene Position bleibt in der DB offen",[(EX,"                    \"UPDATE positions SET status = 'CLOSED', closed_at = %s\"","                    \"UPDATE positions SET status = status, closed_at = %s\"")], PG),
  ("G30","Guthaben wird nicht gespeichert",[(EX,"new_vals = (after.balance, engine.equity(),",'new_vals = (account["balance"], engine.equity(),')], PG),
  ("G31","Anwendung darf den Not-Aus aufheben",[(S3,"        IF current_user = 'trading_app' THEN\n            RAISE EXCEPTION 'Not-Aus darf nur","        IF false THEN\n            RAISE EXCEPTION 'Not-Aus darf nur")], PG),
@@ -331,6 +340,11 @@ DATENBANK: List[Mutant] = [
  ("G45","Freigabe setzt die Notbremsen der Konten nicht neu",[(PK,'"UPDATE accounts SET day = %s, day_start_equity = equity, peak_equity = equity,"\n                " version = version + 1, updated_at = now()",','"SELECT %s::date",')], PG),
  ("G46","Freigabe ohne Not-Aus-Zeile meldet Erfolg",[(PK,"            if cur.rowcount != 1:  # Zeile fehlt","            if False:  # Zeile fehlt")], PG),
  ("G47","Ausloesen von aussen ohne Wiederholung bei belegter Sperre",[(PK,"            except psycopg.errors.LockNotAvailable:\n","            except ZeroDivisionError:\n")], PG),
+ ("G48","Wiederholung aus der DB liefert die Position mit spaeterem Funding",[(EX,"            position = dataclasses.replace(opened, last_funding_ts=opened.opened_at, funding_paid=Decimal(0))","            position = opened")], PG),
+ ("G49","Fingerabdruck wird nicht gespeichert",[(EX,"self._clock.now(), order_fingerprint(intent),","self._clock.now(), None,")], PG),
+ ("G50","DB-Gurt: Fill ohne Position erlaubt",[(S4,"        fingerprint IS NULL OR ((status = 'filled') = (position_id IS NOT NULL))),","        true),")], PG),
+ ("G51","DB: Fingerabdruck in beliebigem Format",[(S4,"ADD COLUMN fingerprint TEXT CHECK (fingerprint ~ '^[0-9a-f]{64}$'),","ADD COLUMN fingerprint TEXT,")], PG),
+ ("G52","DB: Order verweist auf nicht vorhandene Position",[(S4,",\n    ADD CONSTRAINT orders_position_fk FOREIGN KEY (account_id, position_id) REFERENCES positions (account_id, position_id);",";")], PG),
 ]
 
 

@@ -17,6 +17,7 @@ class EventType(str, Enum):
     SETUP_BLOCKED = "SETUP_BLOCKED"
     ORDER_REJECTED = "ORDER_REJECTED"
     ORDER_FILLED = "ORDER_FILLED"
+    ORDER_REPLAYED = "ORDER_REPLAYED"  # Order-ID wiederholt: urspruengliches Ergebnis erneut geliefert, nichts gehandelt
     FUNDING_APPLIED = "FUNDING_APPLIED"
     POSITION_CLOSED = "POSITION_CLOSED"
     SYSTEM_ERROR = "SYSTEM_ERROR"

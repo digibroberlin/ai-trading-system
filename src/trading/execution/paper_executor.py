@@ -24,19 +24,24 @@ Modellannahmen - im Zweifel immer zu Ungunsten des Haendlers:
 * Globaler Not-Aus (safety/kill_switch.py): Ist er ausgeloest, wird keine Position eroeffnet; Schliessen bleibt moeglich.
   Der Executor loest ihn selbst aus bei formal fehlerhaften Marktdaten, bei einem Protokollfehler und bei den
   Notbremsen Tagesverlust/Drawdown. Ist sein Zustand nicht lesbar, gilt der Handel als gestoppt.
+* Jede Order-ID wird hoechstens EINMAL bearbeitet. Kommt dieselbe Order (gleiche ID, gleicher Inhalt) erneut - etwa
+  weil der Absender nach einem Zeitlimit oder Neustart nicht weiss, ob sie ankam -, wird das urspruengliche Ergebnis
+  geliefert (`replayed=True`), ohne erneut zu handeln. Gleiche ID mit ANDEREM Inhalt wird als Duplikat abgelehnt.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import functools
+import hashlib
+import json
 import threading
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, cast
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple, TypeVar, cast
 
 from trading.audit.event_log import EventLog
-from trading.audit.events import EventType
+from trading.audit.events import EventType, to_jsonable
 from trading.clock import Clock
 from trading.config import TradingMode
 from trading.domain.instrument import InstrumentId, MarketType, is_instrument
@@ -91,6 +96,27 @@ class ExecutorState:
     day: date
     day_start_equity: Decimal
     position_counter: int
+
+
+@dataclasses.dataclass(frozen=True)
+class KnownOrder:
+    """Eine bereits bearbeitete Order: Fingerabdruck des Auftrags und das urspruengliche Ergebnis.
+    Ist eines davon unbekannt (`None`, z. B. Eintraege aus der Zeit vor Migration 004), wird eine Wiederholung
+    abgelehnt - ein Ergebnis, das sich nicht belegen laesst, wird nie behauptet."""
+
+    fingerprint: Optional[str]
+    result: Optional[ExecutionResult]
+
+
+def order_fingerprint(intent: Any) -> Optional[str]:
+    """SHA-256 ueber den vollstaendigen Auftrag (ID, Setup, Menge, Hebel) in kanonischer Textform.
+    Nur ein Auftrag mit genau diesem Fingerabdruck gilt als Wiederholung. Nicht darstellbar -> None (nie gleich)."""
+    try:
+        text = json.dumps(to_jsonable(intent), sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                          allow_nan=False)
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _locked(fn: F) -> F:
@@ -179,7 +205,7 @@ class PaperExecutor:
         self._positions: Dict[InstrumentId, Position] = {}
         self._marks: Dict[InstrumentId, Mark] = {}
         self._last_candle_close: Dict[InstrumentId, datetime] = {}
-        self._seen_order_ids: Set[str] = set()
+        self._known_orders: Dict[str, KnownOrder] = {}
         self._closed: List[ClosedTrade] = []
         self._position_counter = 0
         self._peak_equity = initial_equity
@@ -202,9 +228,15 @@ class PaperExecutor:
         )
 
     @_locked
-    def restore_state(self, state: ExecutorState, seen_order_ids: Tuple[str, ...] = ()) -> None:
+    def restore_state(
+        self,
+        state: ExecutorState,
+        seen_order_ids: Tuple[str, ...] = (),
+        known_orders: Optional[Mapping[str, KnownOrder]] = None,
+    ) -> None:
         """Stellt einen gespeicherten Zustand wieder her (Neustart / Laden aus der Datenbank).
-        `seen_order_ids`: bereits bekannte Order-IDs (Doppel-Order-Schutz)."""
+        `seen_order_ids`: bereits bearbeitete Order-IDs ohne bekanntes Ergebnis (Wiederholung wird abgelehnt).
+        `known_orders`: bereits bearbeitete Orders MIT Ergebnis (Wiederholung liefert dieses Ergebnis)."""
         self._balance = state.balance
         self._positions = {p.instrument: p for p in state.positions}
         self._marks = dict(state.marks)
@@ -213,7 +245,8 @@ class PaperExecutor:
         self._day = state.day
         self._day_start_equity = state.day_start_equity
         self._position_counter = state.position_counter
-        self._seen_order_ids = set(seen_order_ids)
+        self._known_orders = {oid: KnownOrder(None, None) for oid in seen_order_ids}
+        self._known_orders.update(known_orders or {})
         self._closed = []
 
     def _backup(self) -> Tuple[Any, ...]:
@@ -228,7 +261,8 @@ class PaperExecutor:
          closed_len, self._position_counter, self._peak_equity, self._day, self._day_start_equity,
          validator_state) = backup
         del self._closed[closed_len:]
-        self._seen_order_ids.difference_update(self._new_order_ids)
+        for oid in self._new_order_ids:
+            self._known_orders.pop(oid, None)
         self._validator.replace_state(validator_state)
 
     def _emit(self, event_type: EventType, payload: Any) -> None:
@@ -388,14 +422,37 @@ class PaperExecutor:
     @_atomic
     def submit(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
         """Fuehrt eine Order aus - oder lehnt sie begruendet ab. Beides wird protokolliert."""
-        setup = intent.setup
-
-        # 1. Doppel-Order-Schutz: jede client_order_id wird hoechstens EINMAL bearbeitet,
-        #    auch wenn die erste Bearbeitung abgelehnt wurde (Wiederholung braucht neue ID).
-        if intent.client_order_id in self._seen_order_ids:
-            return self._reject(intent, (RejectReason.DUPLICATE_ORDER_ID,), None)
-        self._seen_order_ids.add(intent.client_order_id)
+        # 1. Doppel-Order-Schutz: jede client_order_id wird hoechstens EINMAL bearbeitet, auch wenn die erste
+        #    Bearbeitung abgelehnt wurde (ein neuer Versuch braucht eine neue ID). Eine Wiederholung bekommt das
+        #    urspruengliche Ergebnis - so erkennt ein Absender nach einem Zeitlimit, was wirklich geschehen ist.
+        if intent.client_order_id in self._known_orders:
+            return self._repeat(intent, self._known_orders[intent.client_order_id])
         self._new_order_ids.append(intent.client_order_id)
+        result = self._submit_new(intent, snapshot)
+        # Ohne Risikobewertung gespeichert: Eine Wiederholung liefert in Speicher und Datenbank dasselbe.
+        self._known_orders[intent.client_order_id] = KnownOrder(
+            order_fingerprint(intent), dataclasses.replace(result, risk=None))
+        return result
+
+    def _repeat(self, intent: OrderIntent, known: KnownOrder) -> ExecutionResult:
+        """Wiederholte Order-ID: nichts handeln. Gleicher Inhalt -> urspruengliches Ergebnis, sonst Duplikat."""
+        fingerprint = order_fingerprint(intent)
+        if known.result is None or known.fingerprint is None or fingerprint != known.fingerprint:
+            return self._reject(intent, (RejectReason.DUPLICATE_ORDER_ID,), None)
+        original = known.result
+        self._emit(
+            EventType.ORDER_REPLAYED,
+            {
+                "client_order_id": intent.client_order_id,
+                "original_status": original.status,
+                "original_reasons": original.reasons,
+                "position_id": original.position.position_id if original.position is not None else None,
+            },
+        )
+        return dataclasses.replace(original, risk=None, replayed=True)
+
+    def _submit_new(self, intent: OrderIntent, snapshot: MarketSnapshot) -> ExecutionResult:
+        setup = intent.setup
 
         # 1b. Globaler Not-Aus: keine neue Position, egal was die Pruefungen danach sagen wuerden.
         halted = self._halted_reasons()
