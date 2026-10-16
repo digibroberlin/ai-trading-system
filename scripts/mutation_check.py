@@ -64,8 +64,9 @@ AC = "src/trading/persistence/accounts.py"
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
 BT_PG = BT + ["tests/test_backtest_pg.py"]
-PG = ["tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
-      "tests/test_pg_multiprocess.py", "tests/test_backtest_pg.py", "tests/test_pg_kill_switch.py", "tests/test_pg_accounts.py"]
+# Schnelle Dateien zuerst: pytest bricht beim ersten Fehlschlag ab (-x), die Mehrprozess-Tests dauern am laengsten.
+PG = ["tests/test_pg_accounts.py", "tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
+      "tests/test_pg_kill_switch.py", "tests/test_backtest_pg.py", "tests/test_pg_multiprocess.py"]
 
 KERN: List[Mutant] = []
 

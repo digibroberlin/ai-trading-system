@@ -149,3 +149,22 @@ Position noch gepasst hätte (sicher, aber nicht optimal; Audit: „2 von 8 Pipe
 **Folge:** SORA muss schnell und deterministisch bleiben (keine KI-Aufrufe, kein Netz), weil die Konto-Sperre während der
 Rechnung gehalten wird. Wird SORA später durch KI beraten, geschieht das **vor** dem Sperr-Abschnitt; unter der Sperre
 läuft nur die Regelrechnung.
+
+## D-014 · 2026-10-16 · Konten nur administrativ; Kontostand mit Plausibilitätsprüfung (AP-10, Audit M2 Rest)
+**Problem:** Die Anwendungsrolle `trading_app` durfte Konten anlegen. Jedes Konto hat ein eigenes 2-%-Gesamtrisiko – ein
+fehlerhafter oder manipulierter Prozess hätte sein Budget durch weitere Konten vervielfachen können. Außerdem durfte sie die
+Kontostand-Spalten beliebig überschreiben (z. B. den Höchststand senken und damit die Drawdown-Bremse aushebeln).
+**Entscheidung:**
+* Migration 005 entzieht `trading_app` das Recht `INSERT` auf `accounts`. Konten legt nur ein Administrator an:
+  `python -m trading.persistence.accounts create KONTO STARTKAPITAL` (braucht `ADMIN_DATABASE_URL`). Die Anlage steht in derselben
+  Transaktion im Ereignisprotokoll (`ACCOUNT_CREATED`). Ein bestehendes Konto wird nie verändert, auch nicht bei anderem Startkapital.
+* `PostgresPaperExecutor` legt kein Konto mehr an und hat deshalb keinen Parameter „Startkapital“ mehr. Fehlt das Konto, startet
+  er nicht (`AccountMissingError`, fail closed).
+* Den Kontostand muss die Anwendung weiter schreiben. Ein Trigger prüft jede Änderung durch eine Rolle ohne Administratorrechte:
+  genau ein Versionsschritt, Positionszähler und Handelstag nur vorwärts, Tagesstart-Equity innerhalb eines Tages fest,
+  Höchststand fällt nie und liegt nie unter der Equity. Eine Änderung, die nichts ändert (Sperr-Trick des Risiko-Gurts), bleibt
+  erlaubt. Administratoren sind ausgenommen, weil die Freigabe des Not-Aus die Bezugswerte bewusst neu setzt (D-011).
+* Die Prüfung hängt nicht am Rollennamen: Auch jede andere Rolle ohne Administratorrechte unterliegt ihr.
+**Bewusst nicht umgesetzt:** ein gemeinsames Risikolimit über alle Konten. Da nur noch der Administrator Konten anlegt, ist die
+Zahl der Konten eine bewusste Entscheidung des Eigners. Die Beträge selbst (Guthaben, Equity) prüft die Datenbank nicht nach –
+sie stammen aus der einen Risikorechnung der Anwendung; jede Änderung steht im Protokoll.

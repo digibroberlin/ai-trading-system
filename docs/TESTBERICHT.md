@@ -132,7 +132,7 @@ Grenze der Methode: Die Gegenprobe zeigt nur, dass **diese 193** Fehler bemerkt 
 | **Unter Konkurrenz Ablehnung statt Verkleinerung** (Audit M8) | **behoben** (AP-09, Nachtrag unten) |
 | **Wiederholte Order-ID** liefert „Duplikat“ statt des ursprünglichen Ergebnisses (Audit M7) | **behoben** (AP-08, Nachtrag unten) |
 | **PAPER-Schutz nicht an einem zentralen Startpunkt** (Audit M3) | offen; ein Live-Modus existiert im Code nicht |
-| **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | offen |
+| **Anwendungsrolle darf Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) | **behoben** (AP-10, Nachtrag unten); Beträge rechnet weiter die Anwendung |
 | **Wiederverbindung zur Datenbank, hängende Transaktionen** (Audit H7) | offen |
 | **Kein regelmäßiges Backup, keine festgeschriebenen Paketversionen** (Audit M14, M12) | offen |
 | **Börsenregeln je Instrument** (Mindestgröße, Preis- und Mengenschritte) | fehlen |

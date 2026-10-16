@@ -223,8 +223,10 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
   Namen und an zwei Inhalts-Mustern (Coinbase-CDP), nicht an jedem denkbaren Namen: Ein Schlüssel unter einem frei erfundenen Namen
   (z. B. `MEIN_WERT`) bliebe unbemerkt. Zugänge der Cloud-Umgebung wie `AWS_SECRET_ACCESS_KEY` oder `GH_TOKEN` sind bewusst erlaubt.
   Einen Live-Modus und eine Order-Funktion an eine Börse gibt es im Code nirgends.
-* **Die Anwendungsrolle darf noch Konten anlegen und den Kontostand schreiben** (Audit M2, Rest) – nötig für den Betrieb, aber
-  ein zweites Konto hätte ein eigenes Risikobudget.
+* **Konten legt nur ein Administrator an** (AP-10, `python -m trading.persistence.accounts create KONTO STARTKAPITAL`).
+  Jedes Konto hat ein **eigenes** 2-%-Risikobudget – ein gemeinsames Limit über alle Konten gibt es nicht; deshalb nur so viele
+  Konten anlegen wie nötig. Den Kontostand schreibt weiterhin die Anwendung (nötig für den Betrieb); die Datenbank prüft jede
+  Änderung nur auf Plausibilität (Version, Tag, Positionszähler, Höchststand), nicht die Beträge selbst.
 * **Alt-Positionen in der lokalen Datenbank:** Im Konto `restart-check` liegen zwei Test-Positionen aus Phase 3, die die neue
   Stress-Grenze überschreiten (8,05 % statt 5 %). Sie bleiben bestehen; neue Trades in diesem Konto sind blockiert, bis sie geschlossen sind.
 * **Docker nur lokal getestet:** Colima auf macOS (Apple Silicon). Nicht getestet: Docker Desktop, Linux-Server (Hetzner), `amd64`-Architektur.
