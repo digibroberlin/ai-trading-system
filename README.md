@@ -261,6 +261,25 @@ beendet sich der Dienst sofort – es wird nicht gehandelt. Das Dashboard ist nu
 (127.0.0.1:8000, von außen per SSH-Tunnel). Einstellungen: `TRADING_EXCHANGE`, `TRADING_SYMBOLS`, `TRADING_INTERVAL_S`,
 `TRADING_STRATEGY` (siehe `docker-compose.prod.yml`).
 
+### Untersuchung auf echten Daten (Vorbereitung AP-20, D-032)
+
+```bash
+PYTHONPATH=src python3.12 -m trading.research.study --exchange bitget --market spot --symbols BTC-USDT,ETH-USDT \
+    --interval 3600 --start 2025-01-01 --end 2026-09-01 --out docs/UNTERSUCHUNG_AP20.md
+```
+Lädt öffentliche Kerzen, prüft sie streng und testet alle Strategien nach den Regeln des Forschungsrahmens
+(Testdaten nur einmal, Walk-forward nur vor dem Testzeitraum). Ergebnis ist ein ehrlicher Bericht – auch „kein
+belastbarer Vorteil“. Braucht Netzzugang zu den Börsen (B-008).
+
+### API-Konfiguration prüfen (AP-34, D-033) – ohne Geheimnisse auszugeben
+
+```bash
+python scripts/check_api_config.py                                  # Umgebung dieses Rechners
+python scripts/check_api_config.py --env-file ~/trading-secrets.env  # zusätzlich die Passwort-Datei
+```
+Meldet Börsen-Zugangsdaten, falschen Modus und Echtgeld-Schalter als VERBOTEN (nur Namen, nie Werte). Rückgabe 0 = in
+Ordnung. Dass keine echte Börsenorder möglich ist, prüfen automatisch die Tests in `tests/test_no_real_trading.py`.
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →
@@ -355,7 +374,7 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
 
 * **Marktüberwachung (AP-15) nur simuliert geprüft:** simulierter Server und lokales WebSocket-Gegenstück; die
   Live-Probe wartet auf die Netzfreigabe (B-008). Bitget-Kerzen: Schlusswert = letzter Stand vor der nächsten Kerze.
-  Futures-Funding kommt im laufenden Betrieb noch nicht über den Strom (Futures werden dann blockiert – fail closed).
+  Futures-Funding kommt im laufenden Betrieb per REST nach jeder Kerze (D-031); bleibt es 12 h aus: Not-Aus.
   Der WebSocket-Zugang braucht Python ≥ 3.10.
 * **Marktdaten-Adapter (AP-14) noch nicht gegen die echten Börsen geprüft:** Die Antwortformen sind nach der
   Schnittstellenbeschreibung nachgebildet; der eine echte Testabruf scheitert in der Cloud an der Netzregel (B-008). Der

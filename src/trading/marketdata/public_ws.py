@@ -2,14 +2,15 @@
 
 * Verbindet sich NUR mit fest eingetragenen, oeffentlichen Marktdaten-Adressen (`ALLOWED_ENDPOINTS`), immer ueber TLS
   mit Zertifikatspruefung. Keine Zugangsdaten, keine Anmeldung, keine Cookies.
-* Gesendet werden nur Textnachrichten, die der Monitor aus dem Boersen-Protokoll erzeugt (Abo, "ping") - sowie die
-  vom WebSocket-Standard verlangten Antworten (Pong, Schliessen).
+* Gesendet werden nur Abos oeffentlicher Kanaele und "ping" - zur Laufzeit durch `allowed_message` erzwungen (AP-34) -
+  sowie die vom WebSocket-Standard verlangten Antworten (Pong, Schliessen).
 * Hoechstgroesse je Nachricht; Zeitlimit beim Verbinden; ein Abbruch wird als `ConnectionLost` gemeldet.
 Die WebSocket-Rahmen erzeugt und liest `wsproto` (ohnehin Abhaengigkeit des Dashboards).
 """
 
 from __future__ import annotations
 
+import json
 import socket
 import ssl
 from typing import Any, Callable, List, Optional
@@ -26,9 +27,30 @@ CONNECT_TIMEOUT_S = 10.0
 SocketFactory = Callable[[str, int, float], Any]
 
 
-def tls_socket(host: str, port: int, timeout_s: float) -> Any:
+def _tls_socket(host: str, port: int, timeout_s: float) -> Any:
     raw = socket.create_connection((host, port), timeout=timeout_s)
     return ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+
+
+PUBLIC_CHANNELS = frozenset({"matches", "heartbeat"})  # Coinbase; Bitget: Kerzen-Kanaele "candle..."
+
+
+def allowed_message(text: str) -> bool:
+    """Einzige Nachrichten, die je hinausgehen duerfen: "ping" oder ein Abo oeffentlicher Marktdaten-Kanaele."""
+    if text == "ping":
+        return True
+    try:
+        message = json.loads(text)
+    except ValueError:
+        return False
+    if not isinstance(message, dict):  # die erlaubten Felder sind unten EXAKT vorgegeben - nichts darueber hinaus
+        return False
+    if message.get("op") == "subscribe" and set(message) == {"op", "args"} and isinstance(message["args"], list):
+        return all(isinstance(a, dict) and set(a) == {"instType", "channel", "instId"}
+                   and str(a["channel"]).startswith("candle") for a in message["args"])
+    if message.get("type") == "subscribe" and set(message) == {"type", "product_ids", "channels"}:
+        return isinstance(message["channels"], list) and set(message["channels"]) <= PUBLIC_CHANNELS
+    return False
 
 
 def split_endpoint(url: str) -> "tuple[str, str]":
@@ -40,7 +62,7 @@ def split_endpoint(url: str) -> "tuple[str, str]":
 
 
 class PublicWebSocket:
-    def __init__(self, socket_factory: SocketFactory = tls_socket, timeout_s: float = CONNECT_TIMEOUT_S) -> None:
+    def __init__(self, socket_factory: SocketFactory = _tls_socket, timeout_s: float = CONNECT_TIMEOUT_S) -> None:
         self._factory = socket_factory
         self._timeout = timeout_s
         self._sock: Any = None
@@ -69,6 +91,8 @@ class PublicWebSocket:
                     raise ConnectionLost("Verbindung abgelehnt (HTTP %s)" % event.status_code)
 
     def send(self, text: str) -> None:
+        if not allowed_message(text):  # zur Laufzeit: nie etwas anderes als Abo oder Lebenszeichen (AP-34)
+            raise ValueError("Nachricht nicht erlaubt: nur Abos oeffentlicher Kanaele und 'ping'.")
         if self._ws is None:
             raise ConnectionLost("nicht verbunden")
         self._write(self._ws.send(TextMessage(data=text)))
@@ -140,4 +164,4 @@ class PublicWebSocket:
             raise ConnectionLost("Schreibfehler (%s)" % type(exc).__name__) from None
 
 
-__all__ = ["ALLOWED_ENDPOINTS", "PublicWebSocket", "split_endpoint", "tls_socket"]
+__all__ = ["ALLOWED_ENDPOINTS", "PublicWebSocket", "allowed_message", "split_endpoint"]

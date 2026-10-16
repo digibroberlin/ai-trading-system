@@ -5,11 +5,11 @@ Speicher. Es wird nichts an eine Boerse gesendet."""
 from __future__ import annotations
 
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from stream_helpers import BG, MIN, T0, Backfill, SimServer, at
+from stream_helpers import BG, MIN, T0, Backfill, SimServer, at, push
 
 from trading.agents.aki import AkiAgent
 from trading.audit.event_log import InMemoryEventLog
@@ -148,3 +148,42 @@ def test_watchdog_restarts_only_a_hanging_main_loop():
     now[0] += 600
     dog.check()
     assert stalls == [360.0]  # nur einmal
+
+
+def test_futures_service_receives_exchange_funding_before_candles():
+    from test_marketdata_adapters import FakeBitget
+
+    from trading.domain.instrument import InstrumentId
+    from trading.marketdata.bitget import BitgetHistorySource
+    from trading.marketdata.ratelimit import RateLimiter
+
+    perp = InstrumentId(Exchange.BITGET, MarketType.FUTURES, "BTC-USDT")
+    start = T0 + 30 * MIN
+    clock = FixedClock(start)
+    script = [(start + MIN * i + timedelta(seconds=5), push(start + MIN * i, start + MIN * i + timedelta(seconds=5),
+                                                              inst_type="USDT-FUTURES")) for i in range(4)]
+    api = FakeBitget(interval=60)
+    history = BitgetHistorySource(api, clock, None, RateLimiter(50, monotonic=lambda: 0.0, sleep=lambda s: None),
+                                  sleep=lambda s: None)
+    log = InMemoryEventLog(clock)
+    switch = InMemoryKillSwitch(clock)
+    server = SimServer(clock, script)
+    monitor = MarketStreamMonitor(BitgetStream(), server, [perp], 60, clock, switch, history, sleep=clock.advance)
+    executor = PaperExecutor(D(10000), RiskManager(DEFAULT_LIMITS), SnapshotValidator(DEFAULT_LIMITS, clock), log, clock)
+    p = Parts(executor, AkiAgent(log), log, switch, monitor, history, clock)
+    config = ServiceConfig(Exchange.BITGET, MarketType.FUTURES, ("BTC-USDT",), interval_s=60, warm_up_bars=10)
+    service = PaperService(config, p, EngineConfig(enabled=True))
+    stop = threading.Event()
+    original = monitor.step
+
+    def step():
+        original()
+        if clock.now() >= start + 3 * MIN + timedelta(seconds=6):
+            stop.set()
+
+    monitor.step = step
+    stats = service.run(stop, APPROVED)
+    assert stats.candles == 3 and stats.fundings >= 3 and stats.errors == 0  # Abrechnungen des letzten Tages
+    eight = int((T0.replace(hour=8) - datetime(1970, 1, 1, tzinfo=T0.tzinfo)).total_seconds())  # letzte vor dem Start
+    assert service.engine._funding[perp] == api.rate(eight)
+    assert not switch.halted  # Funding bekannt: kein Not-Aus

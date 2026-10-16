@@ -10,6 +10,18 @@ ausreichendem, **empirisch belegtem** Nutzen; eine günstigere Methode mit vergl
 
 Status-Zeichen: ✅ fertig · 🔄 in Arbeit · ⏳ offen · ⛔ blockiert (siehe `BLOCKERS.md`)
 
+## 0. Verbindliche Ergänzung des Eigners (2026-10-16)
+
+Gilt dauerhaft zusätzlich zu allem Folgenden (Wortlaut der Regeln: `CLAUDE.md`, Abschnitt „Verbindliche Ergänzung“):
+**Entwicklung vor Handelsbetrieb** (nur Tests, Backtests, Simulationen) · **keine echte Börsenorder möglich**, technisch und
+durch Tests belegt; Handel standardmäßig aus; API-Konfigurationen werden auf Handelsberechtigungen geprüft, ohne
+Geheimnisse auszugeben (AP-34) · Demo-Handel nur mit ausdrücklicher Freigabe, echter Handel nur mit separater Freigabe und
+zusätzlichen Prüfungen · **GitHub-Checkpoint nach jedem Paket**, STABLE nur für vollständig geprüfte Stände, WIP klar als
+ungetestet, `main` nie eigenständig verändern · selbstständig weiter nach diesem Plan, Architektur und Agentenrollen
+bewahren · **Nettogewinn nach sämtlichen Kosten**, sparsamer KI-Einsatz, keine Strategie ohne belastbare Tests „profitabel“ ·
+nach jedem Paket PROJECT_STATUS und dieser Plan aktuell (inkl. letztem Git-Checkpoint und nächster Aufgabe) · am Ende:
+**„SOFTWARE BEREIT FÜR GEMEINSAME DEMO-EINRICHTUNG.“**, kein eigener Handelsstart.
+
 ## 1. Bestandsaufnahme (2026-10-15)
 
 **Fertig und getestet** (606 Tests, Gegenprobe 193/193, siehe `TESTBERICHT.md`):
@@ -81,7 +93,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 | AP-17 | Marktphasen-Erkennung (Trend/Seitwärts, Volatilität) – Grundlage für KIBO und YUZU (regelbasiert) | Tests | ✅ D-019 |
 | AP-18 | Forschungsrahmen: Trainings-/Validierungs-/Testdaten strikt getrennt, Walk-forward, Kostenempfindlichkeit, Zählung aller Versuche gegen Überanpassung, Strategie-Register mit Freigabestatus | Tests; Test-Daten nur einmal je Strategie-Version | ✅ D-022 |
 | AP-19 | AKI: Bewertung von Strategien und Agenten (Nettoergebnis **nach allen Kosten inkl. KI** (AP-31), Erwartungswert, Drawdown, Profit-Faktor, Stabilität über Marktphasen); Backtests rechnen Betriebs- und Analysekosten mit ein | Tests | ✅ D-022 (KI-Kosten im Backtest erst mit AP-22 real) |
-| AP-20 | Erste ehrliche Untersuchung auf echten historischen Daten (technische Validierung), Bericht – auch wenn kein Vorteil gefunden wird; inkl. Wirtschaftlichkeitsvergleich (AP-33): lohnt eine Analyse ihre Kosten gegenüber der günstigeren Alternative? | Bericht in `docs/` | ⏳ |
+| AP-20 | Erste ehrliche Untersuchung auf echten historischen Daten (technische Validierung), Bericht – auch wenn kein Vorteil gefunden wird; inkl. Wirtschaftlichkeitsvergleich (AP-33): lohnt eine Analyse ihre Kosten gegenüber der günstigeren Alternative? | Bericht in `docs/` | ⛔ B-008 (Werkzeug ✅ D-032; Ausführung braucht Netz zu den Börsen) |
 
 ### Phase F – Laufzeit-Engine (bleibt deaktiviert)
 | AP | Inhalt | Abnahme | Status |
@@ -106,8 +118,9 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 ### Phase I – Demo-Vorbereitung und Abschluss
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
+| AP-34 | Sicherheitsnachweis (Ergänzung 2026-10-16): automatisierte Tests, dass keine echte Börsenorder ausgelöst werden kann (kein Order-Endpunkt, kein schreibender Netzzugang, Handel standardmäßig aus, keine Freigabe für Echtgeld im Code); Prüfung vorhandener API-Konfigurationen (Umgebung, Passwort-Dateien) auf Handelsberechtigungen ohne Ausgabe von Geheimnissen | Tests, Gegenprobe | ✅ D-033 (Gegenprobe AS01–AS20) |
 | AP-29 | Order-Anbindung für Börsen-Demokonten (z. B. Bitget Demo), standardmäßig aus, nur gegen Attrappen getestet | Tests | ⛔ B-003 (Entscheidung) |
-| AP-30 | Abschlussprüfung aller Teile, Abschlussbericht, „BEREIT FÜR DEMO-EINRICHTUNG“ | vollständige Prüfung dokumentiert | ⏳ |
+| AP-30 | Abschlussprüfung aller Teile, Abschlussbericht, Meldung „SOFTWARE BEREIT FÜR GEMEINSAME DEMO-EINRICHTUNG.“ | vollständige Prüfung dokumentiert | 🔄 |
 
 ## 3. Geplante stabile Stände
 
@@ -119,6 +132,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 ## 4. „Technisch fertig“ heißt
 
 Alle Arbeitspakete außer den blockierten sind abgeschlossen; alle Tests grün (Mac, Container, GitHub Actions); Gegenprobe
-ohne unentdeckten Fehler; Kosten aller Art werden gemessen und im Nettoergebnis ausgewiesen, kein bezahlter Aufruf ohne
-freigegebenes Budget; Doku vollständig; nicht prüfbare Teile (echte Börse, Server) sind ausdrücklich als
-„nicht verifiziert“ gekennzeichnet; letzter stabiler Tag gesetzt und hochgeladen.
+ohne unentdeckten Fehler; keine echte Börsenorder möglich (AP-34, durch Tests belegt); Kosten aller Art werden gemessen und
+im Nettoergebnis ausgewiesen, kein bezahlter Aufruf ohne freigegebenes Budget; Doku vollständig; nicht prüfbare Teile
+(echte Börse, Server) sind ausdrücklich als „nicht verifiziert“ gekennzeichnet; letzter STABLE-Stand gekennzeichnet
+(`main` führt der Eigner zusammen).

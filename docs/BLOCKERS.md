@@ -25,13 +25,24 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
   `PYTHONPATH=src python3.12 -m trading.marketdata --exchange coinbase --symbol BTC-USD --start 2026-09-01 --end 2026-09-08`.
   WAS DANACH: Die nächste Sitzung lädt eine Woche BTC-Kerzen (Coinbase Spot, Bitget Spot/Futures), prüft sie und hält das
   Ergebnis im Testbericht fest, beobachtet einige Minuten den Live-Strom (`python -m trading.marketdata.watch`, ohne
-  Handel); danach kann AP-20 (Untersuchung mit echten Daten) beginnen.
+  Handel) und führt AP-20 aus (`python -m trading.research.study ...`, D-032 – das Werkzeug ist fertig).
+
+* **B-009 Geprüfte Stände nach `main` übernehmen (Eigner, ca. 1 Minute) – seit der Ergänzung vom 2026-10-16.**
+  WAS: Claude verändert `main` nicht mehr selbst. Ist ein Stand STABLE (Preflight STABIL + volle Gegenprobe), steht der Commit
+  in PROJECT_STATUS. WO/WIE: auf github.com „Pull requests“ → „New“ → base `main`, compare `develop` (bzw. den genannten
+  Commit) → „Merge“. Alternativ Claude ausdrücklich erlauben, geprüfte Stände selbst zusammenzuführen (ohne Überschreiben).
+  WAS DANACH: GitHub Actions prüft `main` erneut; `main` ist wieder grün (AP-02).
+  **Dazu bitte:** Der Auftrag der stündlichen Routine enthält in Schritt 6 noch „develop nach main“. Claude darf ihn nicht
+  ändern (die Routine wurde im Browser angelegt). WO: https://claude.ai/code/routines/trig_01HtmuP8ds89wqCdpFJya5Z9 →
+  Bearbeiten. WIE: in Schritt 6 „develop nach main, annotierter Tag …“ ersetzen durch „den develop-Stand als STABLE
+  kennzeichnen (Tag + Eintrag in PROJECT_STATUS); main nie selbst verändern“. Bis dahin schützen CLAUDE.md (gilt für die
+  Routine verbindlich) und der Abschlussvermerk in PROJECT_STATUS, nach dem die Routine nichts mehr ändert.
 
 ## Später (noch nicht nötig)
 
 * **B-003 Order-Anbindung für Börsen-Demokonten.** AGENTS.md §2 Regel 1 verbietet heute jede Order-Funktion an eine Börse.
   Für die spätere „Demo-Einrichtung“ braucht es eine Order-Anbindung an ein Demokonto (z. B. Bitget Demo-Trading). Entscheidung
-  des Eigners nötig, bevor dieses Arbeitspaket (AP-28) beginnt. Bis dahin: vorbereitet nur gegen Attrappen getestet.
+  des Eigners nötig, bevor dieses Arbeitspaket (AP-29) beginnt. Bis dahin: vorbereitet nur gegen Attrappen getestet.
 * **B-004 KI-Anbieter.** Echte KI-Aufrufe (z. B. Claude-API) kosten Geld → Freigabe mit Budget nötig (AP-22). Seit D-016
   ist alles vorbereitet: Ohne Freigabe ist das Budget 0. Zu entscheiden sind dann nur drei Zahlen (USD je Aufruf, je Tag,
   je Monat) und der Anbieter-Zugang; vorher muss der Nutzen empirisch geprüft werden können (AP-33).

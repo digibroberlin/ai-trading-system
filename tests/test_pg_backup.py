@@ -116,7 +116,8 @@ def test_password_goes_through_the_environment_not_the_command_line(monkeypatch)
     env = backup.libpq_env("postgresql://trading:fakepw99@db:5432/trading")
     backup._run(["pg_dump", "--file", "x"], env)
     assert "fakepw99" not in " ".join(seen["cmd"]) and seen["env"]["PGPASSWORD"] == "fakepw99"
-    assert env == {"PGHOST": "db", "PGPORT": "5432", "PGUSER": "trading", "PGPASSWORD": "fakepw99", "PGDATABASE": "trading"}
+    assert env == {"PGHOST": "db", "PGPORT": "5432", "PGUSER": "trading", "PGPASSWORD": seen["env"]["PGPASSWORD"],
+                   "PGDATABASE": "trading"}
     with pytest.raises(backup.BackupError):
         backup.libpq_env("postgresql://trading@db:5432")
 

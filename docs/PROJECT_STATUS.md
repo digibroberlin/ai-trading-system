@@ -5,29 +5,44 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:19 UTC für AP-30 (Abschlussprüfung)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:58 UTC für AP-34 und AP-30 (Sicherheitsnachweis, Abschlussprüfung)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
 
-## Aktueller Stand (2026-10-16)
+## Aktueller Stand (2026-10-16) – für die Wiederaufnahme (Ergänzung des Eigners, Punkt 6)
 
-* **Letzter stabiler Stand:** `stable/004-safety-stage2` (2026-10-16, 886 Tests, Gegenprobe 278/278 mit Datenbank, Preflight STABIL).
-  `main` = `ad6cc9f` ist hochgeladen; der **Tag selbst fehlt auf GitHub** (Cloud darf keine Tags pushen, 403) → B-007.
-* **Zweige:** `main` (stabil), `develop` (Integration).
-* **GitHub:** Repository `digibroberlin/ai-trading-system` (privat). `main`, `develop`, `stable/001`–`003` hochgeladen (2026-10-15).
-* **Arbeitsort:** künftig die Cloud (D-008); der Mac-Ordner bleibt danach nur Sicherung.
-* **Handel:** keiner. Es läuft kein Bot, kein Paper- oder Demo-Betrieb.
+* **Handel:** keiner. Es läuft kein Bot, kein Paper-, Demo- oder Echtgeld-Betrieb; Handel ist standardmäßig aus.
+* **Letzter Git-Checkpoint:** siehe Abschnitt „Zuletzt erledigt“ (jeweils mit Commit); `develop` auf GitHub ist maßgeblich.
+* **Letzter STABLE-Stand:** `stable/004-safety-stage2` (`main` = `ad6cc9f`, 886 Tests, Gegenprobe 278/278). Neuere
+  geprüfte Stände werden als STABLE gekennzeichnet; **`main` verändert Claude nicht selbst** (Ergänzung 2026-10-16) – der
+  Eigner führt zusammen oder gibt frei (B-009). Tags kann die Cloud nicht hochladen (403, B-007).
+* **Zweige:** `main` (stabil, nur durch den Eigner), `develop` (Integration), Arbeitszweige `ap/NN-name`.
+* **Was fehlt:** AP-20 ausführen (Werkzeug fertig, braucht Netz B-008) · AP-29 (Entscheidung B-003) · Abschlussprüfung
+  AP-30 (volle Gegenprobe auf dem Endstand, Abschlussbericht).
+* **Als Nächstes:** AP-30 (volle Gegenprobe auf dem Endstand, STABLE kennzeichnen, Abschlussbericht).
+* **Arbeitsort:** die Cloud (D-008); der Mac-Ordner ist nur Sicherung.
 
 ## In Arbeit (Zwischenstand)
 
-* Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-30** (Abschlussprüfung: volle Gegenprobe, Abschlussbericht);
-  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–28 sind erledigt – jeweils mit eigener
-  Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
+* Interaktive Sitzung (Eigner-Auftrag): **AP-30** (Abschlussprüfung). AP-34 ist fertig (Zweig `ap/30-ergaenzung`,
+  zusammen mit D-031/D-032). Volle Gegenprobe auf `develop` @ `f8a995b` läuft seit 21:20 UTC; danach Zusammenführen nach
+  `develop` und volle Gegenprobe auf dem Endstand.
 
 ## Zuletzt erledigt
 
+* **AP-34 Sicherheitsnachweis und verbindliche Ergänzung des Eigners** (interaktive Cloud-Sitzung, 2026-10-16, D-033):
+  Ergänzung dauerhaft in `CLAUDE.md` und `MASTER_PLAN.md` (Abschnitt 0). Automatisierte Tests belegen: keine Order-,
+  Abhebungs- oder Signatur-Wege in Code, Skripten, Server-Dateien und Containern; nur Modus PAPER; nur bekannte
+  Fremdpakete, kein Börsen-SDK; Netz nur lesend mit Laufzeit-Sperren für Pfade und WebSocket-Nachrichten.
+  `scripts/check_api_config.py` prüft Umgebung und Passwort-Dateien auf Börsen-Zugänge und Echtgeld-Schalter, ohne Werte
+  auszugeben (Cloud-Umgebung: OK). Unabhängige Gegenprüfung: 12 bestätigte Test-Lücken, alle geschlossen.
+  Preflight STABIL 1817/1817; Python 3.9: 1571 bestanden, 16 übersprungen (erwartet); Gegenprobe AS01–AS20 20/20.
+* **D-031 Funding-Sätze für Futures im Betrieb und D-032 Untersuchung auf Knopfdruck** (interaktive Cloud-Sitzung,
+  2026-10-16): Der Paper-Dienst holt nach jeder Futures-Kerze die Abrechnungen der Börse (vor der Kerze, je Position
+  höchstens einmal, Not-Aus nach 12 h ohne Abrechnung). `python -m trading.research.study` führt AP-20 mit einem
+  Befehl aus, sobald Netz da ist (B-008). Preflight STABIL 1782/1782; Python 3.9: 1537 bestanden; Gegenprobe LF01–LF07
+  7/7, SD01–SD03 3/3.
 * **AP-28 Server vorbereitet** (interaktive Cloud-Sitzung, 2026-10-16, D-030): Härtung (SSH nur Schlüssel, Firewall nur
   SSH, Updates, fail2ban) mit Aussperr-Schutz, Installation mit systemd (Start, tägliche Sicherung, Alarm alle 5 min),
   Alarm-Prüfung inkl. KI-Budget-Sperre, Serverkosten im Netto. Nur Trockenlauf; Anleitung `docs/DEPLOYMENT.md` (B-005).

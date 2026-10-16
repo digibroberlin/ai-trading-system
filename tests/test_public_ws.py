@@ -13,7 +13,7 @@ pytest.importorskip("wsproto", reason="wsproto nicht installiert (Python < 3.10)
 from wsproto import ConnectionType, WSConnection  # noqa: E402
 from wsproto.events import AcceptConnection, CloseConnection, Ping, Pong, Request, TextMessage  # noqa: E402
 
-from trading.marketdata.public_ws import ALLOWED_ENDPOINTS, PublicWebSocket  # noqa: E402
+from trading.marketdata.public_ws import ALLOWED_ENDPOINTS, PublicWebSocket, allowed_message  # noqa: E402
 from trading.marketdata.stream import ConnectionLost  # noqa: E402
 
 
@@ -104,7 +104,7 @@ def test_websocket_returns_none_on_silence_and_refuses_other_addresses():
     ws, server, opened = ws_pair([("expect", 1)])
     ws.connect("wss://ws-feed.exchange.coinbase.com")
     assert ws.recv(0.05) is None
-    ws.send("x")
+    ws.send("ping")
     server.join(5)
     ws.close()
     for bad in ("wss://example.com/", "ws://ws.bitget.com/v2/ws/public", "wss://ws.bitget.com/v2/ws/private"):
@@ -112,3 +112,33 @@ def test_websocket_returns_none_on_silence_and_refuses_other_addresses():
         with pytest.raises(ConnectionLost):
             other.connect(bad)
     assert ALLOWED_ENDPOINTS == {"wss://ws.bitget.com/v2/ws/public", "wss://ws-feed.exchange.coinbase.com"}
+
+
+def test_only_public_subscriptions_and_ping_can_ever_be_sent():
+    """Laufzeit-Sperre (AP-34): Selbst ein fehlerhafter Aufrufer kann keine Anmeldung oder Order verschicken."""
+    import json
+
+    from trading.domain.instrument import Exchange, InstrumentId, MarketType
+    from trading.marketdata.bitget_ws import BitgetStream
+    from trading.marketdata.coinbase_ws import CoinbaseStream
+
+    for message in (BitgetStream().subscribe([InstrumentId(Exchange.BITGET, MarketType.FUTURES, "BTC-USDT")], 60)
+                    + CoinbaseStream().subscribe([InstrumentId(Exchange.COINBASE, MarketType.SPOT, "BTC-USD")], 60)
+                    + ["ping"]):
+        assert allowed_message(message), message
+    refused = [
+        json.dumps({"op": "login", "args": [{"apiKey": "x", "sign": "y"}]}),
+        json.dumps({"op": "trade", "args": [{"channel": "place-order", "instId": "BTCUSDT"}]}),
+        json.dumps({"op": "subscribe", "args": [{"instType": "SPOT", "channel": "orders", "instId": "BTCUSDT"}]}),
+        json.dumps({"op": "subscribe", "args": [{"instType": "SPOT", "channel": "candle1m", "instId": "BTCUSDT",
+                                                 "sign": "y"}]}),
+        json.dumps({"type": "subscribe", "product_ids": ["BTC-USD"], "channels": ["user"]}),
+        json.dumps({"type": "subscribe", "product_ids": ["BTC-USD"], "channels": ["matches"], "signature": "x"}),
+        json.dumps({"type": "subscribe", "product_ids": ["BTC-USD"], "channels": ["full"]}),
+        "pong", "{kaputt", "[]",
+    ]
+    ws = PublicWebSocket(socket_factory=lambda *a: pytest.fail("darf nicht verbinden"))
+    for message in refused:
+        assert not allowed_message(message), message
+        with pytest.raises(ValueError):
+            ws.send(message)  # abgelehnt, bevor ueberhaupt eine Verbindung gebraucht wird

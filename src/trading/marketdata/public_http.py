@@ -1,6 +1,7 @@
 """Der EINZIGE Netzwerkzugang des Systems (AP-14, D-025): oeffentliche Marktdaten LESEN - sonst nichts.
 
-* Nur GET und nur HTTPS, nur an fest eingetragene Hosts oeffentlicher Marktdaten-Schnittstellen (`ALLOWED_HOSTS`).
+* Nur GET und nur HTTPS, nur an fest eingetragene Hosts oeffentlicher Marktdaten-Schnittstellen (`ALLOWED_HOSTS`) und
+  dort nur an die Pfade fuer Kerzen und Funding (`ALLOWED_PATHS`) - zur Laufzeit geprueft, nicht nur im Quelltext.
   Weiterleitungen werden NICHT verfolgt (sonst koennte eine Antwort auf einen anderen Host umlenken).
 * Keine Zugangsdaten: ausser `User-Agent` und `Accept` gehen keine Kopfzeilen hinaus, keine Cookies, kein Inhalt.
 * Zeitlimit je Anfrage, Hoechstgroesse der Antwort, Zahlen als `Decimal` (nie float - Kurse bleiben exakt).
@@ -11,6 +12,7 @@ Eine Order-Schnittstelle gibt es hier nicht und darf es nie geben (siehe tests/t
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -18,6 +20,11 @@ from decimal import Decimal
 from typing import Any, Callable, Mapping, Optional
 
 ALLOWED_HOSTS = frozenset({"api.exchange.coinbase.com", "api.bitget.com"})
+# Nur Marktdaten-Pfade (AP-34): Selbst ein zusammengesetzter Order-Pfad wuerde zur Laufzeit abgelehnt.
+ALLOWED_PATHS = {
+    "api.exchange.coinbase.com": re.compile(r"^/products/[A-Z0-9]{2,12}-[A-Z]{2,6}/candles$"),
+    "api.bitget.com": re.compile(r"^/api/v2/(spot|mix)/market/(history-candles|history-fund-rate)$"),
+}
 MAX_RESPONSE_BYTES = 4_000_000
 DEFAULT_TIMEOUT_S = 15.0
 USER_AGENT = "ai-trading-system-marketdata/1 (nur lesend)"
@@ -43,6 +50,8 @@ def checked_url(url: str, params: Mapping[str, str]) -> str:
     if (parts.scheme != "https" or parts.hostname not in ALLOWED_HOSTS or parts.port not in (None, 443)
             or parts.username or parts.password or parts.query or parts.fragment):
         raise FetchError("Adresse nicht erlaubt: nur HTTPS-GET an %s ohne eigene Parameter." % sorted(ALLOWED_HOSTS))
+    if not ALLOWED_PATHS[parts.hostname].match(parts.path):
+        raise FetchError("Pfad nicht erlaubt: nur oeffentliche Marktdaten (Kerzen, Funding).")
     if any(not isinstance(k, str) or not isinstance(v, str) for k, v in params.items()):
         raise FetchError("Parameter muessen Text sein.")
     return url + ("?" + urllib.parse.urlencode(sorted(params.items())) if params else "")

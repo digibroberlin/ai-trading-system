@@ -611,3 +611,44 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Preflight:** STABIL – **1759/1759** Tests, 0 übersprungen; Python 3.9: 1514 bestanden, 16 übersprungen (erwartet).
   Danach nur noch `COPY deploy` im Test-Image ergänzt (Tests für Abhängigkeiten und Deployment erneut grün).
 * **Nicht geprüft:** echter Server (B-005).
+
+## Nachtrag 2026-10-16 – Funding-Sätze für Futures im laufenden Betrieb (D-031)
+
+* **Neu:** `runtime/funding.py` (`LiveFunding`), eingebunden in den Paper-Dienst.
+* **Tests:** `test_live_funding` (6): Abrechnungen vor ihrer Kerze, einmal, mit dem Satz der Börse und dem
+  Kerzen-Schluss als Kurs; Spot unberührt; vorübergehende Ausfälle werden mit der nächsten Kerze nachgeholt (ohne
+  Not-Aus); ausbleibende Abrechnungen (> 12 h) und dauerhaft unerreichbare Schnittstelle lösen den Not-Aus einmal aus;
+  die Engine übernimmt den Satz. `test_runtime_service`: Futures-Dienst erhält die Abrechnungen des letzten Tages vor
+  den ersten Kerzen, kein Not-Aus.
+* **Gegenprobe:** LF01–LF07 **7/7 entdeckt**.
+
+## Nachtrag 2026-10-16 – Untersuchung auf Knopfdruck (Vorbereitung AP-20, D-032)
+
+* **Neu:** `research/study.py`, `python -m trading.research.study`.
+* **Tests:** `test_research_study` (3, erfundene Daten): Walk-forward nie im Testzeitraum, Test nur für Bestandene,
+  vollständiger und ehrlicher Bericht; zu kurzer Zeitraum ohne erfundenes Walk-forward; Kommandozeile schreibt den
+  Bericht und bricht bei fehlerhaften Daten ohne Bericht ab.
+* **Gegenprobe:** SD01–SD03 **3/3 entdeckt**.
+* **Nicht ausgeführt:** die eigentliche Untersuchung auf echten Daten (B-008).
+
+* **Preflight (D-031 + D-032 zusammen):** STABIL – **1782/1782** Tests, 0 übersprungen; Python 3.9: 1537 bestanden,
+  16 übersprungen (erwartet).
+
+## Nachtrag 2026-10-16 – AP-34 Sicherheitsnachweis: keine echte Börsenorder möglich (D-033)
+
+* **Neu:** `scripts/check_api_config.py` (prüft Umgebung und Passwort-Dateien, gibt nur Namen aus, nie Werte);
+  Laufzeit-Sperren in `public_http.py` (nur Kerzen-/Funding-Pfade je Host) und `public_ws.py` (nur „ping“ und Abos
+  öffentlicher Kanäle).
+* **Tests:** `test_no_real_trading` (jetzt 20): keine Order-, Storno-, Abhebungs- oder Transfer-Pfade und keine
+  Signatur-Kopfzeilen in Handelscode, Skripten und Server-Dateien; keine Signatur-Bibliotheken; nur Modus PAPER;
+  Positivliste der Fremdpakete; kein Börsen-SDK in den Abhängigkeiten; kein dynamisches Laden, kein `os.system` (auch
+  nicht als Verweis); Netz-/Prozess-Zugriffe der Skripte nur an eingetragenen Stellen; Container nur mit fünf bekannten
+  Befehlen und ohne Sonderrechte; Zugangsdaten auch in Wörterbuch-Form. `test_api_config_check` (4): Funde nur mit Namen,
+  Werte erscheinen nie; Rechte und Lage der Passwort-Dateien; funktioniert auch dort, wo der PAPER-Schutz den Start
+  verweigert. `test_marketdata_adapters`/`test_public_ws`: Order- und Konto-Pfade bzw. Anmelde-/Order-Nachrichten
+  werden zur Laufzeit abgelehnt.
+* **Unabhängige Gegenprüfung** (Workflow mit Gegenstimmen): 17 Funde, 12 bestätigt – alle Test-Lücken, keine ermöglichte
+  heute eine Order; alle 12 geschlossen (Einzelheiten D-033).
+* **Gegenprobe:** AS01–AS20 **20/20 entdeckt**.
+* **Prüfung der Cloud-Umgebung:** `check_api_config.py` → OK (keine Börsen-Zugangsdaten, kein Echtgeld-Schalter, Modus PAPER).
+* **Preflight:** STABIL – **1817/1817** Tests, 0 übersprungen; Python 3.9: 1571 bestanden, 16 übersprungen (erwartet).
