@@ -178,6 +178,17 @@ def test_same_setup_id_proposed_twice_is_only_executed_once():
     assert len(env.executor.open_positions) == 1
 
 
+def test_identical_repeat_through_the_pipeline_is_reported_as_not_executed():
+    env = Env()
+    sora = StubSora(env.risk.costs, override_qty=D(10))  # feste Groesse -> zweimal exakt derselbe Auftrag
+    pipe, _ = build(env, setups=[make_setup("same"), make_setup("same")], sora=sora)
+    out = pipe.run_cycle(ctx(env))
+    assert [o.executed for o in out] == [True, False]
+    assert out[1].stage == "EXECUTOR" and out[1].reasons == (R.DUPLICATE_ORDER_ID,)
+    assert out[1].result is not None and out[1].result.replayed
+    assert out[1].result.position == out[0].result.position and len(env.executor.open_positions) == 1
+
+
 def test_every_blocked_and_every_executed_setup_leaves_a_trace():
     env = Env()
     setups = [make_setup("ok", symbol="BTC-USD"), make_setup("nodata", symbol="XRP-USD")]

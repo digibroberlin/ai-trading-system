@@ -78,9 +78,12 @@ def test_same_order_id_from_many_processes_executes_exactly_once(pg, run):
     init_account(pg)
     res = run_workers("order", [dict(url=pg.app_url, account="main", specs=[["same", "BTC-USD"]])
                                 for _ in range(8)])
-    assert sorted(r["status"] for r in res) == ["filled"] + ["rejected"] * 7
-    assert all(r["reasons"] == ["DUPLICATE_ORDER_ID"] for r in res if r["status"] == "rejected")
-    assert db_facts(pg)["open"] == 1
+    # Genau ein Prozess handelt; die 7 anderen bekommen dessen Ergebnis (dieselbe Position) als Wiederholung.
+    assert sorted(r["replayed"] for r in res) == [False] + [True] * 7
+    assert all(r["status"] == "filled" and r["reasons"] == [] and r["position"] == "P000001" for r in res)
+    assert db_facts(pg)["open"] == 1 and db_facts(pg)["orders"] == 1
+    log = PostgresEventLog(pg.app_url)
+    assert len(log.of_type(EventType.ORDER_FILLED)) == 1 and len(log.of_type(EventType.ORDER_REPLAYED)) == 7
 
 
 @pytest.mark.parametrize("run", range(REPEATS))

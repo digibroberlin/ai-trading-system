@@ -146,7 +146,7 @@ Belege (Testzahlen, Gegenproben) stehen in [TESTBERICHT.md](TESTBERICHT.md).
 | M4 | **behoben** (Ihre Festlegung) | Geplantes Gesamtrisiko ≤ 2 % der Netto-Equity nach bereits angefallenen Kosten; Zustand nach der Order; erwartete Gebühren, Slippage und Funding-Puffer eingerechnet; unter der Konto-Sperre atomar. |
 | M5 | **behoben** (vorgezogen) | Jede Operation des Speicher-Executors ist unteilbar; scheitert etwas (auch das Protokoll), wird alles zurückgesetzt. |
 | M6 | **behoben** (vorgezogen) | Der Referenzkurs des Sprung-Filters verfällt nach 15 Minuten; verarbeitete Kerzen schreiben ihn fort. |
-| M7 | offen | Eine wiederholte Order-ID liefert weiterhin „Duplikat“ statt des ursprünglichen Ergebnisses. |
+| M7 | **behoben** (AP-08, D-012) | Gleiche Order-ID mit gleichem Inhalt liefert das ursprüngliche Ergebnis (`replayed=True`), auch aus einem anderen Prozess und nach einem Neustart (Migration 004: Fingerabdruck und Position in `orders`). Gleiche ID mit anderem Inhalt bleibt ein abgelehntes Duplikat. |
 | M8 | offen | Unter Konkurrenz mehrerer Prozesse wird ein SORA-Vorschlag weiterhin abgelehnt statt neu berechnet (sicher, aber nicht optimal). |
 | M9 | offen | `verify()` lädt weiterhin das ganze Protokoll. |
 | M10 | **behoben** | Funding nur noch aus ausdrücklichen Ereignissen (Satz und Kurs aus den Daten), je Position höchstens einmal; ohne Funding-Satz kein Futures-Trade. |

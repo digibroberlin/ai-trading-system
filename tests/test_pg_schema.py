@@ -299,6 +299,34 @@ def test_closed_positions_orders_and_trades_are_immutable(pg):
             c.execute("TRUNCATE orders")
 
 
+def test_stored_order_results_are_consistent_and_immutable(pg):
+    """Migration 004: Fingerabdruck im festen Format, 'filled' immer mit (existierender) Position, sonst ohne."""
+    fp = "ab" * 32
+    ins = ("INSERT INTO orders (account_id, client_order_id, status, reasons, created_at, fingerprint, position_id)"
+           " VALUES ('a1', %s, %s, '', now(), %s, %s)")
+    with admin(pg) as c:
+        _account(c)
+        _pos(c, "P1", "AAA-USD", 10)
+    with app(pg) as c:
+        c.execute(ins, ("ok", "filled", fp, "P1"))
+        c.execute(ins, ("ok2", "rejected", fp, None))
+        for oid, status, f, pid, err in (("x1", "filled", fp, None, E.CheckViolation),       # Fill ohne Position
+                                         ("x2", "rejected", fp, "P1", E.CheckViolation),     # Ablehnung mit Position
+                                         ("x3", "filled", "kein-hash", "P1", E.CheckViolation),
+                                         ("x4", "filled", fp.upper(), "P1", E.CheckViolation),
+                                         ("x5", "filled", fp, "P9", E.ForeignKeyViolation)):  # Position gibt es nicht
+            with pytest.raises(err):
+                c.execute(ins, (oid, status, f, pid))
+        for sql in ("UPDATE orders SET fingerprint = NULL", "UPDATE orders SET position_id = NULL",
+                    "DELETE FROM orders"):
+            with pytest.raises(E.InsufficientPrivilege):
+                c.execute(sql)
+    with admin(pg) as c:
+        with pytest.raises(E.InsufficientPrivilege):  # auch der Administrator nicht (Trigger)
+            c.execute("UPDATE orders SET fingerprint = %s WHERE client_order_id = 'ok'", ("cd" * 32,))
+        assert c.execute("SELECT client_order_id FROM orders ORDER BY 1").fetchall() == [("ok",), ("ok2",)]
+
+
 def test_application_role_has_no_delete_truncate_or_ddl(pg):
     with admin(pg) as c:
         _account(c)
@@ -450,10 +478,11 @@ def test_changed_or_misnumbered_migration_files_are_refused(pg, tmp_path):
 
     gap = tmp_path / "gap"
     shutil.copytree(MIGRATIONS, gap)
-    (gap / "005_spaeter.sql").write_text("SELECT 1;", encoding="utf-8")
+    skipped = gap / ("%03d_spaeter.sql" % (len(load_migrations(MIGRATIONS)) + 2))  # eine Nummer uebersprungen
+    skipped.write_text("SELECT 1;", encoding="utf-8")
     with pytest.raises(MigrationError, match="lueckenlos"):
         load_migrations(gap)
-    (gap / "005_spaeter.sql").unlink()
+    skipped.unlink()
     (gap / "Kaputt.sql").write_text("SELECT 1;", encoding="utf-8")
     with pytest.raises(MigrationError, match="Muster"):
         load_migrations(gap)

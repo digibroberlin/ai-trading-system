@@ -129,14 +129,34 @@ def test_replayed_candles_and_funding_after_a_restart_have_no_effect(pg):
                          ).fetchall() == [("futures", T0 + timedelta(minutes=1)), ("spot", T0 + timedelta(minutes=1))]
 
 
-def test_order_ids_stay_blocked_after_a_restart(pg):
+def test_a_repeated_order_gets_its_original_result_after_a_restart(pg):
     clock = FixedClock(T0)
     a = new_executor(pg, clock)
-    a.submit(order("a", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
+    first = a.submit(order("a", "ETH-USD", MarketType.FUTURES), snapshot(symbol="ETH-USD", ts=clock.now(), **FUT))
+    stale = a.submit(order("s", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now() - timedelta(seconds=99)))
+    assert first.status is OrderStatus.FILLED and stale.status is OrderStatus.REJECTED
+    clock.set(T0 + timedelta(hours=4))
+    assert a.apply_funding(FundingEvent(ETH, clock.now(), D("0.0001"), D(100))) != 0  # Position aendert sich danach
     a.close()
     b = new_executor(pg, clock)
-    again = b.submit(order("a", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
-    assert again.reasons == (R.DUPLICATE_ORDER_ID,) and len(b.open_positions) == 1
+    again = b.submit(order("a", "ETH-USD", MarketType.FUTURES), snapshot(symbol="ETH-USD", ts=clock.now(), **FUT))
+    assert again.replayed and again.status is OrderStatus.FILLED and again.position == first.position
+    rej = b.submit(order("s", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))  # jetzt frische Daten
+    assert rej.replayed and rej.status is OrderStatus.REJECTED and rej.reasons == stale.reasons
+    other = b.submit(order("a", "ETH-USD", MarketType.FUTURES, tp=D(111)), snapshot(symbol="ETH-USD", ts=clock.now(), **FUT))
+    assert not other.replayed and other.reasons == (R.DUPLICATE_ORDER_ID,)
+    assert len(b.open_positions) == 1 and len(PostgresEventLog(pg.app_url).of_type(EventType.ORDER_FILLED)) == 1
+
+
+def test_order_ids_without_a_stored_result_stay_blocked(pg):
+    """Eintraege aus der Zeit vor Migration 004 (ohne Fingerabdruck) belegen kein Ergebnis -> weiter Duplikat."""
+    clock = FixedClock(T0)
+    a = new_executor(pg, clock)
+    with psycopg.connect(pg.admin_url) as c:
+        c.execute("INSERT INTO orders (account_id, client_order_id, status, created_at) VALUES ('main', 'old', 'filled', %s)",
+                  (T0,))
+    again = a.submit(order("old", "BTC-USD", MarketType.SPOT), snapshot(ts=clock.now()))
+    assert not again.replayed and again.reasons == (R.DUPLICATE_ORDER_ID,) and a.open_positions == ()
 
 
 def test_price_jump_filter_keeps_its_memory_across_a_restart(pg):

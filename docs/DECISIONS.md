@@ -110,3 +110,21 @@ Internetzugang (beides Rest von M12, gehört zu AP-27). Das geänderte Dockerfil
   Zeitpunkt (sie erbt nicht Name/Zeit einer früheren Freigabe); (g) die Kommandozeile liefert eindeutige Rückgabecodes.
 **Folgen für Backtests:** Der Backtest nutzt denselben Executor; trifft eine Strategie die Notbremse, endet der Handel in diesem
 Backtest (das bildet den echten Betrieb ab). Die bestehenden Backtest-Ergebnisse haben sich dadurch nicht geändert.
+
+## D-012 · 2026-10-16 · Wiederholte Order liefert das ursprüngliche Ergebnis (AP-08, Audit M7)
+**Problem:** Schickt ein Absender dieselbe Order erneut (z. B. weil nach einem Zeitlimit oder Neustart unklar ist, ob sie
+ankam), bekam er bisher „abgelehnt: Duplikat“ – obwohl die erste Order vielleicht ausgeführt wurde. Er konnte daraus nicht
+erkennen, ob eine Position besteht.
+**Entscheidung:**
+* Jede Order-ID wird weiterhin **höchstens einmal** bearbeitet. Eine Wiederholung mit **genau gleichem Inhalt** (Fingerabdruck
+  SHA-256 über ID, Setup, Menge und Hebel) bekommt das ursprüngliche Ergebnis: Status, Gründe und die Position so, wie sie
+  eröffnet wurde. Gekennzeichnet mit `replayed=True`; protokolliert als `ORDER_REPLAYED`. Es wird dabei **nichts** gehandelt.
+* Gleiche ID mit **anderem** Inhalt: wie bisher „abgelehnt: Duplikat“ (`DUPLICATE_ORDER_ID`) – ein fremdes Ergebnis wird nie
+  zurückgegeben. Ebenso, wenn sich das ursprüngliche Ergebnis nicht belegen lässt (Einträge vor Migration 004).
+* Auch eine ursprünglich **abgelehnte** Order bekommt bei Wiederholung ihre ursprüngliche Ablehnung (ein neuer Versuch
+  braucht eine neue ID). Eine Wiederholung wird auch bei ausgelöstem Not-Aus beantwortet – sie eröffnet ja nichts.
+* Die Risikobewertung (`risk`) wird bei der Wiederholung nicht mitgeliefert (sie steht im Protokoll der ersten Bearbeitung);
+  so liefern Speicher- und Datenbank-Executor exakt dasselbe.
+* Datenbank: Migration 004 ergänzt `orders` um `fingerprint` (festes Format) und `position_id` (Fremdschlüssel auf
+  `positions`; bei „filled“ Pflicht, sonst verboten). Die Tabelle bleibt unveränderlich.
+* Pipeline: Eine Wiederholung zählt im Durchlauf als **nicht ausgeführt** (Stufe EXECUTOR, Grund `DUPLICATE_ORDER_ID`).

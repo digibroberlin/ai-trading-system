@@ -95,9 +95,12 @@ def test_same_order_id_sent_in_parallel_is_executed_exactly_once(run):
     env = Env()
     widen_race_window(env)
     results = run_parallel(16, lambda i: env.order("same-id"))
-    assert sum(r.status is OrderStatus.FILLED for r in results) == 1
-    assert sum(R.DUPLICATE_ORDER_ID in r.reasons for r in results) == 15
+    first = [r for r in results if not r.replayed]
+    assert len(first) == 1 and first[0].status is OrderStatus.FILLED and first[0].position is not None
+    # Die 15 Wiederholungen bekommen das urspruengliche Ergebnis - dieselbe Position, kein zweiter Handel.
+    assert sum(r.replayed and r.position == first[0].position for r in results) == 15
     assert len(env.executor.open_positions) == 1
+    assert len(env.log.of_type(EventType.ORDER_FILLED)) == 1 and len(env.log.of_type(EventType.ORDER_REPLAYED)) == 15
 
 
 @pytest.mark.parametrize("run", range(N_PARALLEL_REPEATS))
