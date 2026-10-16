@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 19:50 UTC für AP-14 (Marktdaten-Adapter, nur lesend)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 20:40 UTC für AP-15 (WebSocket-Marktüberwachung)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,12 +22,17 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-14** (Marktdaten-Adapter, nur lesend), danach AP-15;
-  AP-13, AP-16–19, AP-21, AP-22 und AP-23/24 sind erledigt – jeweils mit eigener
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-15** (WebSocket-Marktüberwachung);
+  AP-13, AP-14 (bis auf den echten Abruf, B-008), AP-16–19, AP-21, AP-22 und AP-23/24 sind erledigt – jeweils mit eigener
   Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-14 Marktdaten-Adapter** (interaktive Cloud-Sitzung, 2026-10-16, D-025): historische Kerzen von Coinbase (Spot)
+  und Bitget (Spot, USDT-Futures inkl. Funding), nur lesend und ohne Schlüssel; strenge Prüfung (nichts wird
+  aufgefüllt), Zwischenspeicher je Tag mit Prüfsumme, Ratenbegrenzung, wenige Wiederholungen. Einziger Netzzugang des
+  Systems, im Schutztest sichtbar eingetragen. **Echter Testabruf offen:** die Cloud-Netzregel sperrt die Börsen-Hosts
+  (B-008). Preflight STABIL 1618/1618; Python 3.9: 1390 bestanden; Gegenprobe MD01–MD15 15/15.
 * **AP-22 KI-Anbieter-Anschluss** (interaktive Cloud-Sitzung, 2026-10-16, D-024): Claude-Anschluss hinter dem
   Kosten-Orchestrator – Verbrauch aus der Anbieter-Antwort, Prompt-Caching der festen Anweisung, 30 s Zeitlimit, keine
   automatischen Wiederholungen, abgeschnittene Antworten werden nicht genutzt. **Nicht eingeschaltet:** braucht Freigabe,

@@ -204,6 +204,18 @@ Version genau einmal sehen**; das Register (JSON-Datei) merkt sich das. „Freig
 Test und mit Namen – das ist eine Empfehlung, kein Start. AKI bewertet nach allen Kosten und je Marktphase und prüft
 gepaart, ob KIBO/YUZU gegenüber „ohne Filter“ etwas bringen (bei wenigen Fenstern ehrlich: „zu wenig Daten“).
 
+### Historische Marktdaten laden (AP-14, D-025) – nur lesend
+
+```bash
+PYTHONPATH=src python3.12 -m trading.marketdata --exchange coinbase --market spot --symbol BTC-USD \
+    --interval 3600 --start 2026-09-01 --end 2026-09-08
+PYTHONPATH=src python3.12 -m trading.marketdata --exchange bitget --market futures --symbol BTC-USDT \
+    --interval 3600 --start 2026-09-01 --end 2026-09-08
+```
+Lädt öffentliche Kerzen (bei Futures auch die Funding-Sätze) **ohne Schlüssel**, prüft sie streng (nichts wird aufgefüllt)
+und speichert abgeschlossene Tage unter `data/marketdata` (nicht im Repository). Das ist der einzige Netzzugang des Systems:
+nur Lesen, nur `api.exchange.coinbase.com` und `api.bitget.com`.
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →
@@ -296,6 +308,9 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
 
 ## Bekannte Grenzen (ehrlich)
 
+* **Marktdaten-Adapter (AP-14) noch nicht gegen die echten Börsen geprüft:** Die Antwortformen sind nach der
+  Schnittstellenbeschreibung nachgebildet; der eine echte Testabruf scheitert in der Cloud an der Netzregel (B-008). Der
+  Kurs zur Funding-Abrechnung ist eine Näherung (Kerzen-Schluss statt Mark-Preis). Bitget nur bis 4-Stunden-Kerzen.
 * **Kein Profitnachweis.** Strategien (AP-16), KIBO und YUZU (AP-17) sind regelbasiert und technisch geprüft, aber nur
   auf erfundenen Daten. Ob sie nach allen Kosten einen Vorteil bringen, ist offen (AP-18/20). KIBO/YUZU geben bei zu wenig
   Kerzen (unter ~115) kein Urteil ab und halten dann nichts auf – die Sicherheit hängt an RIN, SORA und dem Risikomanager.

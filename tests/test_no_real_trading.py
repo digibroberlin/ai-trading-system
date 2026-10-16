@@ -1,8 +1,8 @@
 """Strukturelle Sicherheitstests: Der Quellcode darf (noch) nichts ins Netz senden.
 
-Diese Tests scannen den Quelltext. Kommen in einer spaeteren Phase bewusst
-Marktdaten-Adapter dazu (nur lesend), muss diese Liste ABSICHTLICH und mit Review angepasst
-werden - das ist gewollt: Es zwingt zu einer bewussten Entscheidung.
+Diese Tests scannen den Quelltext. Seit AP-14 (D-025) gibt es genau EINE bewusste Ausnahme: das Lesen oeffentlicher
+Marktdaten in `marketdata/public_http.py` (nur GET, feste Hosts, keine Zugangsdaten). Jede weitere Ausnahme muss
+ABSICHTLICH und mit Review hier eingetragen werden - das ist gewollt: Es zwingt zu einer bewussten Entscheidung.
 """
 
 import ast
@@ -36,13 +36,40 @@ def test_source_files_were_found():
     assert len(python_files()) > 20
 
 
+# Bewusste, einzige Ausnahme (AP-14, D-025): oeffentliche Marktdaten LESEN - eine Datei, nur urllib, nur GET.
+NETWORK_EXCEPTIONS = {"src/trading/marketdata/public_http.py": ["urllib"]}
+
+
 def test_no_network_or_process_libraries_are_imported_anywhere():
     offenders = {
         str(p.relative_to(ROOT)): sorted(set(imported_modules(p)) & FORBIDDEN_IMPORTS)
         for p in python_files()
         if set(imported_modules(p)) & FORBIDDEN_IMPORTS
     }
-    assert offenders == {}
+    assert offenders == NETWORK_EXCEPTIONS
+
+
+def test_the_only_network_access_reads_public_market_data_and_sends_nothing():
+    """Die Ausnahme oben darf nie zu einem Sende-Weg werden: nur GET, kein Inhalt, keine Zugangs-Kopfzeilen, feste Hosts."""
+    path = ROOT / "src" / "trading" / "marketdata" / "public_http.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    requests = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "Request"]
+    assert len(requests) == 1
+    keywords = {k.arg: k.value for k in requests[0].keywords}
+    assert isinstance(keywords.get("method"), ast.Constant) and keywords["method"].value == "GET"
+    assert "data" not in keywords and len(requests[0].args) == 1  # kein Inhalt
+    headers = keywords["headers"]
+    assert isinstance(headers, ast.Dict) and [k.value for k in headers.keys] == ["User-Agent", "Accept"]
+    for word in ("POST", "PUT", "DELETE", "PATCH", "Authorization", "ACCESS-KEY", "ACCESS-SIGN", "CB-ACCESS",
+                 "api_key", "secret", "passphrase", "CookieProcessor"):
+        assert word not in source, word
+    hosts = [n for n in ast.walk(tree) if isinstance(n, ast.Assign) and any(
+        isinstance(tg, ast.Name) and tg.id == "ALLOWED_HOSTS" for tg in n.targets)]
+    assert len(hosts) == 1 and ast.literal_eval(hosts[0].value.args[0]) == {"api.exchange.coinbase.com",
+                                                                             "api.bitget.com"}
+    users = sorted(str(p.relative_to(SRC)) for p in python_files() if "public_http" in p.read_text(encoding="utf-8"))
+    assert users and all(u.startswith("marketdata/") for u in users), users  # nirgends sonst (z. B. nie im Executor)
 
 
 def test_no_hardcoded_credentials():

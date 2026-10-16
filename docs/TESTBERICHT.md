@@ -493,7 +493,7 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Kein echter KI-Aufruf, kein Schlüssel.
 
 * **Neu:** `ai/anthropic_provider.py` (Claude-Anschluss hinter dem Orchestrator, Einsatzprüfung `live_registry`).
-* **Tests:** `test_ai_provider` (25, nur Attrappe der SDK-Antwortform): Anfrage wird genau ein SDK-Aufruf mit cachebarer
+* **Tests:** `test_ai_provider` (17, nur Attrappe der SDK-Antwortform): Anfrage wird genau ein SDK-Aufruf mit cachebarer
   Anweisung und Zeitlimit; Verbrauch inkl. Cache-Tokens aus der Antwort; nur Text-Blöcke zählen; abgeschnittene oder
   verweigerte Antworten werden nie genutzt; Fehler werden nicht verschluckt; mit dem Orchestrator: Messung, Eskalation
   nur bei Unsicherheit, Regel-Ersatz bei Fehlern, Budget-Sperre bei fehlendem/falschem Verbrauch oder anderem Modell,
@@ -502,3 +502,21 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Gegenprobe:** AN01–AN10 **10/10 entdeckt**.
 * **Preflight:** STABIL – **1580/1580** Tests, 0 übersprungen; Python 3.9: 1352 bestanden, 12 übersprungen (erwartet).
 * **Nicht geprüft:** echter Aufruf bei Anthropic (B-004); Preistabelle gegen die aktuelle Preisliste.
+
+## Nachtrag 2026-10-16 – AP-14 Marktdaten-Adapter, nur lesend (D-025)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Kein echter Abruf (Netzregel, B-008).
+
+* **Neu:** `marketdata/public_http.py` (einziger HTTP-Zugang: HTTPS-GET an zwei feste Hosts), `history.py`,
+  `coinbase.py`, `bitget.py`, `daycache.py`, `ratelimit.py`, `python -m trading.marketdata`.
+* **Tests:** `test_marketdata_adapters` (19) mit nachgebildeten Börsen (Antwortform und Seitenlogik nach der
+  Schnittstellenbeschreibung): exakte Zahlen ohne float, Seiten ohne Lücken/Doppelte, Lücken und Widersprüche werden nie
+  repariert, ungültige Anfragen erreichen die Börse nicht, Zwischenspeicher nur für abgeschlossene Tage und beschädigte
+  Dateien werden neu geladen, Bitget-Symbole/-Intervalle, Funding mit Anfangssatz vor dem Beginn und Lückenprüfung,
+  Ratenbegrenzung, Wiederholungen nur bei vorübergehenden Fehlern, nur erlaubte Adressen, keine Weiterleitungen,
+  Kommandozeile. `test_no_real_trading`: genau eine Netz-Ausnahme, deren Aufbau geprüft wird (nur GET, kein Inhalt,
+  keine Zugangs-Kopfzeilen, feste Hosts, nur im Marktdaten-Paket benutzt).
+* **Gegenprobe:** MD01–MD15 **15/15 entdeckt**.
+* **Preflight:** STABIL – **1618/1618** Tests, 0 übersprungen (erster Lauf: 2 ruff-Befunde in einem Test, behoben,
+  Wiederholung STABIL); Python 3.9: 1390 bestanden, 12 übersprungen (erwartet).
+* **Nicht geprüft:** echte Antworten von Coinbase und Bitget (B-008).

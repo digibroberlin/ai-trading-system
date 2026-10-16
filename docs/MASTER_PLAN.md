@@ -71,7 +71,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
 | AP-13 | Börsenregeln je Instrument (Preis-/Mengenschritt, Mindestgröße, Gebührenstufen) im Risiko- und Kostenmodell | Tests, Gegenprobe | ✅ D-023 (echte Werte je Börse mit AP-14) |
-| AP-14 | Adapter für historische Kerzen und Funding (Coinbase Spot, Bitget Spot + Futures) mit lokalem Zwischenspeicher, Ratenbegrenzung, Datenprüfung | Tests mit aufgezeichneten Antworten; ein echter Abruf als technische Validierung | ⏳ |
+| AP-14 | Adapter für historische Kerzen und Funding (Coinbase Spot, Bitget Spot + Futures) mit lokalem Zwischenspeicher, Ratenbegrenzung, Datenprüfung | Tests mit aufgezeichneten Antworten; ein echter Abruf als technische Validierung | 🔄 D-025: Adapter ✅ (nachgebildete Antworten); echter Abruf wartet auf B-008 |
 | AP-15 | WebSocket-Marktüberwachung: Wiederverbindung, Lückenerkennung, Herzschlag, veraltete Daten → Kill Switch | Tests mit simuliertem Server | ⏳ |
 
 ### Phase E – Strategien und Forschung
