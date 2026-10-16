@@ -176,6 +176,7 @@ Transaktion, und bricht ab, wenn eine bereits angewendete Datei nachträglich ve
 PYTHONPATH=src python3.12 -m trading.demo         # ein Paper-Durchlauf; oder: docker-compose --env-file ~/trading-secrets.env run --rm app
 PYTHONPATH=src python3.12 -m trading.backtest     # Backtest: alle Strategien gegen Kaufen-und-Halten und Nicht-Handeln
 PYTHONPATH=src python3.12 -m trading.dashboard    # Dashboard im Browser: http://127.0.0.1:8000 (nur lesend)
+PYTHONPATH=src python3.12 -m trading.research     # Forschungsrahmen: Validierung/Test aller Strategien (erfundene Daten)
 ```
 
 ### Dashboard (AP-23/24, D-020)
@@ -192,6 +193,16 @@ nur von diesem Rechner aus erreichbar (keine Anmeldung – nicht ins Internet st
 
 `python3.12 -m trading.dashboard --simulation` spielt stattdessen die Laufzeit-Engine einmal im Zeitraffer mit erfundenen
 Daten ab und zeigt das Paper-Konto im Modus DEMO (kein laufender Betrieb, keine Marktdaten, keine Börse).
+
+### Forschungsrahmen (AP-18/19, D-022)
+
+`trading.research`: Training, Validierung und Test liegen zeitlich hintereinander (mit Sperrabstand); Walk-forward-Fenster
+überlappen nie. Jede geprüfte Variante zählt als Versuch – je mehr Versuche, desto höher die geforderte Sharpe-Ratio
+(Schutz gegen „so lange probieren, bis Zufall gut aussieht“). Bestanden ist nur, was nach allen Kosten Gewinn bringt,
+genug Trades hat, die Schwelle schlägt und auch bei 1,5-fachen Kosten noch im Plus ist. Die **Testdaten darf jede
+Version genau einmal sehen**; das Register (JSON-Datei) merkt sich das. „Freigegeben für Paper“ geht nur nach bestandenem
+Test und mit Namen – das ist eine Empfehlung, kein Start. AKI bewertet nach allen Kosten und je Marktphase und prüft
+gepaart, ob KIBO/YUZU gegenüber „ohne Filter“ etwas bringen (bei wenigen Fenstern ehrlich: „zu wenig Daten“).
 
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 

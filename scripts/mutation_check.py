@@ -75,6 +75,9 @@ STT = ["tests/test_strategies.py"]  # Strategie-Bibliothek (AP-16)
 KYT = ["tests/test_kibo_yuzu.py", "tests/test_backtest_engine.py"]  # Marktphasen, KIBO, YUZU (AP-17)
 DBT = ["tests/test_dashboard.py"]  # Dashboard (AP-23/24)
 RTT = ["tests/test_runtime_engine.py"]  # Laufzeit-Engine (AP-21)
+RST = ["tests/test_research.py"]  # Forschungsrahmen (AP-18/19)
+RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
+                      "src/trading/research/experiment.py", "src/trading/research/evaluation.py")
 RTE = "src/trading/runtime/engine.py"
 DSH_API, DSH_STATE = "src/trading/dashboard/api.py", "src/trading/dashboard/state.py"
 KB, YZ, RG, AR = ("src/trading/agents/kibo_rules.py", "src/trading/agents/yuzu_rules.py",
@@ -395,6 +398,15 @@ BACKTEST: List[Mutant] = [
  ("RT06", "Setup-Kennung ohne Entscheidungszeit", [(RTE, "p.side.value, now.strftime(\"%Y%m%dT%H%M%SZ\"))", "p.side.value, \"x\")")], RTT),
  ("RT07", "Futures mit erfundenem Funding-Satz", [(RTE, "        rate = self._funding.get(candle.instrument)\n", "        rate = self._funding.get(candle.instrument, ZERO)\n")], RTT),
  ("RT08", "Aufwaermen nach Neustart handelt", [(RTE, "                self._remember(c)\n                taken += 1", "                self.process(c)\n                taken += 1")], RTT),
+ ("RS01", "Testdaten mehrfach ansehbar", [(RSR, "            if entry[\"test_opened\"]:\n                raise RegistryError", "            if False:\n                raise RegistryError")], RST),
+ ("RS02", "Test auch ohne bestandene Validierung", [(RSR, "            if entry[\"status\"] != Status.VALIDATED.value:\n                raise RegistryError(\"Test nur", "            if False:\n                raise RegistryError(\"Test nur")], RST),
+ ("RS03", "Verworfene Versuche zaehlen nicht", [(RSR, "            family[\"trials\"] += 1\n", "            family[\"trials\"] += 1 if passed else 0\n")], RST),
+ ("RS04", "Schwelle unabhaengig von der Zahl der Versuche", [(RSE, "    required = se * (z + penalty)", "    required = se * z")], RST),
+ ("RS05", "Kein Kosten-Stresstest", [(RSE, "        if stressed.net_result <= 0:\n            reasons.append(\"bei", "        if False:\n            reasons.append(\"bei")], RST),
+ ("RS06", "Walk-forward-Tests ueberlappen erlaubt", [(RSP, "step < test or", "step < ZERO_TIME or")], RST),
+ ("RS07", "Freigabe ohne bestandenen Test", [(RSR, "            if entry[\"status\"] != Status.TESTED.value or not (entry[\"test\"] or {}).get(\"passed\"):", "            if entry[\"status\"] != Status.TESTED.value:")], RST),
+ ("RS08", "Zeitfenster mit Funding aus dem Zeitraum selbst", [("src/trading/backtest/data.py", "            known = [f.rate for f in s.funding if f.time <= candles[0].open_time]", "            known = [f.rate for f in s.funding if f.time <= candles[-1].close_time]")], RST),
+ ("RS09", "Marktphase beim Einstieg mit Zukunftsdaten", [(RSV, "    candles = [c for c in series.candles if c.close_time <= time][-history:]", "    candles = list(series.candles)[-history:]")], RST),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),

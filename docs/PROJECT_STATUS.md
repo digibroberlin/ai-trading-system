@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 18:33 UTC für AP-18 (Forschungsrahmen: getrennte Daten, Walk-forward, Versuchszählung, Strategie-Register)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 18:49 UTC für AP-13 (Börsenregeln je Instrument)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -21,12 +21,17 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 
 ## In Arbeit (Zwischenstand)
 
-* Nächstes Paket in Plan-Reihenfolge: **AP-13** (Börsenregeln je Instrument). Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-18/19** (Forschungsrahmen, Bewertung durch AKI);
-  AP-16, AP-17, AP-21 und AP-23/24 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
+* Die interaktive Sitzung arbeitet auf Wunsch des
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-13** (Börsenregeln), danach AP-22, AP-14/15;
+  AP-16–19, AP-21 und AP-23/24 sind erledigt – jeweils mit eigener Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-18/19 Forschungsrahmen und Bewertung** (interaktive Cloud-Sitzung, 2026-10-16, D-022): getrennte Zeiträume,
+  Walk-forward, Versuchszählung mit steigender Sharpe-Schwelle, Kosten-Stress, Testdaten nur einmal, Strategie-Register mit
+  Freigabestatus; AKI-Bewertung nach allen Kosten, je Marktphase, Stabilität, Nutzen von KIBO/YUZU.
+  `python -m trading.research` verwirft auf Zufallsdaten alle Strategien (erwartet). Preflight STABIL 1529/1529;
+  Python 3.9: 1301 bestanden; Gegenprobe RS01–RS09 9/9.
 * **AP-21 Laufzeit-Engine** (interaktive Cloud-Sitzung, 2026-10-16, D-021): ereignisgesteuert, alle sechs Agenten,
   KI nur ereignisbasiert mit Kostenmessung je Ereignis, Neustart mit Aufwärmen, Not-Aus nach wiederholten Fehlern.
   **Standardmäßig aus** – Start nur mit `enabled`, PAPER und `TRADING_ENGINE_APPROVAL="PAPER-HANDEL FREIGEGEBEN"`.
