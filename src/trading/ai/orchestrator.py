@@ -214,6 +214,7 @@ class AIOrchestrator:
         self._routing = routing
         self._cache: Dict[str, Tuple[datetime, Analysis]] = {}
         self._inflight: Dict[str, threading.Event] = {}  # gleiche Analyse laeuft gerade -> warten statt doppelt zahlen
+        self._local_block = ""  # Sperre liess sich nicht ins Budget schreiben: dieser Prozess zahlt nichts mehr
         self._ids = itertools.count(1)
         # Schuetzt nur den inneren Zustand (Cache, laufende Analysen, Nummern). Der Anbieter-Aufruf laeuft AUSSERHALB:
         # ein langsamer Anbieter haelt Regel- und Cache-Entscheidungen anderer Agenten nicht auf.
@@ -321,6 +322,9 @@ class AIOrchestrator:
         if run.spent + ceiling > request.expected_value_usd * self._routing.max_cost_share:
             self._note(run, request, Source.SKIPPED, "NUTZEN_ZU_GERING", reserved=ceiling, **meta)
             return "NUTZEN_ZU_GERING"
+        if self._local_block:  # bis zum Neustart nach Pruefung der Ursache
+            self._note(run, request, Source.SKIPPED, "BUDGET", reserved=ceiling, **meta)
+            return "BUDGET"
         try:
             reservation = self._ledger.reserve(ceiling, request.agent, target.model)
         except BudgetError:
@@ -390,8 +394,8 @@ class AIOrchestrator:
     def _block(self, reason: str) -> None:
         try:
             self._ledger.block(reason)
-        except Exception:  # noqa: BLE001 - Sperre nicht schreibbar: offene Reservierungen zaehlen weiter voll
-            pass
+        except Exception:  # noqa: BLE001 - Sperre nicht schreibbar (z. B. Datenbank weg): wenigstens hier sperren
+            self._local_block = reason or "gesperrt"
 
     def _settle(self, reservation: Reservation, charge: Optional[Decimal]) -> bool:
         """Rechnet ab. Scheitert das (z. B. Datenbank weg), bleibt die Reservierung voll stehen und das Budget wird gesperrt."""

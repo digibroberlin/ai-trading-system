@@ -278,6 +278,13 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
 * **KI ist noch nicht angeschlossen:** Orchestrierung, Budgets und Kostenmessung sind fertig und nur mit einer Attrappe getestet.
   Einen echten Anbieter gibt es erst mit AP-22 nach Budget-Freigabe (B-004); KIBO/YUZU sind weiter neutrale Platzhalter.
   Ob eine KI-Analyse ihr Geld wert ist, ist **unbewiesen**, bis der Vergleich (AP-33) auf echten Daten gelaufen ist.
+* **KI-Budget – bewusst offene, kleinere Punkte:** Ein hängender KI-Anbieter hält gleiche Analysen bis zu 120 s auf (dann
+  Regel-Ersatz); echte Zeitlimits gehören in den Anbieter-Adapter (AP-22). Meldet ein Anbieter einen *zu kleinen*, aber nicht
+  leeren Verbrauch, lässt sich das ohne eigene Token-Zählung nicht erkennen (erkannt werden: kein Verbrauch, nur Ausgabe,
+  0 Ausgabe-Tokens bei Text, anderes Modell, Überschreitung der Obergrenze). Lässt sich die Budget-Sperre nicht in die
+  Datenbank schreiben, zahlt nur der betroffene Prozess bis zum Neustart nichts mehr.
+* **Geheimnis-Scan:** erkennt bekannte Schlüsselformate überall, allgemeine Zuweisungen (`NAME=Wert`) aber nur in der
+  einfachen Form – JSON-Schlüssel, `os.environ[...] = ...` und Zuweisungen mit Typangabe nur über die bekannten Formate.
 * **Preise sind ein Stand (2026-10-06)** der Anbieter-Preisliste; der Cache-Lesepreis von Haiku 5.5 ist abgeleitet (0,1 × Eingabe).
   Die Kostenobergrenze vor einem Aufruf setzt voraus, dass ein Token nie kürzer als ein Byte ist; wird das je verletzt,
   sperrt sich das Budget selbst. Die Betriebskosten (Server, Daten) muss jemand eintragen – automatisch kommen nur KI-Kosten.

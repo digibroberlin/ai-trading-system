@@ -308,6 +308,7 @@ z("Z45","Voll umgelegte KI-Kosten ohne Kostenbuch-Anteil",AUC,"    total = on_tr
 z("Z46","Voll umgelegte KI-Kosten nur aus dem Zeitraum",AUC,"    total = on_trades + without + unmeasured_ai_cost\n","    total = sum((r.cost for r in period), ZERO) + unmeasured_ai_cost\n")
 z("Z47","0 Ausgabe-Tokens fuer eine Antwort werden geglaubt",AIO,"        charge: Optional[Decimal] = None if wrong_model or no_usage or no_output else price.cost(usage)\n","        charge: Optional[Decimal] = None if wrong_model or no_usage else price.cost(usage)\n")
 z("Z48","Nicht zustaendige Anfragen reservieren Budget",AIO,"        if not self._activation.ready(request.agent, request.trigger, request.subject or request.kind):","        if False:")
+z("Z49","Nicht schreibbare Sperre laesst den Prozess weiter zahlen",AIO,"            self._local_block = reason or \"gesperrt\"\n","            pass\n")
 z("Z21","Nettoergebnis ohne Betriebskosten",AUC,"        net - operating, ai, attribute_ai_costs(records, period_trades, earlier, unmeasured_ai),","        net, ai, attribute_ai_costs(records, period_trades, earlier, unmeasured_ai),")
 z("Z22","Zeitraum-Kosten nicht anteilig",AUC,"        return cost_up(self.amount * Decimal(str(overlap)) / Decimal(str(whole)))","        return self.amount")
 z("Z23","Teure Methode schon bei positivem Mittelwert bevorzugt",AUV,"    elif low > 0:","    elif mean_diff > 0:")

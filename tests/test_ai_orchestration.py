@@ -626,6 +626,24 @@ def test_aki_keeps_the_paid_call_even_if_its_event_log_fails():
     assert env.ledger.status().blocked
 
 
+class BlockFails(InMemoryBudgetLedger):
+    def block(self, reason):
+        raise ConnectionError("Datenbank weg")
+
+
+def test_if_the_budget_cannot_be_blocked_this_process_stops_paying():
+    clock = FixedClock(T0)
+    registry = ProviderRegistry()
+    provider = ScriptedProvider(model="claude-opus-5-5")  # anderes Modell als angefragt -> Sperre noetig
+    registry.register(provider)
+    orch = AIOrchestrator(registry, DEFAULT_PRICES, BlockFails(BUDGET, clock), ActivationPolicy(DEFAULT_ACTIVATION, clock),
+                          clock, lambda rec: None)
+    orch.analyze(request())
+    assert len(provider.calls) == 1
+    a = orch.analyze(request(subject="ETH", payload={"anders": 1}))
+    assert len(provider.calls) == 1 and a.reason == "BUDGET"
+
+
 class SettleFails(InMemoryBudgetLedger):
     def settle(self, reservation, actual):
         raise ConnectionError("Datenbank weg")

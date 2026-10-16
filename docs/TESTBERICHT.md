@@ -335,7 +335,7 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 
   `audit/costs.py` (Betriebskosten, KI-Kosten je Agent/Modell/Analyse/Signal/Tag/Monat, Kosten je Trade, Nettoergebnis nach
   allen Kosten), `audit/ai_value.py` (gepaarter Bootstrap-Vergleich zweier Methoden), `persistence/ai_budget.py` +
   Migration 006 (Budget als Datenbank-Gurt).
-* **Tests:** `test_ai_orchestration` (65), `test_operating_costs` (14), `test_pg_ai_budget` (26, mit Datenbank),
+* **Tests:** `test_ai_orchestration` (68), `test_operating_costs` (15), `test_pg_ai_budget` (27, mit Datenbank),
   Geheimnis-Scan-Fälle für Token-Zähler und echte Token-Variablen.
 * **Unabhängige Prüfung** (8 Prüf-Agenten mit Gegenprüfung): **25 bestätigte Befunde**, alle behoben und mit Tests belegt.
   Die wichtigsten: (1) Meldete der Anbieter keinen Verbrauch, wurden 0 USD gebucht – das Budget war damit wirkungslos; jetzt
@@ -353,12 +353,17 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16 
   (2) Unter REPEATABLE READ zählte der Datenbank-Gurt einen veralteten Stand (zwei Reservierungen über der Tagesgrenze);
   jetzt schreibende Serialisierung, Test über alle drei Isolationsstufen. Mittel/leicht: Cache-Treffer konnten sicherere
   Regeln ersetzen; AKI verlor den Messpunkt bei Protokollfehler; fünf eingebaute Fehler im Gurt blieben unentdeckt (jetzt
-  getestet). ERGEBNIS_ZWEITE_PRUEFUNG
+  getestet). Danach selbst geprüft und abgesichert (ohne weiteren Prüf-Lauf, auf Wunsch des Eigners): Zeitraum ohne
+  Zeitzone wird abgelehnt, voll umgelegte KI-Kosten je Trade nie kleiner als die direkten und inkl. Kostenbuch, „nur
+  Ausgabe“ bzw. 0 Ausgabe-Tokens bei Text gelten als fehlende Verbrauchsmeldung, nicht schreibbare Sperre stoppt
+  wenigstens den eigenen Prozess. Bewusst offen (optional, README „Bekannte Grenzen“): Wartezeit bei hängendem Anbieter,
+  zu kleine Verbrauchsmeldungen, Reichweite des Geheimnis-Scans, Strenge zweier Nebenläufigkeitstests.
 * **Vorfall:** Ein Zwischenstand wurde hochgeladen, obwohl der Geheimnis-Scan einen (falschen) Fund meldete – die
   Befehlskette hatte den Fehlercode verschluckt. Es war kein Geheimnis betroffen (Token-**Anzahlen**). Seitdem wird nur noch
   mit `if secret_scan; then push` hochgeladen.
-* **Gegenprobe:** ERGEBNIS_GEGENPROBE
-* **Preflight:** ERGEBNIS_PREFLIGHT
+* **Gegenprobe:** alle Kosten-Einträge auf dem Endstand **69/69 entdeckt** (Z01–Z49, G74–G93; mit Datenbank).
+* **Preflight:** STABIL – **1363/1363** Tests, 0 übersprungen (mit PostgreSQL 16); ruff und mypy `--strict` ohne Befunde.
+  Python 3.9 (ohne Datenbank): 1128 bestanden, 10 Datenbank-Module übersprungen (erwartet; Stand vor den letzten Tests).
 * **Nicht geprüft:** echter KI-Anbieter (bewusst, Budget 0, B-004); ob KI-Analysen ihr Geld wert sind (AP-33 mit echten Daten
   in AP-20); Monatswechsel im Datenbank-Budget nur mit vorab eingefügten Einträgen (die Datenbank-Uhr lässt sich nicht
   verstellen); volle Gegenprobe aller Einträge (erst vor `stable/005`); Docker-Image-Bau.
