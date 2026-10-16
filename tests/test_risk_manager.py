@@ -318,6 +318,8 @@ def test_daily_loss_kill_switch():
     d = evaluate(pf=portfolio(equity=D(9701), day_start=D(10000)))  # vorher 2,99 %, danach 3,014 %
     assert R.DAILY_LOSS_LIMIT in d.reasons
     assert R.DAILY_LOSS_LIMIT in evaluate(pf=portfolio(equity=D(9700), day_start=D(10000))).reasons
+    # Grenzfall: nach der Order GENAU 3 % (9 702,40 - 2,40 Gebuehr = 9 700) -> "erreicht" heisst gestoppt
+    assert R.DAILY_LOSS_LIMIT in evaluate(pf=portfolio(equity=D("9702.40"), day_start=D(10000))).reasons
 
 
 def test_drawdown_kill_switch():
@@ -326,6 +328,8 @@ def test_drawdown_kill_switch():
     assert R.DRAWDOWN_LIMIT not in evaluate(pf=portfolio(equity=D(9003), peak=D(10000), day_start=D(9003))).reasons
     # 9 001 waeren vorher 9,99 % - die Gebuehr der Order (2,40) fuehrt auf 10,01 %: abgelehnt
     assert R.DRAWDOWN_LIMIT in evaluate(pf=portfolio(equity=D(9001), peak=D(10000), day_start=D(9001))).reasons
+    # Grenzfall: nach der Order GENAU 10 % (9 002,40 - 2,40 Gebuehr = 9 000)
+    assert R.DRAWDOWN_LIMIT in evaluate(pf=portfolio(equity=D("9002.40"), peak=D(10000), day_start=D("9002.40"))).reasons
 
 
 def test_all_violations_are_collected_not_just_the_first():

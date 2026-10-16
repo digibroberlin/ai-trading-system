@@ -64,3 +64,15 @@ Git: Arbeitszweig `ap/12-pipeline-reihenfolge` · Python 3.12.3 · Linux (Cloud-
 - ✅ Gegenprobe (nur Pipeline-Einträge I01–I03, I06, I09, O07, Q01, Q03, W01–W06, mit Datenbank): 14 von 14 entdeckt
   (Q01 erst nach einem zusätzlichen, deterministischen Test; vorher 13/14)
 - ✅ Kern unter Python 3.9 ohne psycopg: 703 bestanden, 9 Datenbank-Module sichtbar übersprungen
+
+### 2026-10-16 14:00 UTC - NICHT STABIL
+Git: `de19043` auf `develop` · Python 3.12.3 · Linux
+
+- ✅ Geheimnis-Scan (inkl. Geschichte): GEHEIMNIS-SCAN: keine Funde (Arbeitsstand und gesamte Geschichte).
+- ✅ ruff: All checks passed!
+- ✅ mypy --strict: Success: no issues found in 58 source files
+- ✅ Tests: 886 bestanden, 0 uebersprungen, 0 fehlgeschlagen (225 s)
+- ❌ Gegenprobe:   fehlender Test fuer: K14 Tagesverlust-Grenze: >= wird zu > (4708 s)
+  Ursache: Seit AP-07 wird der Tagesverlust nach der Order (inkl. Gebühr) gemessen; der angepasste Test prüfte den exakten
+  Grenzfall „genau 3 %“ nicht mehr. Behoben durch Grenzfall-Tests für Tagesverlust (genau 3 %) und Drawdown (genau 10 %);
+  Gegenprobe K13/K14 danach 2/2 entdeckt. Volle Gegenprobe wird wiederholt.
