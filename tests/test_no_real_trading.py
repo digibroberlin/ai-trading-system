@@ -36,8 +36,11 @@ def test_source_files_were_found():
     assert len(python_files()) > 20
 
 
-# Bewusste, einzige Ausnahme (AP-14, D-025): oeffentliche Marktdaten LESEN - eine Datei, nur urllib, nur GET.
-NETWORK_EXCEPTIONS = {"src/trading/marketdata/public_http.py": ["urllib"]}
+# Bewusste Ausnahmen: oeffentliche Marktdaten LESEN - je eine Datei, feste Adressen, keine Zugangsdaten.
+NETWORK_EXCEPTIONS = {
+    "src/trading/marketdata/public_http.py": ["urllib"],  # AP-14, D-025: historische Kerzen (HTTPS-GET)
+    "src/trading/marketdata/public_ws.py": ["socket", "ssl"],  # AP-15, D-026: Marktueberwachung (WebSocket)
+}
 
 
 def test_no_network_or_process_libraries_are_imported_anywhere():
@@ -123,3 +126,20 @@ def test_persistence_package_connects_only_to_the_configured_database():
     for p in (SRC / "persistence").glob("*.py"):
         text = p.read_text(encoding="utf-8")
         assert not re.search(r"(localhost|127\.0\.0\.1|postgresql://|postgres://)", text), p.name
+
+
+def test_the_websocket_access_only_reaches_fixed_public_market_data_endpoints():
+    """Zweite Ausnahme (AP-15): nur feste wss-Adressen oeffentlicher Kanaele, TLS mit Pruefung, keine Zugangsdaten."""
+    path = ROOT / "src" / "trading" / "marketdata" / "public_ws.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    endpoints = [n for n in ast.walk(tree) if isinstance(n, ast.Assign) and any(
+        isinstance(tg, ast.Name) and tg.id == "ALLOWED_ENDPOINTS" for tg in n.targets)]
+    assert len(endpoints) == 1 and ast.literal_eval(endpoints[0].value.args[0]) == {
+        "wss://ws.bitget.com/v2/ws/public", "wss://ws-feed.exchange.coinbase.com"}
+    assert "create_default_context()" in source and "CERT_NONE" not in source and "check_hostname" not in source
+    for word in ("authorization", "access-key", "access-sign", "cb-access", "api_key", "secret", "passphrase",
+                 "login", "/private"):
+        assert word not in source.lower(), word  # keine Anmeldung, keine privaten Kanaele
+    users = sorted(str(p.relative_to(SRC)) for p in python_files() if "wsproto" in set(imported_modules(p)))
+    assert users == ["marketdata/public_ws.py"]  # WebSocket-Rahmen nur hier (der Server im Dashboard nutzt uvicorn)

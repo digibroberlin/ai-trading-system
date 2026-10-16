@@ -407,3 +407,26 @@ Wiederholungen nur bei 429/5xx/Netzfehlern.
 nur abgeschlossene Tage, mit SHA-256 des Inhalts; Abweichungen → Datei verworfen und neu geladen; atomar geschrieben.
 **Grenzen:** Antwortformen nach der Schnittstellenbeschreibung nachgebildet – der echte Abruf steht aus (B-008: Netzregel
 der Cloud-Umgebung). Bitget nur bis 4-h-Kerzen (größere beginnen teils zu UTC+8). Coinbase-Futures nicht enthalten.
+
+## D-026 · 2026-10-16 · Marktüberwachung über WebSocket (AP-15)
+**Entscheidung:** `MarketStreamMonitor` macht aus dem öffentlichen Datenstrom einer Börse **geschlossene, geprüfte
+Kerzen** für die Laufzeit-Engine (`monitor.candles()` → `RuntimeEngine.process/run`). Bitget: Kerzen-Kanal (die Börse
+schickt den vollen Stand der laufenden Kerze; Schlusswert = letzter Stand vor der nächsten Kerze). Coinbase Exchange hat
+keinen Kerzen-Kanal: Kerzen entstehen aus jedem Handel (`matches`), der Herzschlag (`heartbeat`, jede Sekunde) schließt
+sie pünktlich.
+**Nichts wird aus Bruchstücken gebaut:** Eine Kerze, die nur zum Teil beobachtet wurde (Start mitten im Intervall,
+Unterbrechung, fehlende Handelsnummern laut `trade_id`/`last_trade_id`), und Lücken nach einer Unterbrechung werden über
+REST (AP-14) nachgeladen – mit Verzögerung und höchstens 3 Versuchen; spätere Kerzen warten so lange, damit die Engine sie
+in Reihenfolge bekommt. Gelingt das Nachladen nicht, bleibt die Lücke und wird gemeldet.
+**Verbindung und Schutz:** Wiederverbindung mit 1, 2, 4 … höchstens 60 s Wartezeit und neuem Abo; Lebenszeichen an die
+Börse (Bitget „ping“ alle 30 s); keine Nachricht 45 s → neu verbinden; **keine Marktdaten 120 s → Not-Aus (DATA_ERROR)**,
+der bis zur bewussten Freigabe bleibt (Schließen bleibt erlaubt). Zeitstempel aus der Zukunft und formal fehlerhafte
+Kerzen der Börse lösen – wie überall im System – den Not-Aus aus; die fehlerhafte Kerze wird per REST ersetzt.
+Unbrauchbare Nachrichten werden verworfen und gezählt.
+**Netzzugang – zweite bewusste Ausnahme:** `marketdata/public_ws.py` (Socket + TLS mit Zertifikatsprüfung, WebSocket-
+Rahmen mit `wsproto`, das ohnehin für das Dashboard installiert ist): nur `wss://ws.bitget.com/v2/ws/public` und
+`wss://ws-feed.exchange.coinbase.com`, keine Anmeldung, Höchstgröße je Nachricht. Im Schutztest sichtbar eingetragen und
+auf Aufbau geprüft. `wsproto` braucht Python ≥ 3.10 – der Kern bleibt 3.9-fähig (der Monitor selbst importiert es nicht).
+**Grenzen:** Nur mit simuliertem Server und lokalem WebSocket-Gegenstück geprüft; die Live-Probe wartet auf die
+Netzfreigabe (B-008). Futures-Funding im laufenden Betrieb kommt noch nicht über den Strom (die Engine blockiert Futures
+ohne bekannten Satz – fail closed).

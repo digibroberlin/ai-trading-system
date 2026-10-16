@@ -18,12 +18,14 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
   WAS: Die Marktdaten-Adapter (AP-14) sind fertig und mit nachgebildeten Antworten getestet. Der geplante **eine** echte Abruf
   öffentlicher Kerzen (nur lesend, ohne Schlüssel) scheitert in der Cloud: Die Netzwerk-Regel der Umgebung lässt
   `api.exchange.coinbase.com` und `api.bitget.com` nicht zu. Dies ist zugleich die in AGENTS.md §9.3 verlangte Rückfrage.
+  Für die Marktüberwachung (AP-15) zusätzlich `ws.bitget.com` und `ws-feed.exchange.coinbase.com` (WebSocket, nur lesend).
   WO/WIE: in der Claude-Code-Cloud die Umgebung öffnen (Menü der Umgebung in der Titelleiste der Sitzung → „Edit“) →
-  „Network access“: die beiden Hosts unter „Allowed domains“ eintragen (Haken bei „Allow package managers“ lassen).
+  „Network access“: die vier Hosts unter „Allowed domains“ eintragen (Haken bei „Allow package managers“ lassen).
   Anleitung: https://code.claude.com/docs/en/cloud-environments#network-access. Alternativ auf dem Mac:
   `PYTHONPATH=src python3.12 -m trading.marketdata --exchange coinbase --symbol BTC-USD --start 2026-09-01 --end 2026-09-08`.
   WAS DANACH: Die nächste Sitzung lädt eine Woche BTC-Kerzen (Coinbase Spot, Bitget Spot/Futures), prüft sie und hält das
-  Ergebnis im Testbericht fest; danach kann AP-20 (Untersuchung mit echten Daten) beginnen.
+  Ergebnis im Testbericht fest, beobachtet einige Minuten den Live-Strom (`python -m trading.marketdata.watch`, ohne
+  Handel); danach kann AP-20 (Untersuchung mit echten Daten) beginnen.
 
 ## Später (noch nicht nötig)
 

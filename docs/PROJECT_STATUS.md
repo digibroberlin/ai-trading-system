@@ -5,7 +5,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 20:40 UTC für AP-15 (WebSocket-Marktüberwachung)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-16 21:20 UTC für AP-25 (Logging, Gesundheit, Kennzahlen)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -22,12 +22,17 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## In Arbeit (Zwischenstand)
 
 * Die interaktive Sitzung arbeitet auf Wunsch des
-  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-15** (WebSocket-Marktüberwachung);
-  AP-13, AP-14 (bis auf den echten Abruf, B-008), AP-16–19, AP-21, AP-22 und AP-23/24 sind erledigt – jeweils mit eigener
+  Eigners (Fokus: Strategien, Agenten-Integration, Dashboard) an **AP-25** (Logging, Gesundheit, Kennzahlen), danach AP-26–28 (Betrieb, nur vorbereitet);
+  AP-13–19 (AP-14/15 bis auf die Live-Probe, B-008), AP-21–24 sind erledigt – jeweils mit eigener
   Sperr-Zeile. Bitte nicht am selben Paket arbeiten.
 
 ## Zuletzt erledigt
 
+* **AP-15 Marktüberwachung über WebSocket** (interaktive Cloud-Sitzung, 2026-10-16, D-026): geschlossene, geprüfte
+  Kerzen aus dem öffentlichen Strom (Bitget-Kerzen, Coinbase aus Handel), Wiederverbindung mit wachsender Wartezeit,
+  Lücken per REST nachgeladen und in Reihenfolge, 120 s ohne Daten → Not-Aus, Zeit aus der Zukunft/fehlerhafte Kerze →
+  Not-Aus. Live-Ansicht ohne Handel: `python -m trading.marketdata.watch`. **Live-Probe offen** (B-008).
+  Preflight STABIL 1655/1655; Python 3.9: 1424 bestanden; Gegenprobe WS01–WS15 15/15.
 * **AP-14 Marktdaten-Adapter** (interaktive Cloud-Sitzung, 2026-10-16, D-025): historische Kerzen von Coinbase (Spot)
   und Bitget (Spot, USDT-Futures inkl. Funding), nur lesend und ohne Schlüssel; strenge Prüfung (nichts wird
   aufgefüllt), Zwischenspeicher je Tag mit Prüfsumme, Ratenbegrenzung, wenige Wiederholungen. Einziger Netzzugang des

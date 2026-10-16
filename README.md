@@ -216,6 +216,15 @@ Lädt öffentliche Kerzen (bei Futures auch die Funding-Sätze) **ohne Schlüsse
 und speichert abgeschlossene Tage unter `data/marketdata` (nicht im Repository). Das ist der einzige Netzzugang des Systems:
 nur Lesen, nur `api.exchange.coinbase.com` und `api.bitget.com`.
 
+### Marktüberwachung live ansehen (AP-15, D-026) – ohne Handel
+
+```bash
+PYTHONPATH=src python3.12 -m trading.marketdata.watch --exchange bitget --symbol BTC-USDT --interval 60 --minutes 5
+```
+Zeigt jede geschlossene, geprüfte Kerze aus dem öffentlichen WebSocket-Strom und am Ende den Zustand (Verbindungen,
+nachgeladene Lücken, verworfene Nachrichten). Bei Ausfall: neu verbinden, Lücken per REST nachladen; bleiben die Daten
+120 s aus, würde der Not-Aus ausgelöst (hier nur angezeigt).
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →
@@ -308,6 +317,10 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
 
 ## Bekannte Grenzen (ehrlich)
 
+* **Marktüberwachung (AP-15) nur simuliert geprüft:** simulierter Server und lokales WebSocket-Gegenstück; die
+  Live-Probe wartet auf die Netzfreigabe (B-008). Bitget-Kerzen: Schlusswert = letzter Stand vor der nächsten Kerze.
+  Futures-Funding kommt im laufenden Betrieb noch nicht über den Strom (Futures werden dann blockiert – fail closed).
+  Der WebSocket-Zugang braucht Python ≥ 3.10.
 * **Marktdaten-Adapter (AP-14) noch nicht gegen die echten Börsen geprüft:** Die Antwortformen sind nach der
   Schnittstellenbeschreibung nachgebildet; der eine echte Testabruf scheitert in der Cloud an der Netzregel (B-008). Der
   Kurs zur Funding-Abrechnung ist eine Näherung (Kerzen-Schluss statt Mark-Preis). Bitget nur bis 4-Stunden-Kerzen.
