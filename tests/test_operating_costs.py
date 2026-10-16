@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone, tzinfo
 from decimal import Decimal
 
 import pytest
@@ -53,6 +53,31 @@ def test_period_costs_are_prorated_and_one_off_costs_counted_once():
     assert once.share(T0, T0 + DAY) == 0 and once.share(T0 + DAY, T0 + 2 * DAY) == D("5")
 
 
+class SummerTime(tzinfo):
+    """Ortszeit wie Europe/Berlin im Maerz 2025 (ohne Abhaengigkeit von einer Zeitzonen-Datenbank): UTC+1, ab dem
+    30.03.2025 03:00 Ortszeit UTC+2. Der Maerz ist damit 743 statt 744 Stunden lang."""
+
+    def utcoffset(self, dt):
+        return timedelta(hours=2) if (dt.year, dt.month, dt.day, dt.hour) >= (2025, 3, 30, 3) else timedelta(hours=1)
+
+    def dst(self, dt):
+        return self.utcoffset(dt) - timedelta(hours=1)
+
+    def tzname(self, dt):
+        return "MESZ" if self.dst(dt) else "MEZ"
+
+
+def test_period_costs_across_a_daylight_saving_change_are_prorated_by_real_time():
+    local = SummerTime()
+    march = OperatingCost(CostCategory.SERVER, D("743"), datetime(2025, 3, 1, tzinfo=local),
+                          datetime(2025, 4, 1, tzinfo=local), "Server Maerz, 1 USD je Stunde")
+    first_day = datetime(2025, 2, 28, 23, tzinfo=timezone.utc)  # = 01.03. 00:00 Ortszeit
+    assert march.share(first_day, first_day + DAY) == D("24")
+    assert march.share(march.start, march.end) == D("743")
+    halves = march.share(march.start, first_day + 15 * DAY) + march.share(first_day + 15 * DAY, march.end)
+    assert halves == D("743")
+
+
 @pytest.mark.parametrize("bad", [dict(amount=D(-1)), dict(amount=D("NaN")), dict(end=T0 - DAY),
                                  dict(start=T0.replace(tzinfo=None))])
 def test_invalid_costs_are_rejected(bad):
@@ -97,6 +122,17 @@ def test_several_analyses_per_trade_and_analyses_without_trade_are_both_counted(
     assert a.ai_cost_without_trade_in_period == D("0.07")
     assert a.direct_cost_per_trade == D("0.03") and a.fully_loaded_cost_per_trade == D("0.10")
     assert attribute_ai_costs(records, []).fully_loaded_cost_per_trade is None
+
+
+def test_analyses_before_the_period_count_for_trades_closed_in_the_period():
+    """Ein Setup wird gestern analysiert und heute gehandelt: Die Analyse gehoert zu den Kosten DIESES Trades, auch wenn sie
+    selbst nicht in den Zeitraum faellt (die KI-Kosten des Zeitraums enthalten sie nicht ein zweites Mal)."""
+    trades = [trade("s1", "5", closed=T0 + DAY + timedelta(hours=1))]
+    records = [rec("A1", cost="0.4", setup="s1", t=T0), rec("A2", cost="0.1", setup="s1", t=T0 + DAY),
+               rec("A3", cost="0.2", setup="s9", t=T0)]  # frueher, anderes Setup: zaehlt nicht
+    r = build_net_profit_report(trades, records, CostLedger(), T0 + DAY, T0 + 2 * DAY)
+    assert r.attribution.ai_cost_of_traded_setups == D("0.5") and r.attribution.direct_cost_per_trade == D("0.5")
+    assert r.ai_cost == D("0.1") and r.attribution.ai_cost_without_trade_in_period == 0
 
 
 def test_net_profit_after_all_costs():

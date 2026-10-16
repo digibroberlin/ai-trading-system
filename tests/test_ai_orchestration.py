@@ -646,6 +646,42 @@ def test_budget_refusal_does_not_start_the_cooldown():
     assert orch.analyze(request(payload={"neu": 1})).source is Source.AI  # gleicher Gegenstand, direkt danach
 
 
+class RacingLedger(InMemoryBudgetLedger):
+    """Haelt jeden Reservierenden nach dem Lesen des Verbrauchs an, bis alle anderen auch gelesen haben (hoechstens 0,2 s).
+    Ohne Sperre lesen so alle denselben alten Verbrauch und buchen gemeinsam ueber das Budget - deterministisch."""
+
+    def __init__(self, budget, clock, parties):
+        super().__init__(budget, clock)
+        self.barrier = threading.Barrier(parties, timeout=0.2)
+
+    def _spent(self, day):
+        result = super()._spent(day)
+        try:
+            self.barrier.wait()
+        except threading.BrokenBarrierError:  # mit Sperre kommt nie ein Zweiter hinzu: Wartezeit laeuft ab
+            pass
+        return result
+
+
+def test_reservation_checks_and_books_under_one_lock():
+    led = RacingLedger(AIBudget(D("0.01"), D("0.05"), D("5")), FixedClock(T0), parties=8)
+    ok = []
+
+    def worker():
+        try:
+            led.reserve(D("0.01"), "KIBO", "m")
+            ok.append(1)
+        except BudgetError:
+            pass
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(ok) == 5 and led.status().spent_today == D("0.05")
+
+
 def test_concurrent_reservations_hold_even_with_aggressive_thread_switching():
     import sys
 
