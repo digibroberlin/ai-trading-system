@@ -9,7 +9,9 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 * **B-003 Order-Anbindung für Börsen-Demokonten.** AGENTS.md §2 Regel 1 verbietet heute jede Order-Funktion an eine Börse.
   Für die spätere „Demo-Einrichtung“ braucht es eine Order-Anbindung an ein Demokonto (z. B. Bitget Demo-Trading). Entscheidung
   des Eigners nötig, bevor dieses Arbeitspaket (AP-28) beginnt. Bis dahin: vorbereitet nur gegen Attrappen getestet.
-* **B-004 KI-Anbieter.** Echte KI-Aufrufe (z. B. Claude-API) kosten Geld → Freigabe mit Budget nötig (AP-20).
+* **B-004 KI-Anbieter.** Echte KI-Aufrufe (z. B. Claude-API) kosten Geld → Freigabe mit Budget nötig (AP-22). Seit D-016
+  ist alles vorbereitet: Ohne Freigabe ist das Budget 0. Zu entscheiden sind dann nur drei Zahlen (USD je Aufruf, je Tag,
+  je Monat) und der Anbieter-Zugang; vorher muss der Nutzen empirisch geprüft werden können (AP-33).
 * **B-005 Server.** Hetzner-VPS erst, wenn Betrieb ansteht (AP-26). Anleitung mit Kosten folgt dann.
 
 ## Erledigt

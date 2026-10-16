@@ -60,6 +60,14 @@ S3 = "db/migrations/003_kill_switch.sql"
 S4 = "db/migrations/004_order_replay.sql"
 S5 = "db/migrations/005_account_rights.sql"
 AC = "src/trading/persistence/accounts.py"
+AIP = "src/trading/ai/pricing.py"
+AIB = "src/trading/ai/budget.py"
+AIO = "src/trading/ai/orchestrator.py"
+AIA = "src/trading/ai/activation.py"
+AUC = "src/trading/audit/costs.py"
+AUV = "src/trading/audit/ai_value.py"
+PAB = "src/trading/persistence/ai_budget.py"
+S6 = "db/migrations/006_ai_budget.sql"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
 BT = ["tests/test_backtest_data.py", "tests/test_backtest_engine.py"]
@@ -68,6 +76,8 @@ BT_PG = BT + ["tests/test_backtest_pg.py"]
 PG = ["tests/test_pg_accounts.py", "tests/test_pg_schema.py", "tests/test_pg_executor.py", "tests/test_pg_restart.py",
       "tests/test_pg_kill_switch.py", "tests/test_backtest_pg.py", "tests/test_pg_multiprocess.py"]
 RC = ["tests/test_db_keeper.py", "tests/test_pg_reconnect.py"]  # Wiederverbindung (AP-11)
+AIT = ["tests/test_ai_orchestration.py", "tests/test_operating_costs.py"]  # KI-Kosten (D-016), ohne Datenbank
+PGB = ["tests/test_pg_ai_budget.py"]  # KI-Budget in der Datenbank
 
 KERN: List[Mutant] = []
 
@@ -261,6 +271,36 @@ m("N15","Geteilter Not-Aus wird waehrend der Order nicht festgehalten",KS,"    d
 m("N16","Fehler beim Ausloesen bricht Stop-Loss ab",PE,"        except Exception as exc:  # gemeinsamer Not-Aus nicht schreibbar: wenigstens hier stoppen, Schliessen nicht abbrechen\n","        except ZeroDivisionError as exc:  # eingebauter Fehler\n")
 m("N17","Freigabe setzt die Bezugswerte der Notbremsen nicht neu",PE,"        self._day, self._day_start_equity, self._peak_equity = now.date(), equity, equity\n","")
 
+# ---- KI-Kostenkontrolle (D-016): Budget, Kostenobergrenze, Orchestrierung, Auswertung
+def z(key: str, name: str, path: str, old: str, new: str) -> None:
+    KERN.append((key, name, [(path, old, new)], AIT))
+
+
+z("Z01","KI-Einzelbudget nicht geprueft",AIB,"            if amount > self._budget.per_call_usd:","            if False:")
+z("Z02","KI-Tagesbudget nicht geprueft",AIB,"            if today + amount > self._budget.daily_usd:","            if False:")
+z("Z03","KI-Monatsbudget nicht geprueft",AIB,"            if month + amount > self._budget.monthly_usd:","            if False:")
+z("Z04","Gesperrtes KI-Budget wird ignoriert",AIB,"            if self._blocked:\n                raise BudgetError","            if False:\n                raise BudgetError")
+z("Z05","Gescheiterter KI-Aufruf kostet nichts",AIB,"                actual = reserved  # Aufruf gescheitert: im Zweifel voll berechnen","                actual = ZERO")
+z("Z06","Kosten ueber der Reservierung sperren nicht",AIB,"            if actual > reserved:\n                self._blocked","            if False:\n                self._blocked")
+z("Z07","Kostenobergrenze ohne Ausgabe-Tokens",AIP,"               + Decimal(max_output_tokens) * self.output_per_mtok) / MILLION",") / MILLION")
+z("Z08","Kostenobergrenze mit dem billigeren Eingabepreis",AIP,"worst_input_price = max(self.input_per_mtok, self.cache_write_per_mtok)","worst_input_price = self.input_per_mtok")
+z("Z09","KI-Kosten abgerundet",AIP,"               + Decimal(usage.cache_read_tokens) * self.cache_read_per_mtok) / MILLION\n        return cost_up(raw)","               + Decimal(usage.cache_read_tokens) * self.cache_read_per_mtok) / MILLION\n        return raw.quantize(Decimal('0.00000001'), rounding='ROUND_DOWN')")
+z("Z10","Wertschranke abgeschaltet",AIO,"        if ceiling > request.expected_value_usd * self._routing.max_cost_share:","        if False:")
+z("Z11","Teurere Stufe auch bei sicherer Antwort",AIO,"                if answer is not None and confidence >= self._routing.accept_confidence:\n                    break","                if False:\n                    break")
+z("Z12","Sichere Regeln trotzdem per KI geprueft",AIO,"            if rules is not None and _valid_rules(rules) and rules.confidence >= self._routing.rule_confidence:","            if False:")
+z("Z13","Cache / Doppel-Erkennung abgeschaltet",AIO,"            cached = self._cached(key)\n","            cached = None\n")
+z("Z14","KI ohne ereignisbasierte Aktivierung",AIO,"            if not self._activation.ready(request.agent, request.trigger, subject):","            if False:")
+z("Z15","Abkuehlzeit der Aktivierung wirkungslos",AIA,"            return last is None or (self._clock.now() - last).total_seconds() >= rule.cooldown_s","            return True")
+z("Z16","Verletzte Token-Annahme sperrt das Budget nicht",AIO,"        if usage.total_input > prompt_bytes + REQUEST_OVERHEAD_TOKENS:","        if False:")
+z("Z17","Anbieterfehler ohne Kosten abgerechnet",AIO,"            self._ledger.settle(reservation, None)","            self._ledger.settle(reservation, ZERO)")
+z("Z18","Unplausible Sicherheit der KI-Antwort akzeptiert",AIO,"    if not confidence.is_finite() or not ZERO <= confidence <= ONE:\n        return None, ZERO\n","")
+z("Z19","Uebergrosse Prompts erlaubt",AIO,'    if len((request.instruction + "\\n" + payload).encode("utf-8")) > MAX_PROMPT_BYTES:',"    if False:")
+z("Z20","KI-Kosten je Trade ohne Analysen ohne Trade",AUC,"_div(on_trades + untraded, len(trades))","_div(on_trades, len(trades))")
+z("Z21","Nettoergebnis ohne Betriebskosten",AUC,"        net - operating, ai, attribute_ai_costs(records, period_trades),","        net, ai, attribute_ai_costs(records, period_trades),")
+z("Z22","Zeitraum-Kosten nicht anteilig",AUC,"        return cost_up(self.amount * Decimal(str(overlap)) / Decimal(str(whole)))","        return self.amount")
+z("Z23","Teure Methode schon bei positivem Mittelwert bevorzugt",AUV,"    elif low > 0:","    elif mean_diff > 0:")
+z("Z24","Teure Methode schon mit wenigen Daten bevorzugt",AUV,"    if n < min_samples:","    if False:")
+
 
 BACKTEST: List[Mutant] = [
 
@@ -375,6 +415,15 @@ DATENBANK: List[Mutant] = [
  ("G71","Fehler ohne Verbindungsverlust (z. B. Sperr-Zeitlimit) wird wiederholt",[(EX,"                if attempt == 0 and not decided and self._db.is_lost():","                if attempt == 0 and not decided:")], RC),
  ("G72","Lesen ohne Wiederverbindung",[(EX,"                if attempt == 0 and self._db.is_lost():\n                    continue\n                raise","                raise")], RC),
  ("G73","Not-Aus von aussen scheitert an abgerissener Verbindung",[(PK,"                retry = isinstance(exc, psycopg.errors.LockNotAvailable) or self._db.is_lost()","                retry = isinstance(exc, psycopg.errors.LockNotAvailable)")], RC),
+ # ---- KI-Budget in der Datenbank (D-016, Migration 006)
+ ("G74","DB-Gurt KI-Budget entfernt",[(S6,"    IF NEW.reserved > lim.per_call_usd OR today + NEW.reserved > lim.daily_usd\n       OR month + NEW.reserved > lim.monthly_usd THEN","    IF false THEN")], PGB),
+ ("G75","Gesperrtes KI-Budget in der DB ignoriert",[(S6,"    IF NOT FOUND OR lim.blocked THEN","    IF NOT FOUND THEN")], PGB),
+ ("G76","Anwendung darf KI-Budget entsperren",[(S6,"           OR (OLD.blocked AND NOT NEW.blocked) THEN","           OR false THEN")], PGB),
+ ("G77","KI-Budgeteintraege mehrfach abrechenbar",[(S6,"    IF OLD.actual IS NOT NULL OR NEW.actual IS NULL\n","    IF false AND (OLD.actual IS NOT NULL OR NEW.actual IS NULL)\n")], PGB),
+ ("G78","KI-Budgetverlauf loeschbar",[(S6,"CREATE TRIGGER ai_budget_entries_no_delete BEFORE DELETE ON ai_budget_entries","CREATE TRIGGER ai_budget_entries_no_delete BEFORE UPDATE OF day ON ai_budget_entries")], PGB),
+ ("G79","Budget der Anwendung bei DB-Budget ignoriert",[(PAB,"                if today + amount > self._budget.daily_usd or month + amount > self._budget.monthly_usd:","                if False:")], PGB),
+ ("G80","DB-Budget sperrt nicht bei Kosten ueber Reservierung",[(PAB,"            if cost > reservation.amount:","            if False:")], PGB),
+ ("G81","KI-Grenzen ohne Namen der Freigabe",[(S6,"        IF NEW.approved_by IS NULL OR btrim(NEW.approved_by) = '' THEN","        IF false THEN")], PGB),
 ]
 
 

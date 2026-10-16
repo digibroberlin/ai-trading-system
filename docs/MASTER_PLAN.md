@@ -2,8 +2,11 @@
 
 Stand: 2026-10-15 · Ziel: technisch fertige, getestete und dokumentierte Software, **bereit für die Demo-Einrichtung**.
 Der Handel selbst (Demo oder echt) wird nicht von Claude gestartet. Wirtschaftliches Ziel des Systems: langfristig möglichst
-hoher, robuster **Netto**gewinn nach allen Kosten. Ein solcher Vorteil ist ein Forschungsziel, keine Eigenschaft der Software –
-findet sich keiner, muss das System nachweisbar auf Trades verzichten.
+hoher, robuster **risikobereinigter Netto**gewinn nach **sämtlichen** Kosten – Handelsergebnis, Börsengebühren, Spread und
+Slippage, Funding, **KI-API-Kosten, Server, Marktdaten und sonstige Betriebskosten** (Vorgabe des Eigners, D-016). Ein solcher
+Vorteil ist ein Forschungsziel, keine Eigenschaft der Software – findet sich keiner, muss das System nachweisbar auf Trades
+verzichten. Agenten sollen weder möglichst viele Tokens noch möglichst viele Trades erzeugen: Bezahlte Analysen nur bei
+ausreichendem, **empirisch belegtem** Nutzen; eine günstigere Methode mit vergleichbarem Ergebnis hat Vorrang.
 
 Status-Zeichen: ✅ fertig · 🔄 in Arbeit · ⏳ offen · ⛔ blockiert (siehe `BLOCKERS.md`)
 
@@ -56,6 +59,14 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP-11 | Datenbank-Wiederverbindung, Zeitlimits, hängende Transaktionen (H7) | Tests mit Verbindungsabbruch | ✅ D-015 |
 | AP-12 | Pipeline-Reihenfolge nach Vorgabe: MOMO → RIN → SORA → KIBO/YUZU → Executor → AKI | Tests, Doku | ⏳ |
 
+### Phase C2 – Wirtschaftlichkeit: Kosten und KI-Orchestrierung (Vorgabe des Eigners vom 2026-10-15, D-016)
+Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator; Sicherheitsprüfungen kennen weder KI noch Budget.
+| AP | Inhalt | Abnahme | Status |
+|---|---|---|---|
+| AP-31 | Betriebskosten und Nettoergebnis nach ALLEN Kosten in AKI: KI-Aufrufe/Tokens/Kosten je Agent, je Modell, je Analyse, je Signal, je Tag/Monat; Kosten je Trade direkt und voll umgelegt (mehrere Analysen je Trade, Analysen ohne Trade); Server/Marktdaten/Sonstiges zeitanteilig | Tests, Gegenprobe | ✅ D-016 |
+| AP-32 | KI-Orchestrierung: datierte Preistabelle, Token- und Kostenmessung je Aufruf, harte Budgets je Aufruf/Tag/Monat (Standard 0, Obergrenze vor jedem Aufruf reserviert, im Betrieb zusätzlich als Datenbank-Gurt, Migration 006), Regeln zuerst, Cache/Doppel-Erkennung, ereignisbasierte Aktivierung mit Abkühlzeit, Modellstufen billig→teuer mit Wertschranke, kompakte strukturierte Prompts | Tests (nur Attrappe), Gegenprobe | ✅ D-016 |
+| AP-33 | Wirtschaftlichkeitsnachweis: gepaarter Vergleich zweier Methoden (z. B. Regeln vs. Regeln+KI, kleines vs. großes Modell) auf denselben Setups nach Analysekosten, Bootstrap-Vertrauensbereich, im Zweifel die günstigere | Rahmen getestet ✅; Nachweis mit echten Daten in AP-20 | 🔄 Rahmen ✅ |
+
 ### Phase D – Marktdaten und Börsen (nur lesend)
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
@@ -69,20 +80,20 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP-16 | Strategie-Bibliothek: Trendfolge, Momentum, Mean Reversion, Breakout, Volatilität, Scalping; Benchmarks (Kaufen und Halten, Nicht-Handeln) | jede Strategie getestet, ohne Blick in die Zukunft | ⏳ |
 | AP-17 | Marktphasen-Erkennung (Trend/Seitwärts, Volatilität) – Grundlage für KIBO und YUZU (regelbasiert) | Tests | ⏳ |
 | AP-18 | Forschungsrahmen: Trainings-/Validierungs-/Testdaten strikt getrennt, Walk-forward, Kostenempfindlichkeit, Zählung aller Versuche gegen Überanpassung, Strategie-Register mit Freigabestatus | Tests; Test-Daten nur einmal je Strategie-Version | ⏳ |
-| AP-19 | AKI: Bewertung von Strategien und Agenten (Nettoergebnis, Erwartungswert, Drawdown, Profit-Faktor, Stabilität über Marktphasen) | Tests | ⏳ |
-| AP-20 | Erste ehrliche Untersuchung auf echten historischen Daten (technische Validierung), Bericht – auch wenn kein Vorteil gefunden wird | Bericht in `docs/` | ⏳ |
+| AP-19 | AKI: Bewertung von Strategien und Agenten (Nettoergebnis **nach allen Kosten inkl. KI** (AP-31), Erwartungswert, Drawdown, Profit-Faktor, Stabilität über Marktphasen); Backtests rechnen Betriebs- und Analysekosten mit ein | Tests | ⏳ |
+| AP-20 | Erste ehrliche Untersuchung auf echten historischen Daten (technische Validierung), Bericht – auch wenn kein Vorteil gefunden wird; inkl. Wirtschaftlichkeitsvergleich (AP-33): lohnt eine Analyse ihre Kosten gegenüber der günstigeren Alternative? | Bericht in `docs/` | ⏳ |
 
 ### Phase F – Laufzeit-Engine (bleibt deaktiviert)
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
-| AP-21 | Ereignisgesteuerte Engine: schneller Regelpfad je Marktereignis, Agenten-Zyklus alle 1–5 min, ereignisbasierte Zusatzanalysen; Start nur mit ausdrücklicher Konfiguration + Freigabe; in Tests nur mit simulierter Uhr und synthetischem Markt | Tests (Tausende Ereignisse, Fehlerfälle, Neustart) | ⏳ |
-| AP-22 | KI-Anbieter (z. B. Claude) mit Budget, Zeitlimit, Zwischenspeicher; deterministischer Ersatz ohne KI | Tests mit Attrappe | ⏳ (B-004 für echte Aufrufe) |
+| AP-21 | Ereignisgesteuerte Engine: schneller Regelpfad je Marktereignis (ohne KI), KI-Agenten nur ereignisbasiert über die Aktivierungsregeln des Orchestrators (AP-32), keine Dauerschleife über alle Agenten; Start nur mit ausdrücklicher Konfiguration + Freigabe; in Tests nur mit simulierter Uhr und synthetischem Markt | Tests (Tausende Ereignisse, Fehlerfälle, Neustart, KI-Kosten je Ereignis) | ⏳ |
+| AP-22 | KI-Anbieter-Anschluss (z. B. Claude über das offizielle SDK) hinter dem Orchestrator: Verbrauch aus der Anbieter-Antwort, Prompt-Caching des festen Anweisungsteils, Zeitlimit; Modellstufen billig (Haiku) → mittel (Sonnet) → teuer (Opus) nur mit Wertschranke; deterministischer Ersatz ohne KI; Preistabelle vor Einsatz prüfen | Tests mit Attrappe | ⏳ (B-004: Budget-Freigabe für echte Aufrufe) |
 
 ### Phase G – Dashboard
 | AP | Inhalt | Abnahme | Status |
 |---|---|---|---|
 | AP-23 | FastAPI (nur lesend) + WebSocket-Aktualisierung; Modi BACKTEST / DEMO / LIVE (deaktiviert) | API-Tests | ⏳ |
-| AP-24 | Web-Oberfläche: Kapital, Positionen, P&L, Kapitalkurve, Drawdown, Kennzahlen, Agenten/Strategien, Blockaden, Systemstatus, Fehler | lokal mit synthetischen Daten geprüft | ⏳ |
+| AP-24 | Web-Oberfläche: Kapital, Positionen, P&L, Kapitalkurve, Drawdown, Kennzahlen, Agenten/Strategien, Blockaden, Systemstatus, Fehler; **Kosten**: KI je Agent/Modell/Tag/Monat, Budgetstand, Betriebskosten, Nettoergebnis nach allen Kosten | lokal mit synthetischen Daten geprüft | ⏳ |
 
 ### Phase H – Betrieb und Server (vorbereitet, nicht ausgeführt)
 | AP | Inhalt | Abnahme | Status |
@@ -90,7 +101,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 | AP-25 | Strukturiertes Logging, Gesundheits-Endpunkte, Kennzahlen | Tests | ⏳ |
 | AP-26 | Backups mit Rückspiel-Test (M14) | automatischer Rückspiel-Test | ⏳ |
 | AP-27 | Produktions-Compose, Start-/Stopp-Skripte, Neustartmechanismen, Prozessüberwachung | lokal geprüft | ⏳ |
-| AP-28 | Server-Härtung und Deployment-Skripte für Hetzner, Überwachung/Alarme | Trockenlauf lokal | ⏳ (B-005 für echten Server) |
+| AP-28 | Server-Härtung und Deployment-Skripte für Hetzner, Überwachung/Alarme (inkl. Alarm bei KI-Budget-Sperre); Serverkosten als Betriebskosten erfassen | Trockenlauf lokal | ⏳ (B-005 für echten Server) |
 
 ### Phase I – Demo-Vorbereitung und Abschluss
 | AP | Inhalt | Abnahme | Status |
@@ -108,5 +119,6 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · Pipeline-Reihenfolge weicht
 ## 4. „Technisch fertig“ heißt
 
 Alle Arbeitspakete außer den blockierten sind abgeschlossen; alle Tests grün (Mac, Container, GitHub Actions); Gegenprobe
-ohne unentdeckten Fehler; Doku vollständig; nicht prüfbare Teile (echte Börse, Server) sind ausdrücklich als
+ohne unentdeckten Fehler; Kosten aller Art werden gemessen und im Nettoergebnis ausgewiesen, kein bezahlter Aufruf ohne
+freigegebenes Budget; Doku vollständig; nicht prüfbare Teile (echte Börse, Server) sind ausdrücklich als
 „nicht verifiziert“ gekennzeichnet; letzter stabiler Tag gesetzt und hochgeladen.

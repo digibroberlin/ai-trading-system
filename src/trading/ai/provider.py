@@ -4,8 +4,10 @@ Regeln:
 * KI-Ausgaben sind nur BERATUNG. Sie werden von den Agenten in typisierte Daten
   (AgentOpinion, TradeSetup ...) uebersetzt. Es gibt keinen Weg, dass Text eines Modells
   direkt eine Order, ein Limit oder eine Einstellung veraendert.
-* Jeder Provider (Anthropic, OpenAI, lokale Modelle ...) implementiert nur `complete`.
-  Echte Provider kommen in einer spaeteren Phase und NUR nach Ruecksprache wegen Kosten.
+* Jeder Provider (Anthropic, OpenAI, lokale Modelle ...) implementiert nur `complete` und meldet den Token-Verbrauch
+  (`AIResponse.usage`) - ohne Verbrauch keine Kostenrechnung. Echte Provider kommen in einer spaeteren Phase und NUR
+  nach Freigabe eines Budgets (B-004).
+* Aufgerufen wird ein Provider ausschliesslich ueber `trading.ai.orchestrator.AIOrchestrator` (Budget, Messung, Cache).
 * Es wird hier bewusst kein Netzwerkcode mitgeliefert.
 """
 
@@ -15,13 +17,17 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Mapping
 
+from trading.ai.pricing import NO_USAGE, TokenUsage
+
 
 @dataclass(frozen=True)
 class AIRequest:
     task: str  # z. B. "kibo.technical_review"
-    prompt: str
+    prompt: str  # kompakte, strukturierte Eingabe (JSON)
     context: Mapping[str, object] = field(default_factory=dict)
     max_tokens: int = 1024
+    system: str = ""  # feste Anweisung - gleich bleibender Anfang, beim Anbieter cachebar
+    model: str = ""  # vom Orchestrator gewaehltes Modell (Modellstufe)
 
 
 @dataclass(frozen=True)
@@ -29,6 +35,7 @@ class AIResponse:
     text: str
     provider: str
     model: str
+    usage: TokenUsage = NO_USAGE  # tatsaechlicher Verbrauch laut Anbieter
 
 
 class AIProvider(ABC):

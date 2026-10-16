@@ -190,3 +190,39 @@ weitere Aufruf von Executor, Protokoll und Not-Aus, bis der Prozess neu gestarte
 * Hängende Transaktionen begrenzt seit AP-07 der Server (`idle_in_transaction_session_timeout` 15 s, TCP-Keepalive).
 **Bewusst nicht umgesetzt:** Überwachung/Alarm bei Verbindungsproblemen (kommt mit Logging und Gesundheits-Endpunkten, AP-25);
 ein Verbindungspool (ein Prozess braucht nur eine Verbindung). Der Zähler `reconnects` ist dafür vorbereitet.
+
+## D-016 · 2026-10-16 · Kostenoptimierung und Nettogewinn nach allen Kosten (Vorgabe des Eigners)
+**Vorgabe (Eigner, 2026-10-15):** Oberstes wirtschaftliches Ziel ist der langfristige risikobereinigte Nettogewinn nach
+sämtlichen Kosten – Trades, Börsengebühren, Spread/Slippage, Funding, KI-API, Server, Marktdaten, Sonstiges. Die Agenten
+sollen nicht möglichst viele Tokens oder Trades erzeugen, sondern kostenpflichtige Analysen nur bei ausreichendem,
+**empirisch belegtem** Nutzen durchführen; vergleichbar gute günstigere Methoden haben Vorrang.
+**Architektur (fest eingebaut):**
+* **Jede KI-Analyse läuft durch `trading.ai.orchestrator.AIOrchestrator`** – nirgends sonst. Reihenfolge: deterministische
+  Regeln zuerst (0 USD) → Cache/Doppel-Erkennung (0 USD) → ereignisbasierte Aktivierung mit Abkühlzeit → Modellstufen
+  billig → mittel → teuer, eine teurere Stufe nur bei unsicherer Antwort **und** wenn die Kosten-Obergrenze durch den
+  erwarteten Nutzen gedeckt ist (Wertschranke, Vorgabe 10 %) → hartes Budget.
+* **Harte Budgets** je Aufruf, Tag und Monat (USD). Vor jedem Aufruf wird eine echte Kosten-**Obergrenze** reserviert
+  (Eingabe-Tokens ≤ Bytes + Zuschlag, Ausgabe ≤ `max_tokens`); passt sie nicht, kein Aufruf. Ein gescheiterter Aufruf
+  zählt mit der vollen Reservierung. Lagen tatsächliche Kosten über der Reservierung, sperrt sich das Budget (fail closed).
+  **Standard 0 USD** – ohne Freigabe des Eigners (B-004) gibt es keinen bezahlten Aufruf. Im Betrieb liegt das Budget
+  zusätzlich in der Datenbank (Migration 006): Grenzen setzt nur ein Administrator mit Namen der Freigabe, die Datenbank
+  selbst verweigert jede Überschreitung, auch über Prozesse und Neustarts hinweg.
+* **Budget-Konfiguration:** `AI_BUDGET_PER_CALL_USD`, `AI_BUDGET_DAILY_USD`, `AI_BUDGET_MONTHLY_USD` (fehlt ein Wert: 0;
+  ungültig: Abbruch); Datenbank-Grenzen: `persistence.ai_budget.set_limits_as_admin` (Name der Freigabe Pflicht).
+* **Messung:** Jeder Schritt (auch Regel-Entscheidungen, Cache-Treffer, übersprungene Aufrufe mit Grund) wird mit Agent,
+  Anlass, Setup, Modell, Input-/Output-/Cache-Tokens und Kosten an AKI gemeldet.
+* **AKI** wertet aus: Aufrufe/Tokens/Kosten je Agent, Kosten je Modell, je Analyse, je Signal, je Tag/Monat; KI-Kosten je
+  Trade direkt zugeordnet **und** voll umgelegt (mehrere Analysen je Trade, Analysen ohne Trade zählen mit); Betriebskosten
+  (Server, Marktdaten, Sonstiges, zeitanteilig); **Nettoergebnis nach allen Kosten**.
+* **Arbeitspakete:** AP-31 (Kosten/Netto in AKI), AP-32 (Orchestrierung, Budgets), AP-33 (Wirtschaftlichkeitsnachweis), Phase C2
+  im Master-Plan; angepasst: AP-19, AP-20, AP-21, AP-22, AP-24, AP-28.
+* **Wirtschaftlichkeitsnachweis:** gepaarter Vergleich zweier Methoden auf denselben Setups nach Analysekosten mit
+  Bootstrap-Vertrauensbereich; die teurere Methode gewinnt nur, wenn die untere Grenze über 0 liegt – sonst die günstigere.
+* **Sicherheit unberührt:** Risikomanager, RIN, SORA, Executor, Not-Aus und Datenprüfung kennen weder KI-Orchestrierung
+  noch Budget (Test prüft die Importe). Ist das Budget erschöpft, entscheiden die Agenten regelbasiert weiter.
+**Preise:** datierte Tabelle (Stand 2026-10-06, Anthropic-Erstanbieter-API): Haiku 5.5 0,10/0,50, Sonnet 5.5 2/10, Opus 5.5
+4/20 USD je Million Input/Output-Tokens; Cache-Lesen ~0,1×, Cache-Schreiben 1,25× Input (Haiku-Cache-Lesepreis daraus
+abgeleitet, nicht aus der Liste). Vor echtem Einsatz gegen die aktuelle Preisliste prüfen.
+**Grenzen:** KIBO/YUZU sind noch neutrale Platzhalter – die Orchestrierung ist die Infrastruktur, an die sie mit echter
+Regel-Logik (AP-17) und später mit KI (AP-22, nach Budgetfreigabe) angeschlossen werden. Der Nutzen jeder KI-Analyse ist
+bis zum Nachweis (AP-33 mit echten Daten) unbewiesen.

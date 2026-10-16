@@ -192,6 +192,23 @@ Vor dem Aufheben die Ursache klären (Ereignisprotokoll: `HALT_ACTIVATED` nennt 
 bisherigen Verlust bewusst hin: Tagesbeginn und Höchststand der Notbremsen werden auf das aktuelle Kapital gesetzt.
 Rückgabecodes: `status` 0 = frei, 1 = gestoppt; `halt`/`release` 0 = erledigt, 2 = nicht möglich (Meldung „FEHLER: …“).
 
+### KI-Kosten und Budget (D-016)
+
+Ziel ist der Nettogewinn nach **allen** Kosten. Jede KI-Analyse läuft durch einen Orchestrator: zuerst die Regeln (kostenlos),
+dann der Zwischenspeicher, dann nur bei passenden Ereignissen das **billigste** Modell; ein teureres nur, wenn die Antwort
+unsicher war und sich der Aufwand lohnt. Vor jedem Aufruf wird die höchstmögliche Kost gegen ein hartes Budget reserviert.
+**Ohne Freigabe ist das Budget 0 – es gibt keinen einzigen bezahlten Aufruf.** Freigabe (erst nach Ihrer Entscheidung, B-004):
+
+```bash
+export AI_BUDGET_PER_CALL_USD=0.05 AI_BUDGET_DAILY_USD=1 AI_BUDGET_MONTHLY_USD=20   # Grenzen der Anwendung
+# zusätzlich in der Datenbank (gilt für alle Prozesse und über Neustarts; die strengere Grenze gewinnt):
+PYTHONPATH=src python3.12 -c "from decimal import Decimal as D; from trading.ai.budget import AIBudget; \
+  from trading.persistence.ai_budget import set_limits_as_admin; import os; \
+  set_limits_as_admin(os.environ['ADMIN_DATABASE_URL'], AIBudget(D('0.05'), D('1'), D('20')), 'Ihr Name')"
+```
+AKI weist aus: KI-Aufrufe, Tokens und Kosten je Agent und Modell, je Analyse und je Signal, je Tag und Monat, KI-Kosten je
+Trade (direkt und voll umgelegt), Server-/Marktdaten-/sonstige Kosten und das **Nettoergebnis nach allen Kosten**.
+
 ### Neustart-Prüfung von Hand
 
 ```bash
@@ -250,6 +267,12 @@ AKI protokolliert jeden Schritt, auch jede Blockade.
   oder eine andere Zeitzonen-Schreibweise gelten als anderer Inhalt und werden als Duplikat abgelehnt. Die Risikobewertung der
   ersten Bearbeitung wird bei der Wiederholung nicht mitgeliefert (sie steht im Ereignisprotokoll). Orders aus der Zeit vor
   Migration 004 haben keinen Fingerabdruck; ihre Wiederholung wird weiter als Duplikat abgelehnt.
+* **KI ist noch nicht angeschlossen:** Orchestrierung, Budgets und Kostenmessung sind fertig und nur mit einer Attrappe getestet.
+  Einen echten Anbieter gibt es erst mit AP-22 nach Budget-Freigabe (B-004); KIBO/YUZU sind weiter neutrale Platzhalter.
+  Ob eine KI-Analyse ihr Geld wert ist, ist **unbewiesen**, bis der Vergleich (AP-33) auf echten Daten gelaufen ist.
+* **Preise sind ein Stand (2026-10-06)** der Anbieter-Preisliste; der Cache-Lesepreis von Haiku 5.5 ist abgeleitet (0,1 × Eingabe).
+  Die Kostenobergrenze vor einem Aufruf setzt voraus, dass ein Token nie kürzer als ein Byte ist; wird das je verletzt,
+  sperrt sich das Budget selbst. Die Betriebskosten (Server, Daten) muss jemand eintragen – automatisch kommen nur KI-Kosten.
 * **Python 3.13/3.14 und das neue GIL-freie Python** wurden nicht getestet (Ziel ist 3.12).
 * **Ein Konto = ein Flaschenhals:** Die Konto-Sperre reiht alle Aktionen eines Kontos hintereinander ein (bewusst, Sicherheit vor Tempo). Dauert eine Aktion länger als 10 Sekunden
   auf die Sperre, wird sie abgebrochen und gilt als blockiert (`EXECUTION_ERROR`). Auch `portfolio_state()` nimmt kurz die Sperre.

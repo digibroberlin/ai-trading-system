@@ -6,8 +6,17 @@ from typing import ClassVar, Iterable, List, Optional, Sequence, Tuple
 
 from trading.agents.base import AgentName, BaseAgent
 from trading.agents.contracts import AgentOpinion, ExitSignal, SizingProposal
+from trading.ai.orchestrator import AICallRecord
 from trading.ai.provider import AIProvider
 from trading.audit.event_log import EventLog
+from trading.audit.costs import (
+    AICostSummary,
+    CostLedger,
+    NetProfitReport,
+    OperatingCost,
+    build_net_profit_report,
+    summarize_ai_costs,
+)
 from trading.audit.events import EventType
 from trading.audit.performance import EquityPoint, PerformanceReport, build_report
 from trading.audit.stats import PerformanceStats, compute_performance
@@ -32,6 +41,8 @@ class AkiAgent(BaseAgent):
         self._log = event_log
         self._trades = []  # type: List[ClosedTrade]
         self._curve = []  # type: List[EquityPoint]
+        self._ai_records = []  # type: List[AICallRecord]
+        self._costs = CostLedger()
 
     # --- Dokumentation ---
 
@@ -69,6 +80,30 @@ class AkiAgent(BaseAgent):
     def record_system_error(self, source: str, message: str) -> None:
         """Ausgefallene Agenten werden dokumentiert; das Setup gilt dann als blockiert."""
         self._log.append(EventType.SYSTEM_ERROR, {"source": source, "message": message})
+
+    # --- Kosten (D-016: Nettogewinn nach ALLEN Kosten) ---
+
+    def record_ai_call(self, record: AICallRecord) -> None:
+        """Messpunkt des KI-Orchestrators (als `recorder` uebergeben): jede Analyse-Stufe mit Tokens und Kosten."""
+        self._log.append(EventType.AI_CALL, record)
+        self._ai_records.append(record)
+
+    def record_operating_cost(self, cost: OperatingCost) -> None:
+        """Betriebskosten fuer einen Zeitraum (Server, Marktdaten, Sonstiges; nie gemessene KI-Aufrufe doppelt)."""
+        self._log.append(EventType.OPERATING_COST, cost)
+        self._costs.add(cost)
+
+    @property
+    def ai_records(self) -> Tuple[AICallRecord, ...]:
+        return tuple(self._ai_records)
+
+    def ai_cost_summary(self, start: Optional[datetime] = None, end: Optional[datetime] = None) -> AICostSummary:
+        """KI-Aufrufe, Tokens und Kosten je Agent/Modell/Tag/Monat, je Analyse und je Signal."""
+        return summarize_ai_costs(self._ai_records, start, end)
+
+    def net_profit_report(self, start: datetime, end: datetime) -> NetProfitReport:
+        """Handelsergebnis minus KI-, Server-, Marktdaten- und sonstige Kosten - das Ergebnis, an dem das System misst."""
+        return build_net_profit_report(self._trades, self._ai_records, self._costs, start, end)
 
     # --- Auswertung ---
 
