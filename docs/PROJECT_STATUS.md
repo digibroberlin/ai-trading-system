@@ -12,6 +12,7 @@ frei
 ## Aktueller Stand (2026-10-16)
 
 * **Letzter stabiler Stand:** `stable/004-safety-stage2` (2026-10-16, 886 Tests, Gegenprobe 278/278 mit Datenbank, Preflight STABIL).
+  `main` = `ad6cc9f` ist hochgeladen; der **Tag selbst fehlt auf GitHub** (Cloud darf keine Tags pushen, 403) → B-007.
 * **Zweige:** `main` (stabil), `develop` (Integration).
 * **GitHub:** Repository `digibroberlin/ai-trading-system` (privat). `main`, `develop`, `stable/001`–`003` hochgeladen (2026-10-15).
 * **Arbeitsort:** künftig die Cloud (D-008); der Mac-Ordner bleibt danach nur Sicherung.
@@ -28,7 +29,8 @@ frei
 
 * **Meilenstein `stable/004-safety-stage2`** (Cloud-Routine 2026-10-16, 12:41–15:29 UTC): erste volle Gegenprobe fand eine
   Testlücke (K14: Tagesverlust-Grenzfall „genau 3 %“ seit AP-07 ungetestet) → Grenzfall-Tests für Tagesverlust und Drawdown
-  ergänzt; zweite volle Gegenprobe 278/278, 886/886 Tests, STABIL. `develop` → `main`, Tag `stable/004-safety-stage2`.
+  ergänzt; zweite volle Gegenprobe 278/278, 886/886 Tests, STABIL. `develop` → `main` hochgeladen; Tag lokal gesetzt, Upload
+  verweigert (403) → B-007.
 
 * AP-12 Pipeline-Reihenfolge nach Vorgabe des Eigners (Cloud-Routine 2026-10-16 12:12–12:45 UTC, D-017): MOMO → RIN →
   SORA-Vorprüfung → KIBO → YUZU → SORA endgültig unter der Sperre → Executor → AKI. Was RIN oder SORA schon verwerfen, erreicht

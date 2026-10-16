@@ -4,6 +4,16 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
 
 ## Offen
 
+* **B-007 Tag `stable/004-safety-stage2` muss einmal von Hand auf GitHub angelegt werden (Eigner, ca. 2 Minuten).**
+  WAS: Der stabile Stand ist geprüft und auf `main` hochgeladen (Commit `ad6cc9f`), aber die Cloud darf keine Tags hochladen
+  (GitHub antwortet mit „403 verboten“; Zweige gehen). WO: auf github.com im Repository `digibroberlin/ai-trading-system`.
+  WIE (am einfachsten im Browser): rechts „Releases“ → „Draft a new release“ → „Choose a tag“: `stable/004-safety-stage2`
+  eintippen → „Create new tag on publish“ → Target: `main` → Titel `stable/004-safety-stage2` → „Publish release“.
+  Alternativ auf dem Mac im Projektordner: `git fetch origin && git tag -a stable/004-safety-stage2 ad6cc9f -m "stable/004:
+  886/886 Tests, Gegenprobe 278/278"` und `git push origin stable/004-safety-stage2`.
+  WAS DANACH: Die Routine prüft den Tag beim nächsten Lauf. Dauerhaft besser: der Cloud-Umgebung erlauben, Tags `stable/*`
+  zu pushen (Einstellung der Claude-GitHub-App bzw. der Umgebung); bis dahin wird jeder künftige stabile Stand so gemeldet.
+
 * **B-006 Geheimnis-Scan meldet Fehlalarme auf dem Zweig `ap/31-kostenoptimierung` (Hinweis, kein Eingriff des Eigners nötig).**
   WAS: `python scripts/secret_scan.py --history` prüft alle Zweige. Zwei WIP-Commits der interaktiven AP-31-Sitzung (`965e701`,
   `c4c36d2`) enthalten Variablen wie `input_tokens` – das sind Token-*Anzahlen* der KI-Kostenmessung, keine Zugangsdaten. Der

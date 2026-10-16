@@ -37,7 +37,7 @@ Produktivcode · Stress-Limit ohne Datenbank-Gurt · ~~Pipeline-Reihenfolge weic
 |---|---|---|---|
 | AP-01 | Lokale Sicherung: Branch-Modell, `stable/*`-Tags, Geheimnis-Scan, Prüfskript, GitHub-Actions-Datei, Wiederherstellungsanleitung, Steuerdokumente | Preflight STABIL, Scan der ganzen Geschichte sauber | ✅ (lokal) |
 | AP-02 | GitHub verbinden, alles hochladen, Actions grün | Actions-Lauf grün auf `develop` und `main` | 🔄 `develop` grün seit 2026-10-15 19:26 UTC; `main` noch rot bis zum nächsten stabilen Stand |
-| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren; Cloud-Umgebung prüfen (PostgreSQL über `scripts/cloud_test_db.sh`, Push-Rechte auf `develop`/Tags) | Probelauf erfolgreich, Sperr-Mechanismus wirkt | ✅ 2026-10-15 (erster Routine-Lauf; Tags aus der Cloud noch nicht ausprobiert) |
+| AP-03 | Cloud-Routine (stündlich) einrichten und dokumentieren; Cloud-Umgebung prüfen (PostgreSQL über `scripts/cloud_test_db.sh`, Push-Rechte auf `develop`/Tags) | Probelauf erfolgreich, Sperr-Mechanismus wirkt | ✅ 2026-10-15 (erster Routine-Lauf; Tags aus der Cloud: Upload verweigert, 403 – B-007) |
 
 ### Phase B – Architekturentscheidung
 | AP | Inhalt | Abnahme | Status |
