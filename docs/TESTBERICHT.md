@@ -621,3 +621,12 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
   die Engine übernimmt den Satz. `test_runtime_service`: Futures-Dienst erhält die Abrechnungen des letzten Tages vor
   den ersten Kerzen, kein Not-Aus.
 * **Gegenprobe:** LF01–LF07 **7/7 entdeckt**.
+
+## Nachtrag 2026-10-16 – Untersuchung auf Knopfdruck (Vorbereitung AP-20, D-032)
+
+* **Neu:** `research/study.py`, `python -m trading.research.study`.
+* **Tests:** `test_research_study` (3, erfundene Daten): Walk-forward nie im Testzeitraum, Test nur für Bestandene,
+  vollständiger und ehrlicher Bericht; zu kurzer Zeitraum ohne erfundenes Walk-forward; Kommandozeile schreibt den
+  Bericht und bricht bei fehlerhaften Daten ohne Bericht ab.
+* **Gegenprobe:** SD01–SD03 **3/3 entdeckt**.
+* **Nicht ausgeführt:** die eigentliche Untersuchung auf echten Daten (B-008).

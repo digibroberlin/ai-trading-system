@@ -72,9 +72,9 @@ def test_the_only_network_access_reads_public_market_data_and_sends_nothing():
     assert len(hosts) == 1 and ast.literal_eval(hosts[0].value.args[0]) == {"api.exchange.coinbase.com",
                                                                              "api.bitget.com"}
     users = sorted(str(p.relative_to(SRC)) for p in python_files() if "public_http" in p.read_text(encoding="utf-8"))
-    # nur das Marktdaten-Paket, der Paper-Dienst, der es zusammensetzt (AP-27), und Live-Funding (D-031, nur die
-    # Fehlerklasse) - nie Executor, Risiko oder Agenten
-    allowed = {"runtime/service.py", "runtime/funding.py"}
+    # nur das Marktdaten-Paket und wer es zum LESEN zusammensetzt: Paper-Dienst (AP-27), Live-Funding (D-031, nur die
+    # Fehlerklasse), Untersuchung auf echten Daten (D-032) - nie Executor, Risiko oder Agenten
+    allowed = {"runtime/service.py", "runtime/funding.py", "research/study.py"}
     assert users and all(u.startswith("marketdata/") or u in allowed for u in users), users
 
 

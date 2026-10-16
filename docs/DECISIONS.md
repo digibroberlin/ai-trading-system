@@ -501,3 +501,13 @@ wirkt jede Abrechnung höchstens einmal (Executor, `last_funding_ts`), verpasste
 gebucht. Kurs zur Abrechnung: Schluss der Kerze (Näherung wie in AP-14). Vorübergehende Fehler: nächster Versuch mit
 der nächsten Kerze. **Fail closed:** Ist die letzte bekannte Abrechnung älter als 12 Stunden (bzw. seit dem Start
 12 Stunden lang keine Antwort), löst `LiveFunding` den Not-Aus aus – sonst fehlten Haltekosten still.
+
+## D-032 · 2026-10-16 · Untersuchung auf echten Daten auf Knopfdruck (Vorbereitung AP-20)
+**Entscheidung:** `python -m trading.research.study` lädt echte historische Daten (AP-14, nur lesend, Zwischenspeicher),
+prüft sie streng (fehlerhafte Daten: Abbruch, kein Bericht) und wendet den Forschungsrahmen unverändert an:
+Training | Validierung | Test (60/20/20 %, 2 Tage Sperrabstand), Validierung mit Versuchszählung und Kosten-Stress, den
+Test sieht nur, wer besteht – einmal. Walk-forward-Stabilität und der gepaarte Vergleich KIBO/YUZU gegen neutrale
+Platzhalter (AP-33) laufen **nur auf Training+Validierung**. Der Bericht (Markdown) nennt Daten, Fingerabdruck,
+Zeiträume, je Strategie Validierung/Test/Kaufen-und-Halten/Walk-forward, die Ablehnungsgründe und ein ehrliches
+Ergebnis („kein belastbarer Vorteil“ ist gültig). KI-Varianten werden ohne Budget (B-004) nicht gerechnet.
+**Grenzen:** ausgeführt erst nach der Netzfreigabe (B-008); Standard-Einstellungen ohne Optimierung.

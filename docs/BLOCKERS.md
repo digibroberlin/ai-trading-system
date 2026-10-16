@@ -25,7 +25,7 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
   `PYTHONPATH=src python3.12 -m trading.marketdata --exchange coinbase --symbol BTC-USD --start 2026-09-01 --end 2026-09-08`.
   WAS DANACH: Die nächste Sitzung lädt eine Woche BTC-Kerzen (Coinbase Spot, Bitget Spot/Futures), prüft sie und hält das
   Ergebnis im Testbericht fest, beobachtet einige Minuten den Live-Strom (`python -m trading.marketdata.watch`, ohne
-  Handel); danach kann AP-20 (Untersuchung mit echten Daten) beginnen.
+  Handel) und führt AP-20 aus (`python -m trading.research.study ...`, D-032 – das Werkzeug ist fertig).
 
 ## Später (noch nicht nötig)
 

@@ -91,6 +91,7 @@ BKT, BKS = ["tests/test_pg_backup.py"], "scripts/backup.py"  # Sicherung mit Rue
 BET = ["tests/test_runtime_service.py", "tests/test_ops_scripts.py"]  # Betrieb (AP-27)
 BES, BEC = "src/trading/runtime/service.py", "docker-compose.prod.yml"
 LFT, LFS = ["tests/test_live_funding.py", "tests/test_runtime_service.py"], "src/trading/runtime/funding.py"  # D-031
+SDT, SDS = ["tests/test_research_study.py"], "src/trading/research/study.py"  # Untersuchung auf Knopfdruck (D-032)
 DPT, DPH, DPI, DPA = (["tests/test_deploy.py"], "deploy/server/harden.sh", "deploy/server/install.sh",
                       "scripts/ops/alert_check.py")  # Server, Alarme, Kosten (AP-28)
 RSP, RSR, RSE, RSV = ("src/trading/research/splits.py", "src/trading/research/registry.py",
@@ -513,6 +514,9 @@ BACKTEST: List[Mutant] = [
  ("LF05", "Kurzer Ausfall beim Start loest sofort Not-Aus aus", [(LFS, "            reference = self._started  # noch nie", "            reference = self._lookback  # noch nie")], LFT),
  ("LF06", "Paper-Dienst ohne Live-Funding", [(BES, "                events = funding.events(candles)", "                events = candles")], LFT),
  ("LF07", "Falscher Kurs zur Abrechnung", [(LFS, "FundingEvent(instrument, when, Decimal(rate), candle.close)", "FundingEvent(instrument, when, Decimal(rate), candle.open)")], LFT),
+ ("SD01", "Walk-forward blickt in den Testzeitraum", [(SDS, "tuple(walk_forward(split.train.start, split.validation.end, wf_train, wf_test))", "tuple(walk_forward(split.train.start, dataset.end, wf_train, wf_test))")], SDT),
+ ("SD02", "Testdaten auch fuer Verworfene", [(SDS, "factory) if validation.passed else None", "factory) if True else None")], SDT),
+ ("SD03", "Bericht meldet Erfolg ohne bestandenen Test", [(SDS, "    if winners:\n", "    if True:\n")], SDT),
  ("BV01", "Vergleich trotz verschiedener Datensaetze", [(CM, "if r.dataset_fingerprint != first.dataset_fingerprint:", "if False:")], BT),
  ("BV02", "Vergleich trotz verschiedener Kosten/Kapital", [(CM, "if r.assumptions_fingerprint != first.assumptions_fingerprint:", "if False:")], BT),
  ("BV03", "Vergleichstabelle unsortiert", [(CM, "return sorted(rows, key=lambda row: (-row[\"return_pct\"], row[\"strategy\"], row[\"label\"]))", "return rows")], BT),

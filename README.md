@@ -261,6 +261,16 @@ beendet sich der Dienst sofort – es wird nicht gehandelt. Das Dashboard ist nu
 (127.0.0.1:8000, von außen per SSH-Tunnel). Einstellungen: `TRADING_EXCHANGE`, `TRADING_SYMBOLS`, `TRADING_INTERVAL_S`,
 `TRADING_STRATEGY` (siehe `docker-compose.prod.yml`).
 
+### Untersuchung auf echten Daten (Vorbereitung AP-20, D-032)
+
+```bash
+PYTHONPATH=src python3.12 -m trading.research.study --exchange bitget --market spot --symbols BTC-USDT,ETH-USDT \
+    --interval 3600 --start 2025-01-01 --end 2026-09-01 --out docs/UNTERSUCHUNG_AP20.md
+```
+Lädt öffentliche Kerzen, prüft sie streng und testet alle Strategien nach den Regeln des Forschungsrahmens
+(Testdaten nur einmal, Walk-forward nur vor dem Testzeitraum). Ergebnis ist ein ehrlicher Bericht – auch „kein
+belastbarer Vorteil“. Braucht Netzzugang zu den Börsen (B-008).
+
 ### Laufzeit-Engine (AP-21, D-021) – bleibt aus
 
 `trading.runtime.engine.RuntimeEngine` verarbeitet Marktereignisse einzeln: Kerze → Executor (Stops/Ziele) →
