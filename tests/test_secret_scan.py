@@ -91,6 +91,14 @@ def test_token_counts_of_ai_cost_metering_are_not_secrets(line):
     "bearer_tokens = '" + RANDOM + "'",  # Mehrzahl, aber mit weiterem heiklen Wort
     "api_key_tokens: " + RANDOM,
     "secret_tokens = '" + RANDOM + "'",
+    "API_TOKENS=" + RANDOM * 2,  # Mehrzahl, aber kein Zaehler-Name
+    "ACCESS_TOKENS=" + RANDOM * 2,
+    "refresh_tokens = '" + RANDOM + "'",
+    "id_tokens = '" + RANDOM + "'",
+    "TOKENSERVICE_TOKEN=" + RANDOM * 2,
+    "AUTH_TOKENS: " + RANDOM,
+    "GITHUB_TOKENS=" + RANDOM * 2,
+    "input_tokens_secret = '" + RANDOM + "'",  # Zaehler-Name nur als Teil eines laengeren Namens
 ])
 def test_real_tokens_are_still_found_even_with_plural_names(line):
     assert scan.check_line(line), line

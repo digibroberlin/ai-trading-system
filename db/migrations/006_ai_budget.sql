@@ -9,6 +9,9 @@
 --   * Zweiter Gurt: Beim Anlegen einer Reservierung prueft die Datenbank selbst, dass Einzel-, Tages- und Monatsgrenze
 --     eingehalten sind (Reservierungen zaehlen voll, abgerechnete mit den tatsaechlichen Kosten). Alle Reservierungen
 --     laufen nacheinander (Sperre auf der Grenzen-Zeile) - mehrere Prozesse koennen das Budget nicht gemeinsam sprengen.
+--     Tag und Zeitpunkt setzt die DATENBANK (UTC), nicht die Anwendung: Eine falsch gehende Uhr kann so nicht in einen
+--     anderen Tag oder Monat buchen. (Gegen eine Anwendung, die absichtlich falsche Kosten abrechnet, schuetzt der Gurt
+--     nicht - er schuetzt gegen falsche Konfiguration, falsche Uhr und Wettlaeufe.)
 --   * Sperre: Die Anwendung kann das Budget sperren (z. B. wenn tatsaechliche Kosten ueber der Reservierung lagen),
 --     aufheben kann nur ein Administrator.
 -- =====================================================================================
@@ -20,7 +23,10 @@ CREATE TABLE ai_budget_limits (
     monthly_usd   NUMERIC     NOT NULL DEFAULT 0 CHECK (monthly_usd >= 0),
     blocked       BOOLEAN     NOT NULL DEFAULT false,
     block_reason  TEXT        NOT NULL DEFAULT '' CHECK (length(block_reason) <= 500),
-    approved_by   TEXT,
+    approved_by   TEXT,        -- wer die aktuellen Grenzen freigegeben hat ...
+    approved_at   TIMESTAMPTZ, -- ... und wann (jede Aenderung braucht einen NEUEN Zeitpunkt)
+    unblocked_by  TEXT,
+    unblocked_at  TIMESTAMPTZ,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (daily_usd <= monthly_usd)
 );
@@ -32,14 +38,26 @@ BEGIN
         -- Die Anwendung darf nur sperren (nie Grenzen aendern, nie entsperren).
         IF NEW.per_call_usd IS DISTINCT FROM OLD.per_call_usd OR NEW.daily_usd IS DISTINCT FROM OLD.daily_usd
            OR NEW.monthly_usd IS DISTINCT FROM OLD.monthly_usd OR NEW.approved_by IS DISTINCT FROM OLD.approved_by
+           OR NEW.approved_at IS DISTINCT FROM OLD.approved_at OR NEW.unblocked_by IS DISTINCT FROM OLD.unblocked_by
+           OR NEW.unblocked_at IS DISTINCT FROM OLD.unblocked_at
            OR (OLD.blocked AND NOT NEW.blocked) THEN
             RAISE EXCEPTION 'KI-Budget: Grenzen setzen und entsperren darf nur ein Administrator'
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
-    ELSIF NEW.per_call_usd IS DISTINCT FROM OLD.per_call_usd OR NEW.daily_usd IS DISTINCT FROM OLD.daily_usd
-          OR NEW.monthly_usd IS DISTINCT FROM OLD.monthly_usd THEN
-        IF NEW.approved_by IS NULL OR btrim(NEW.approved_by) = '' THEN
-            RAISE EXCEPTION 'KI-Budget: neue Grenzen nur mit Namen der Freigabe (approved_by)'
+    ELSE
+        -- Neue Grenzen: Name UND neuer Zeitpunkt der Freigabe (eine fruehere Freigabe gilt nicht weiter).
+        IF (NEW.per_call_usd IS DISTINCT FROM OLD.per_call_usd OR NEW.daily_usd IS DISTINCT FROM OLD.daily_usd
+            OR NEW.monthly_usd IS DISTINCT FROM OLD.monthly_usd)
+           AND (NEW.approved_by IS NULL OR btrim(NEW.approved_by) = '' OR NEW.approved_at IS NULL
+                OR NEW.approved_at IS NOT DISTINCT FROM OLD.approved_at) THEN
+            RAISE EXCEPTION 'KI-Budget: neue Grenzen nur mit Namen und neuem Zeitpunkt der Freigabe'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        -- Entsperren: Name UND neuer Zeitpunkt.
+        IF OLD.blocked AND NOT NEW.blocked
+           AND (NEW.unblocked_by IS NULL OR btrim(NEW.unblocked_by) = '' OR NEW.unblocked_at IS NULL
+                OR NEW.unblocked_at IS NOT DISTINCT FROM OLD.unblocked_at) THEN
+            RAISE EXCEPTION 'KI-Budget: Entsperren nur mit Namen und neuem Zeitpunkt'
                 USING ERRCODE = 'check_violation';
         END IF;
     END IF;
@@ -74,6 +92,8 @@ DECLARE
     today NUMERIC;
     month NUMERIC;
 BEGIN
+    NEW.created_at := now();                           -- Zeit und Tag von der Datenbank, nicht von der Anwendung
+    NEW.day := (now() AT TIME ZONE 'UTC')::date;
     SELECT * INTO lim FROM ai_budget_limits WHERE id = 1 FOR UPDATE;  -- serialisiert alle Reservierungen
     IF NOT FOUND OR lim.blocked THEN
         RAISE EXCEPTION 'KI-Budget gesperrt oder nicht vorhanden' USING ERRCODE = 'check_violation';
@@ -104,6 +124,7 @@ BEGIN
         RAISE EXCEPTION 'KI-Budget: Eintraege werden genau einmal abgerechnet und sonst nie geaendert'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
+    NEW.settled_at := now();
     RETURN NEW;
 END;
 $$;

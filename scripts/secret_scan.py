@@ -67,14 +67,16 @@ PLACEHOLDER = re.compile(
     )$
     """
 )
-# Token-ANZAHLEN der KI-Kostenmessung (input_tokens, tokens_out ...) sind keine Zugangs-Token: "tokens" in der Mehrzahl,
-# ohne ein weiteres heikles Wort im Namen. Echte Token-Variablen (GH_TOKEN, access_token, bearer_token) bleiben erfasst.
-TOKEN_COUNT_NAME = re.compile(r"(?i)tokens")
-OTHER_SENSITIVE = re.compile(r"(?i)password|passwort|passwd|secret|api[_\-]?key|access[_\-]?key|private[_\-]?key|passphrase|bearer")
+# Token-ANZAHLEN der KI-Kostenmessung sind keine Zugangs-Token. Ausgenommen sind NUR diese festen Zaehler-Namen (der
+# ganze Name muss passen); alles andere mit "token" bleibt erfasst (GH_TOKEN, API_TOKENS, refresh_tokens, AUTH_TOKENS ...).
+TOKEN_COUNT_NAME = re.compile(
+    r"(?i)^(?:(?:input|output|cache_write|cache_read|cache_creation_input|cache_read_input|prompt|completion|max_output"
+    r"|max|total|request_overhead)_tokens(?:_by_(?:agent|model))?|tokens_(?:in|out))$"
+)
 
 
 def is_token_count(name: str) -> bool:
-    return bool(TOKEN_COUNT_NAME.search(name)) and not OTHER_SENSITIVE.search(name)
+    return bool(TOKEN_COUNT_NAME.match(name))
 
 
 # Name einer Konstanten oder Umgebungsvariablen (GROSS_MIT_UNTERSTRICH) - Gross-/Kleinschreibung zaehlt hier.

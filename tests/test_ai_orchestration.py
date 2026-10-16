@@ -444,3 +444,231 @@ def test_violated_token_assumption_blocks_even_when_the_cost_stays_below_the_res
     assert a.source is Source.AI
     status = env.ledger.status()
     assert status.blocked and "Eingabe-Tokens" in status.note
+
+
+# ------------------------------------------------------------------ Befunde der unabhaengigen Pruefung (D-016)
+
+
+class ScriptedProvider(FakeProvider):
+    """Attrappe mit frei waehlbarem Verbrauch, Modell und Verzoegerung."""
+
+    def __init__(self, usage=None, model=None, delay=0.0, **kw):
+        super().__init__(**kw)
+        self.usage, self.model, self.delay = usage, model, delay
+
+    def complete(self, request):
+        import time
+
+        if self.delay:
+            time.sleep(self.delay)
+        base = super().complete(request)
+        return AIResponse(base.text, base.provider, self.model or base.model,
+                          self.usage if self.usage is not None else base.usage)
+
+
+def test_missing_usage_is_charged_with_the_full_reservation_and_blocks():
+    env = Env(ScriptedProvider(usage=TokenUsage()))
+    env.orch.analyze(request())
+    rec = [r for r in env.records if r.source is Source.AI][0]
+    assert rec.cost == rec.reserved > 0
+    status = env.ledger.status()
+    assert status.spent_today == rec.reserved and status.blocked and "keinen Verbrauch" in status.note
+
+
+def test_other_model_than_requested_is_charged_in_full_and_blocks():
+    env = Env(ScriptedProvider(model="claude-opus-5-5"))
+    env.orch.analyze(request())
+    rec = [r for r in env.records if r.source is Source.AI][0]
+    assert rec.cost == rec.reserved and env.ledger.status().blocked
+    assert "anderes Modell" in env.ledger.status().note
+
+
+def test_output_above_max_tokens_blocks_the_budget():
+    env = Env(ScriptedProvider(usage=TokenUsage(input_tokens=50, output_tokens=401)))
+    env.orch.analyze(request(max_output_tokens=400))
+    assert env.ledger.status().blocked and "Ausgabe-Tokens" in env.ledger.status().note
+
+
+def test_value_cap_holds_for_the_whole_analysis_not_per_tier():
+    from trading.ai.orchestrator import TIER_ORDER  # noqa: F401 - Reihenfolge billig -> teuer
+
+    unsure = FakeProvider({"claude-haiku-5-5": 0.1, "claude-sonnet-5-5": 0.1, "claude-opus-5-5": 0.1})
+    env = Env(unsure, budget=AIBudget(D(1), D(10), D(100)))
+    req = request(max_tier=Tier.PREMIUM)
+    prompt_bytes = len((req.instruction + "\n" + canonical_payload(req.payload)).encode())
+    sonnet_ceiling = DEFAULT_PRICES.get("anthropic", "claude-sonnet-5-5").max_cost(prompt_bytes, req.max_output_tokens)
+    # Die Sonnet-Obergrenze allein passt unter die Schranke, zusammen mit den Haiku-Kosten aber nicht.
+    value = (sonnet_ceiling + D("0.00000002")) / DEFAULT_ROUTING.max_cost_share
+    a = env.orch.analyze(request(max_tier=Tier.PREMIUM, expected_value_usd=value))
+    assert [c.model for c in unsure.calls] == ["claude-haiku-5-5"]
+    assert a.cost <= value * DEFAULT_ROUTING.max_cost_share
+    assert any(r.reason == "NUTZEN_ZU_GERING" and r.tier is Tier.STANDARD for r in env.records)
+
+
+def test_less_confident_ai_never_overrides_more_confident_rules():
+    env = Env(FakeProvider({"claude-haiku-5-5": 0.3}))
+    rules = RuleAnswer({"approve": False}, D("0.79"))
+    a = env.orch.analyze(request(), rules)
+    assert a.source is Source.RULES and a.answer == {"approve": False} and a.reason == "REGELN_ERSATZ:KI_NICHT_SICHERER"
+    assert a.cost > 0  # der Aufruf wurde trotzdem bezahlt und gemessen
+    env2 = Env(FakeProvider({"claude-haiku-5-5": 0.9}))
+    assert env2.orch.analyze(request(), rules).source is Source.AI
+
+
+def test_uncertain_ai_results_are_not_reused_from_cache():
+    env = Env(FakeProvider({"claude-haiku-5-5": 0.5}))
+    env.orch.analyze(request(max_tier=Tier.CHEAP))
+    env.orch.analyze(request(max_tier=Tier.CHEAP, subject="ETH"))  # gleiche Eingabe, anderer Gegenstand
+    assert len(env.provider.calls) == 2
+
+
+def test_rule_fallbacks_are_measured_as_rule_decisions():
+    env = Env(budget=NO_BUDGET)
+    env.orch.analyze(request(), RuleAnswer({"approve": False}, D("0.5")))
+    assert [(r.source, r.reason) for r in env.records] == [(Source.SKIPPED, "BUDGET"),
+                                                          (Source.RULES, "REGELN_ERSATZ:BUDGET")]
+
+
+def test_failed_paid_calls_count_as_paid_calls():
+    from trading.audit.costs import summarize_ai_costs
+
+    env = Env(FakeProvider(fail=True))
+    env.orch.analyze(request())
+    s = summarize_ai_costs(env.records)
+    assert s.paid_calls_by_agent == {"KIBO": 1} and s.total_cost > 0 and s.skipped_by_reason == {}
+
+
+def test_failing_measurement_blocks_further_paid_calls_but_keeps_the_result():
+    env = Env()
+
+    def broken(rec):
+        raise OSError("Protokoll voll")
+
+    env.orch._recorder = broken
+    a = env.orch.analyze(request())
+    assert a.source is Source.AI and a.records and a.records[-1].cost > 0
+    assert env.ledger.status().blocked and "Messung" in env.ledger.status().note
+
+
+class SettleFails(InMemoryBudgetLedger):
+    def settle(self, reservation, actual):
+        raise ConnectionError("Datenbank weg")
+
+
+def test_failing_settlement_blocks_and_falls_back_but_the_call_is_measured():
+    clock = FixedClock(T0)
+    registry = ProviderRegistry()
+    provider = FakeProvider()
+    registry.register(provider)
+    led = SettleFails(BUDGET, clock)
+    records = []
+    orch = AIOrchestrator(registry, DEFAULT_PRICES, led, ActivationPolicy(DEFAULT_ACTIVATION, clock), clock,
+                          records.append)
+    a = orch.analyze(request(), RuleAnswer({"approve": False}, D("0.4")))
+    assert a.source is Source.RULES and a.reason == "REGELN_ERSATZ:BUDGET_ABRECHNUNG_FEHLER"
+    assert [r.source for r in records][:1] == [Source.AI] and led.status().blocked
+    assert led.status().spent_today > 0  # offene Reservierung zaehlt voll
+
+
+def test_deeply_nested_answers_are_unusable_not_an_exception():
+    assert parse_answer("[" * 200_000) == (None, D(0))
+    env = Env(FakeProvider(text="[" * 200_000))
+    assert env.orch.analyze(request(max_tier=Tier.CHEAP)).answer is None
+
+
+def test_identical_parallel_analyses_are_paid_only_once():
+    slow = ScriptedProvider(delay=0.3)
+    env = Env(slow)
+    results = []
+    threads = [threading.Thread(target=lambda a=agent: results.append(env.orch.analyze(request(agent=a))))
+               for agent in ("KIBO", "YUZU", "KIBO")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert len(slow.calls) == 1 and sorted(r.source.value for r in results) == ["AI", "CACHE", "CACHE"]
+
+
+def test_a_slow_provider_does_not_block_rule_decisions_of_others():
+    import time
+
+    env = Env(ScriptedProvider(delay=0.5))
+    t = threading.Thread(target=lambda: env.orch.analyze(request()))
+    t.start()
+    time.sleep(0.1)
+    started = time.monotonic()
+    a = env.orch.analyze(request(subject="ETH", payload={"z": 1}), RuleAnswer({"approve": True}, D("0.95")))
+    assert a.source is Source.RULES and time.monotonic() - started < 0.3
+    t.join(5)
+
+
+def test_same_subject_is_claimed_once_even_in_parallel():
+    slow = ScriptedProvider(delay=0.3)
+    env = Env(slow)
+    threads = [threading.Thread(target=lambda i=i: env.orch.analyze(request(payload={"i": i}))) for i in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert len(slow.calls) == 1  # gleiches Setup-Subjekt: nur ein bezahlter Aufruf je Abkuehlzeit
+    paid = [r for r in env.records if r.source is Source.AI]
+    assert env.ledger.status().spent_today == sum(r.cost for r in paid)  # nicht genutzte Reservierungen: 0 USD
+
+
+def test_cache_is_bounded(monkeypatch):
+    import trading.ai.orchestrator as orchestrator_module
+
+    monkeypatch.setattr(orchestrator_module, "MAX_CACHE_ENTRIES", 3)
+    env = Env(activation=ActivationRules({"KIBO": AgentActivation(frozenset({TriggerEvent.SETUP_CANDIDATE}), 0)}))
+    for i in range(10):
+        env.orch.analyze(request(payload={"i": i}, subject="S%d" % i))
+    assert len(env.orch._cache) <= 3
+
+
+class RejectOnce(InMemoryBudgetLedger):
+    rejected = False
+
+    def reserve(self, amount, agent, model):
+        if not self.rejected:
+            self.rejected = True
+            raise BudgetError("einmal abgelehnt")
+        return super().reserve(amount, agent, model)
+
+
+def test_budget_refusal_does_not_start_the_cooldown():
+    clock = FixedClock(T0)
+    registry = ProviderRegistry()
+    provider = FakeProvider()
+    registry.register(provider)
+    orch = AIOrchestrator(registry, DEFAULT_PRICES, RejectOnce(BUDGET, clock),
+                          ActivationPolicy(DEFAULT_ACTIVATION, clock), clock)
+    assert orch.analyze(request()).reason == "BUDGET"
+    assert orch.analyze(request(payload={"neu": 1})).source is Source.AI  # gleicher Gegenstand, direkt danach
+
+
+def test_concurrent_reservations_hold_even_with_aggressive_thread_switching():
+    import sys
+
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        for _ in range(5):
+            led, _ = ledger(AIBudget(D("0.01"), D("0.2"), D("5")))
+            ok = []
+
+            def worker():
+                for _ in range(10):
+                    try:
+                        led.reserve(D("0.01"), "KIBO", "m")
+                        ok.append(1)
+                    except BudgetError:
+                        pass
+
+            threads = [threading.Thread(target=worker) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            assert len(ok) == 20 and led.status().spent_today == D("0.2")
+    finally:
+        sys.setswitchinterval(old)

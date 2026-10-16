@@ -94,7 +94,7 @@ def test_several_analyses_per_trade_and_analyses_without_trade_are_both_counted(
                rec("A4", cost="0.04")]  # keine Zuordnung
     a = attribute_ai_costs(records, [trade("s1", "5")])
     assert a.trades == 1 and a.ai_cost_of_traded_setups == D("0.03")
-    assert a.ai_cost_of_untraded_analyses == D("0.07")
+    assert a.ai_cost_without_trade_in_period == D("0.07")
     assert a.direct_cost_per_trade == D("0.03") and a.fully_loaded_cost_per_trade == D("0.10")
     assert attribute_ai_costs(records, []).fully_loaded_cost_per_trade is None
 

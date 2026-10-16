@@ -1,5 +1,5 @@
-"""Hartes KI-Budget in PostgreSQL (Migration 004): ueberlebt Neustarts, gilt fuer alle Prozesse, Grenzen nur vom
-Administrator, die Datenbank selbst verweigert jede Ueberschreitung."""
+"""Hartes KI-Budget in PostgreSQL (Migration 006): ueberlebt Neustarts, gilt fuer alle Prozesse, Grenzen nur vom
+Administrator, die Datenbank selbst verweigert jede Ueberschreitung. Tag und Monat bestimmt die Datenbank-Uhr."""
 
 from __future__ import annotations
 
@@ -68,19 +68,61 @@ def test_application_budget_is_also_respected(pg):
     assert led.status().budget == AIBudget(D("0.1"), D("0.2"), D("1"))  # die strengere Grenze gilt
 
 
-def test_spending_survives_a_restart_and_months_roll_over(pg):
+def server_today(pg):
+    with admin(pg) as c:
+        return c.execute("SELECT (now() AT TIME ZONE 'UTC')::date").fetchone()[0]
+
+
+def test_spending_survives_a_restart(pg):
     set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("1.5")), "Eigner")
-    clock = FixedClock(T0)
-    ledger(pg, clock=clock).reserve(D("1"), "KIBO", "m")
-    restarted = ledger(pg, clock=clock)
+    ledger(pg).reserve(D("1"), "KIBO", "m")
+    restarted = ledger(pg)
     with pytest.raises(BudgetError):
         restarted.reserve(D("0.01"), "KIBO", "m")
-    clock.set(T0 + timedelta(days=1))
-    restarted.reserve(D("0.5"), "KIBO", "m")
+    assert restarted.status().spent_today == D("1")
+
+
+@pytest.mark.parametrize("app_time", [T0.replace(year=2031, month=7), T0.replace(year=1999)])
+def test_a_wrong_application_clock_cannot_book_into_another_day_or_month(pg, app_time):
+    """Die Anwendungsuhr geht falsch (Zukunft oder Vergangenheit): gebucht wird trotzdem auf den Tag der Datenbank, und
+    die heutigen Grenzen gelten weiter - ein neuer Tag laesst sich nicht vortaeuschen."""
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("10")), "Eigner")
+    ledger(pg).reserve(D("1"), "KIBO", "m")
+    wrong = ledger(pg, clock=FixedClock(app_time))
     with pytest.raises(BudgetError):
-        restarted.reserve(D("0.01"), "KIBO", "m")  # Monatsgrenze
-    clock.set(T0.replace(month=2, day=1))
-    restarted.reserve(D("1"), "KIBO", "m")
+        wrong.reserve(D("0.01"), "KIBO", "m")
+    status = wrong.status()
+    assert status.day == server_today(pg) and status.spent_today == D("1")
+    with admin(pg) as c:
+        assert c.execute("SELECT DISTINCT day FROM ai_budget_entries").fetchall() == [(server_today(pg),)]
+        # auch direkt eingefuegte Werte fuer Tag und Zeitpunkt ueberschreibt die Datenbank
+        c.execute("UPDATE ai_budget_limits SET daily_usd = 5, approved_by = 'Eigner', approved_at = clock_timestamp()")
+        c.execute("INSERT INTO ai_budget_entries (reservation_id, created_at, day, agent, model, reserved)"
+                  " VALUES ('direkt', '2031-07-01T00:00Z', '2031-07-01', 'KIBO', 'm', 0.5)")
+        day, created = c.execute("SELECT day, created_at::date FROM ai_budget_entries WHERE reservation_id = 'direkt'"
+                                 ).fetchone()
+    assert day == server_today(pg) and created.year == server_today(pg).year
+
+
+def test_only_this_month_counts_for_the_monthly_limit(pg):
+    """Monatsfenster: Eintraege des Vormonats zaehlen nicht, fruehere Tage dieses Monats zaehlen zum Monat, nicht zu heute.
+    (Die alten Eintraege werden mit abgeschaltetem Gurt eingefuegt - anders laesst sich kein anderer Tag buchen.)"""
+    today = server_today(pg)
+    first = today.replace(day=1)
+    last_month = first - timedelta(days=1)
+    with admin(pg) as c, c.transaction():
+        c.execute("ALTER TABLE ai_budget_entries DISABLE TRIGGER ai_budget_reserve_check")
+        for rid, day, amount in (("alt", last_month, "7"), ("monat", first, "2")):
+            c.execute("INSERT INTO ai_budget_entries (reservation_id, created_at, day, agent, model, reserved, actual,"
+                      " settled_at) VALUES (%s, now(), %s, 'KIBO', 'm', %s, %s, now())", (rid, day, amount, amount))
+        c.execute("ALTER TABLE ai_budget_entries ENABLE TRIGGER ai_budget_reserve_check")
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("3"), D("3")), "Eigner")
+    led = ledger(pg, AIBudget(D("1"), D("5"), D("50")))
+    status = led.status()
+    assert status.spent_month == D("2") and status.spent_today == (D("2") if today == first else 0)
+    led.reserve(D("1"), "KIBO", "m")  # Monat 2 + 1 = 3: genau an der Grenze
+    with pytest.raises(BudgetError):
+        led.reserve(D("0.01"), "KIBO", "m")  # Monatsgrenze (der Vormonat zaehlt nicht mit)
 
 
 def test_parallel_reservations_never_exceed_the_daily_limit(pg):
@@ -134,11 +176,41 @@ def test_even_the_administrator_cannot_delete_budget_history(pg, stmt):
         c.execute(stmt)
 
 
-def test_limits_need_the_name_of_the_approval(pg):
+def test_limits_need_the_name_and_a_new_time_of_the_approval(pg):
     with pytest.raises(BudgetError):
         set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("1")), "")
     with admin(pg) as c, pytest.raises(E.CheckViolation):
         c.execute("UPDATE ai_budget_limits SET daily_usd = 1, monthly_usd = 1")
+    set_limits_as_admin(pg.admin_url, AIBudget(D("1"), D("1"), D("1")), "Eigner")
+    with admin(pg) as c:
+        with pytest.raises(E.CheckViolation, match="neuem Zeitpunkt"):  # alte Freigabe gilt nicht fuer neue Grenzen
+            c.execute("UPDATE ai_budget_limits SET daily_usd = 2, monthly_usd = 2")
+        with pytest.raises(E.CheckViolation, match="neuem Zeitpunkt"):
+            c.execute("UPDATE ai_budget_limits SET daily_usd = 2, monthly_usd = 2, approved_by = 'Jemand'")
+        with pytest.raises(E.CheckViolation, match="Namen"):  # neuer Zeitpunkt, aber ohne Namen
+            c.execute("UPDATE ai_budget_limits SET daily_usd = 2, monthly_usd = 2, approved_by = ' ',"
+                      " approved_at = clock_timestamp()")
+        c.execute("UPDATE ai_budget_limits SET daily_usd = 2, monthly_usd = 2, approved_by = 'Eigner',"
+                  " approved_at = clock_timestamp()")
+        assert c.execute("SELECT daily_usd, approved_by FROM ai_budget_limits").fetchone() == (D("2"), "Eigner")
+
+
+def test_unblocking_needs_a_name_and_a_new_time(pg):
+    ledger(pg).block("Test")
+    with admin(pg) as c:
+        for stmt in ("UPDATE ai_budget_limits SET blocked = false",
+                     "UPDATE ai_budget_limits SET blocked = false, unblocked_by = 'Eigner'",
+                     "UPDATE ai_budget_limits SET blocked = false, unblocked_by = ' ', unblocked_at = clock_timestamp()"):
+            with pytest.raises(E.CheckViolation, match="Entsperren"):
+                c.execute(stmt)
+    unblock_as_admin(pg.admin_url, "Eigner")
+    ledger(pg).block("nochmal")
+    with admin(pg) as c, pytest.raises(E.CheckViolation, match="Entsperren"):  # die alte Freigabe reicht nicht
+        c.execute("UPDATE ai_budget_limits SET blocked = false")
+    unblock_as_admin(pg.admin_url, "Eigner")
+    with admin(pg) as c:
+        blocked, by, at = c.execute("SELECT blocked, unblocked_by, unblocked_at FROM ai_budget_limits").fetchone()
+    assert not blocked and by == "Eigner" and at is not None
 
 
 def test_entries_are_settled_exactly_once_and_otherwise_immutable(pg):

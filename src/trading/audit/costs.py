@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set
@@ -54,10 +54,15 @@ class OperatingCost:
         if not is_finite_decimal(self.amount) or self.amount < 0:
             raise ValueError("Betrag ungueltig: %r" % (self.amount,))
         if not (is_aware(self.start) and is_aware(self.end)) or self.end < self.start:
-            raise ValueError("Zeitraum ungueltig (UTC, Ende nicht vor Beginn).")
+            raise ValueError("Zeitraum ungueltig (mit Zeitzone, Ende nicht vor Beginn).")
+        # Intern immer UTC: Mit einer Ortszeit (z. B. Europe/Berlin) rechnete Python die Dauer ueber eine
+        # Sommerzeit-Umstellung hinweg falsch (eine Stunde zu viel oder zu wenig).
+        object.__setattr__(self, "start", self.start.astimezone(timezone.utc))
+        object.__setattr__(self, "end", self.end.astimezone(timezone.utc))
 
     def share(self, start: datetime, end: datetime) -> Decimal:
         """Anteil dieser Kosten, der in [start, end) faellt (zeitanteilig, aufgerundet)."""
+        start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)
         if self.start == self.end:
             return self.amount if start <= self.start < end else ZERO
         overlap = (min(end, self.end) - max(start, self.start)).total_seconds()
@@ -167,25 +172,31 @@ def summarize_ai_costs(
 
 @dataclass(frozen=True)
 class TradeCostAttribution:
-    """KI-Kosten je Trade - mehrere Analysen koennen zu einem Trade gehoeren, manche fuehren zu keinem."""
+    """KI-Kosten je Trade - mehrere Analysen koennen zu einem Trade gehoeren, manche fuehren zu keinem.
+
+    Eine Analyse liegt vor dem Einstieg, der Trade wird oft in einem spaeteren Zeitraum geschlossen. Deshalb zaehlen fuer
+    die direkte Zuordnung ALLE Analysen bis zum Ende des Zeitraums, deren Setup in einem Trade dieses Zeitraums steckt.
+    """
 
     trades: int
-    ai_cost_of_traded_setups: Decimal  # Analysen, deren Setup tatsaechlich gehandelt wurde
-    ai_cost_of_untraded_analyses: Decimal  # alle anderen (abgelehnte Setups, Marktbeobachtung ...)
+    ai_cost_of_traded_setups: Decimal  # Analysen (auch aus frueheren Zeitraeumen) der hier geschlossenen Trades
+    ai_cost_without_trade_in_period: Decimal  # Analysen dieses Zeitraums ohne hier geschlossenen Trade
+    # (abgelehnte Setups, Marktbeobachtung - oder Positionen, die noch offen sind bzw. spaeter geschlossen werden)
     direct_cost_per_trade: Optional[Decimal]  # nur zugeordnete Analysen
-    fully_loaded_cost_per_trade: Optional[Decimal]  # ALLE KI-Kosten / Trades - der ehrliche Wert
+    fully_loaded_cost_per_trade: Optional[Decimal]  # ALLE KI-Kosten des Zeitraums / Trades - der ehrliche Betriebswert
 
 
-def attribute_ai_costs(records: Iterable[AICallRecord], trades: Sequence[ClosedTrade]) -> TradeCostAttribution:
+def attribute_ai_costs(
+    period_records: Iterable[AICallRecord], trades: Sequence[ClosedTrade],
+    earlier_records: Iterable[AICallRecord] = (),
+) -> TradeCostAttribution:
     traded = {t.setup_id for t in trades}
-    on_trades = untraded = ZERO
-    for r in records:
-        if r.setup_id and r.setup_id in traded:
-            on_trades += r.cost
-        else:
-            untraded += r.cost
+    period = list(period_records)
+    on_trades = sum((r.cost for r in list(earlier_records) + period if r.setup_id and r.setup_id in traded), ZERO)
+    without = sum((r.cost for r in period if not (r.setup_id and r.setup_id in traded)), ZERO)
+    total = sum((r.cost for r in period), ZERO)
     return TradeCostAttribution(
-        len(trades), on_trades, untraded, _div(on_trades, len(trades)), _div(on_trades + untraded, len(trades)),
+        len(trades), on_trades, without, _div(on_trades, len(trades)), _div(total, len(trades)),
     )
 
 
@@ -216,6 +227,7 @@ def build_net_profit_report(
         raise ValueError("Zeitraum ungueltig (UTC, Ende nach Beginn).")
     period_trades = [t for t in trades if start <= t.closed_at < end]
     records = [r for r in ai_records if start <= r.time < end]
+    earlier = [r for r in ai_records if r.time < start]
     ai = summarize_ai_costs(records)
     gross = sum((t.gross_pnl for t in period_trades), ZERO)
     fees = sum((t.fees for t in period_trades), ZERO)
@@ -228,7 +240,7 @@ def build_net_profit_report(
     operating = ai_cost + server + data + other
     return NetProfitReport(
         start, end, len(period_trades), gross, fees, funding, net, ai_cost, server, data, other, operating,
-        net - operating, ai, attribute_ai_costs(records, period_trades),
+        net - operating, ai, attribute_ai_costs(records, period_trades, earlier),
     )
 
 
