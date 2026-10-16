@@ -337,3 +337,19 @@ Ersatzwert, Validator/RIN blockieren.
 FREIGEGEBEN"`; sonst `EngineDisabledError`. Tests und Vorführungen nutzen nur `process`/`simulate` mit simulierter Uhr.
 **Grenzen:** Ausführung zum Schlusskurs der Kerze plus Spread/Slippage (im Betrieb später zum aktuellen Kurs); echte
 Marktdaten-Anbindung fehlt (AP-14/15).
+
+## D-022 · 2026-10-16 · Forschungsrahmen und Bewertung (AP-18/19)
+**Entscheidung:** Zeitlich getrennte Abschnitte Training | Validierung | Test (Standard 60/20/20, optional Sperrabstand);
+Walk-forward mit nicht überlappenden Testfenstern. Datensätze werden mit `MarketDataset.window` zugeschnitten; das
+Anfangs-Funding eines Fensters ist der letzte Satz VOR dem Fenster.
+**Gegen Überanpassung:** Das Register zählt jeden Validierungsversuch je Strategie-Familie (auch verworfene). Gefordert
+wird eine Sharpe-Ratio je Schritt über SE × (z + √(2·ln N)) mit N = Zahl der Versuche (vereinfachte deflationierte
+Sharpe-Ratio nach Bailey/López de Prado; z = 1,645). Weitere Kriterien: Netto > 0 nach allen Handelskosten, mindestens
+20 Trades, auch bei 1,5-fachen Kosten > 0. Testdaten genau einmal je Version (vor dem Lauf vermerkt – auch ein
+abgebrochener Test zählt). Freigabe „Paper“ nur nach bestandenem Test, mit Namen; sie startet nichts.
+**Bewertung (AKI):** Netto nach Handels-, KI- und Betriebskosten (D-016), Ergebnis je Marktphase beim Einstieg
+(nur Vergangenheit), Stabilität = Anteil der Phasen mit nicht-negativem Erwartungswert; Walk-forward-Stabilität;
+Nutzen von KIBO/YUZU gepaart je Fenster mit `compare_methods` (im Zweifel die einfachere Variante).
+**Grenzen:** vereinfachte Formel (keine Schiefe/Wölbung); Strategien werden noch nicht automatisch optimiert (jede
+Variante muss bewusst als Versuch geprüft werden); KI-Kosten im Backtest erst mit echtem Anbieter (AP-22);
+aussagekräftig erst mit echten Daten (AP-20).

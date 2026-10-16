@@ -162,6 +162,24 @@ class MarketDataset:
                                             s.initial_funding_rate, s.spread_bps))
         return MarketDataset.build(cut)
 
+    def window(self, start: datetime, end: datetime) -> "MarketDataset":
+        """Nur Kerzen, die ab `start` beginnen und bis `end` schliessen (z. B. Trainings-, Validierungs-, Testzeitraum).
+        Bei Futures gilt als Anfangs-Funding der letzte VOR dem Zeitraum bekannte Satz - nichts aus dem Zeitraum selbst."""
+        if not (is_aware(start) and is_aware(end)) or end <= start:
+            raise ValueError("Zeitraum ungueltig (mit Zeitzone, Ende nach Beginn).")
+        cut = []
+        for s in self.series:
+            candles = tuple(c for c in s.candles if c.open_time >= start and c.close_time <= end)
+            if not candles:
+                continue
+            funding = tuple(f for f in s.funding if candles[0].open_time < f.time <= candles[-1].close_time)
+            known = [f.rate for f in s.funding if f.time <= candles[0].open_time]
+            initial = known[-1] if known else s.initial_funding_rate
+            cut.append(InstrumentSeries(s.instrument, s.interval_s, candles, funding, initial, s.spread_bps))
+        if not cut:
+            raise ValueError("Keine Kerzen im Zeitraum.")
+        return MarketDataset.build(cut)
+
 
 class HistoricalDataSource(ABC):
     """Liefert historische Marktdaten EINER Boerse in der kanonischen Form (nur lesend).

@@ -449,3 +449,21 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Preflight:** STABIL – **1502/1502** Tests, 0 übersprungen; Python 3.9: 1274 bestanden, 12 übersprungen (Datenbank,
   FastAPI – erwartet).
 * **Nicht geprüft:** echter Betrieb (bewusst gesperrt), echte Marktdaten (AP-14/15).
+
+## Nachtrag 2026-10-16 – AP-18/19 Forschungsrahmen und Bewertung (D-022)
+
+Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16. Nur erfundene Daten.
+
+* **Neu:** `research/splits.py`, `research/registry.py`, `research/experiment.py`, `research/evaluation.py`,
+  `MarketDataset.window`, Vorführung `python -m trading.research`.
+* **Tests:** `test_research` (15): Abschnitte nacheinander mit Sperrabstand; Walk-forward ohne Überlappung; Fenster ohne
+  Daten/Funding aus der Zukunft; Register zählt jeden Versuch, Test nur nach Validierung und nur einmal, Zustand überlebt
+  einen Neustart, Freigabe nur nach bestandenem Test mit Namen; Schwelle steigt mit der Zahl der Versuche; Kosten-Stress;
+  Zufallsdaten werden mit Gründen verworfen, ein echter (künstlicher) Trend besteht Validierung und Test; Gewinn, der
+  höhere Kosten nicht übersteht, wird verworfen; Bewertung nach allen Kosten und je Marktphase (nur Vergangenheit);
+  Walk-forward-Stabilität; Nutzen von KIBO/YUZU bei 4 Fenstern = „zu wenig Daten“; Vorführung nur PAPER.
+* **Beobachtung (kein Ergebnis!):** Auf 120 Tagen Zufallsdaten werden alle sieben Strategien verworfen – auch
+  `sma_cross` mit +144 $ auf den Validierungsdaten, weil das unter der Zufallsschwelle liegt. So soll es sein.
+* **Gegenprobe:** RS01–RS09 **9/9 entdeckt** (RS05/RS08 erst nach zwei gezielten Tests).
+* **Preflight:** STABIL – **1529/1529** Tests, 0 übersprungen; Python 3.9: 1301 bestanden, 12 übersprungen (erwartet).
+* **Nicht geprüft:** echte Daten (AP-20).

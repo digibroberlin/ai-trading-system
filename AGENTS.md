@@ -114,6 +114,9 @@ src/trading/
   dashboard/             state.py (Momentaufnahme aus Backtest/Paper), api.py (FastAPI nur lesend, WebSocket), static/
                          (Weboberfläche ohne fremde Server), __main__.py (python -m trading.dashboard) – einziges Paket mit
                          Webserver-Bibliotheken (Test stellt das sicher)
+  research/              splits.py (Zeiträume, Walk-forward), registry.py (Versionen, Versuche, Test nur einmal, Freigabe),
+                         experiment.py (Validierung/Test, Kosten-Stress, Sharpe-Schwelle je Versuchszahl), evaluation.py (AKI:
+                         nach allen Kosten, je Marktphase, Stabilität, Nutzen von KIBO/YUZU) – AP-18/19
   runtime/               engine.py (ereignisgesteuerte Laufzeit-Engine, AP-21; standardmäßig AUS, Start nur mit Freigabe)
   strategies/            library.py (Trendfolge, Momentum,
                          Mean Reversion, Breakout, Volatilität, Scalping), benchmarks.py (Nicht-Handeln, Kaufen-und-Halten)
