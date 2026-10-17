@@ -726,7 +726,8 @@ def check(mutant: Mutant, copy: Path, with_db: bool) -> Tuple[bool, str]:
         for path, text in originals.items():  # Fehler wieder ausbauen
             (copy / path).write_text(text, encoding="utf-8")
     lines = [line for line in run.stdout.strip().splitlines() if line.strip()]
-    failed = next((line[7:110] for line in lines if line.startswith("FAILED")), "")
+    failed = next((line[7:110] if line.startswith("FAILED") else line[:110]
+                   for line in lines if line.startswith(("FAILED", "ERROR"))), "")
     if run.returncode == 1:  # Tests sind fehlgeschlagen = Fehler bemerkt
         return True, failed
     if run.returncode == 0:

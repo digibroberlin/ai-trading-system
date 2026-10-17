@@ -53,6 +53,9 @@ class TestDatabase:
             )
 
 
+ROLE_LOCK_KEY = 7_460_123  # beliebig, nur fuer die Testumgebung
+
+
 def _database(target: Optional[int]) -> Iterator[TestDatabase]:
     if not HAVE_DB:
         pytest.skip("PostgreSQL nicht konfiguriert")
@@ -69,11 +72,17 @@ def _database(target: Optional[int]) -> Iterator[TestDatabase]:
     admin_db_url = make_conninfo(ADMIN_URL, dbname=name)
     app_url = make_conninfo(ADMIN_URL, dbname=name, user="trading_app", password=APP_PASSWORD)
     try:
-        migrate(admin_db_url, MIGRATIONS, target=target)
-        with psycopg.connect(admin_db_url, autocommit=True) as conn:
-            conn.execute(
-                sql.SQL("ALTER ROLE trading_app LOGIN PASSWORD {}").format(sql.Literal(APP_PASSWORD))
-            )
+        # Die Rolle trading_app gilt fuer den ganzen Server: Laufen mehrere Testlaeufe gleichzeitig (Gegenprobe in
+        # Gruppen), duerfen sie sie nicht gleichzeitig aendern ("tuple concurrently updated"). Die Sperre liegt in der
+        # gemeinsamen Verwaltungs-Datenbank, damit sie ueber alle Test-Datenbanken hinweg wirkt.
+        with psycopg.connect(ADMIN_URL, autocommit=True) as lock:
+            lock.execute("SELECT pg_advisory_lock(%s)", (ROLE_LOCK_KEY,))
+            migrate(admin_db_url, MIGRATIONS, target=target)
+            with psycopg.connect(admin_db_url, autocommit=True) as conn:
+                conn.execute(
+                    sql.SQL("ALTER ROLE trading_app LOGIN PASSWORD {}").format(sql.Literal(APP_PASSWORD))
+                )
+            lock.execute("SELECT pg_advisory_unlock(%s)", (ROLE_LOCK_KEY,))
         yield TestDatabase(name, app_url, admin_db_url)
     finally:
         with psycopg.connect(ADMIN_URL, autocommit=True) as admin:

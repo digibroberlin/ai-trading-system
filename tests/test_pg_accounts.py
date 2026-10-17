@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -197,14 +198,16 @@ def test_administrator_may_rearm_the_brakes(pg):
 def test_guard_does_not_depend_on_a_specific_application_role_name(pg):
     """Auch eine andere Rolle ohne Administratorrechte (z. B. Mitglied von trading_app) unterliegt der Pruefung."""
     _prepared(pg)
+    from psycopg import sql
+
+    role = sql.Identifier("t_other_writer_" + uuid.uuid4().hex[:8])  # Rollen gelten serverweit: je Lauf ein eigener Name
     with admin(pg) as c:
-        c.execute("DROP ROLE IF EXISTS t_other_writer")
-        c.execute("CREATE ROLE t_other_writer NOLOGIN IN ROLE trading_app")
+        c.execute(sql.SQL("CREATE ROLE {} NOLOGIN IN ROLE trading_app").format(role))
         try:
-            c.execute("SET ROLE t_other_writer")
+            c.execute(sql.SQL("SET ROLE {}").format(role))
             with pytest.raises(E.CheckViolation):
                 c.execute("UPDATE accounts SET peak_equity = 9950, " + GOOD)
             c.execute("RESET ROLE")
         finally:
             c.execute("RESET ROLE")
-            c.execute("DROP ROLE t_other_writer")
+            c.execute(sql.SQL("DROP ROLE {}").format(role))
