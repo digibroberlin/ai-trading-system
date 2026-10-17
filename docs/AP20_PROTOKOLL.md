@@ -167,3 +167,19 @@ Befunde aus dem Training (Hauptauswertung, Szenarien F und S; Einzelheiten im Be
 * Empfindlichkeit (nicht für die Auswahl): Szenario K für V0 und C; strenger Modus für F und S.
 * **Versuchszahl N für die deflationierte Sharpe-Schwelle = 92** (70 ursprüngliche + 22 E-Zellen in F und S).
 
+
+**Nachtrag 3 (2026-10-17 10:56 UTC, nach der Validierung, vor jedem Testlauf) – Ergebnis der Validierung, Testumfang.**
+* **Kein Lauf erfüllt alle vier Kandidaten-Bedingungen.** Die deflationierte Sharpe-Schwelle (N = 92, z = 1,645) liegt
+  bei rund 0,172 je Tag (≈ 3,3 pro Jahr) und wird von keinem Lauf erreicht (bester: `breakout-4h` in S mit 0,069).
+* Die drei 4-h-Kandidaten erfüllen die Bedingungen 1–3 in F und S (Netto A und B > 0, ≥ 30 Trades, Stress > 0).
+  Alle ursprünglichen 1-h-Strategien sind in F negativ; in S ist nur `volatility` knapp positiv (A), aber B bzw. Stress ≤ 0.
+* Folge nach Protokoll: Es gibt **keinen Kandidaten**; „statistisch ausreichend belastbar“ ist für diesen Test
+  ausgeschlossen. Der Test wird trotzdem wie festgelegt **einmal** für alle eingefrorenen Zellen gerechnet – zur ehrlichen
+  Beschreibung, nicht zur Auswahl. Danach wird nichts mehr verändert oder nachgerechnet.
+* **Eingefroren (`docs/ap20/freeze.json`):** ursprüngliche Strategien (7) × V0, A, B, C, D × F, S, Fx, Sx; E-Zellen
+  (`momentum|E`, `trend|E`, `momentum-4h`/`trend-4h`/`breakout-4h` × V0, C, E) × F, S, Fx, Sx; Variante S (Schatten) der
+  7 Strategien in F und S; Empfindlichkeit K für V0 und C der 7 Strategien sowie die E-Zellen – zusammen 223 Zellen.
+  Der strenge Modus wird für dieselben Zellen in F und S beschreibend gerechnet (eigener Ergebnisordner).
+  Prüfsumme der eingefrorenen Liste: SHA-256 `08183e756b095c5fc9b727135e2214a2b85cec4ae69bf683004f4cf3a724d1ba`,
+  erstellt 2026-10-17 10:56:55 UTC (die Notiz in `freeze.json` nennt versehentlich 10:58 UTC; maßgeblich ist
+  `created_at`). Liste und Protokoll wurden vor dem ersten Testlauf eingecheckt.
