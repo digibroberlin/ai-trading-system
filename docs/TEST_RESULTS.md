@@ -86,3 +86,12 @@ Git: `0cd1204` auf `develop` · Python 3.12.3 · Linux (Cloud-Routine) · Postgr
 - ✅ mypy --strict: Success: no issues found in 58 source files
 - ✅ Tests: 886 bestanden, 0 uebersprungen, 0 fehlgeschlagen (223 s)
 - ✅ Gegenprobe: ERGEBNIS: 278 entdeckt, 0 nicht entdeckt, 0 nicht geprueft (4609 s)
+
+### 2026-10-16 23:31 UTC - NICHT STABIL
+Git: `5ee0649` auf `develop` · Python 3.12.3 · Linux
+
+- ✅ Geheimnis-Scan (inkl. Geschichte): GEHEIMNIS-SCAN: keine Funde (Arbeitsstand und gesamte Geschichte).
+- ✅ ruff: All checks passed!
+- ✅ mypy --strict: Success: no issues found in 109 source files
+- ✅ Tests: 1821 bestanden, 0 uebersprungen, 0 fehlgeschlagen (305 s)
+- ❌ Gegenprobe: ERGEBNIS: 0 entdeckt, 0 nicht entdeckt, 0 nicht geprueft (kern: Grundprobe fehlgeschlagen: Die Tests scheitern in der Kopie schon ohne eingebauten Fehler (tests/test_pg_backup.py::test_backup_restores_completely_and_checks_the_event_chain). Erst das beheben., backtest: Grundprobe fehlgeschlagen: Die Tests scheitern in der Kopie schon ohne eingebauten Fehler (tests/test_pg_backup.py::test_backup_restores_completely_and_checks_the_event_chain). Erst das beheben., datenbank: Grundprobe fehlgeschlagen: Die Tests scheitern in der Kopie schon ohne eingebauten Fehler (). Erst das beheben.) (81 s)

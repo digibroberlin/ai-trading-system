@@ -42,7 +42,7 @@ def fill(pg):
 
 @requires_db
 @requires_tools
-def test_backup_restores_completely_and_checks_the_event_chain(pg, tmp_path):
+def test_backup_restores_completely_and_checks_the_event_chain(pg, tmp_path, monkeypatch):
     fill(pg)
     dump = backup.create(pg.admin_url, tmp_path, T0)
     assert dump.name == "trading-20261016T210000Z.dump"
@@ -52,13 +52,19 @@ def test_backup_restores_completely_and_checks_the_event_chain(pg, tmp_path):
     for path in (dump, dump.with_suffix(".json"), dump.with_suffix(".sha256")):
         assert os.stat(path).st_mode & 0o077 == 0  # nur fuer den Eigentuemer
     assert "password" not in json.dumps(meta).lower() and not list(tmp_path.glob("*.tmp"))
-    def checks():
-        with psycopg.connect(ADMIN_URL) as conn:
-            return conn.execute("SELECT count(*) FROM pg_database WHERE datname LIKE 'restore_check_%'").fetchone()[0]
+    made = []  # Namen der Wegwerf-Datenbanken DIESES Laufs - parallele Laeufe legen eigene an und stoeren nicht
+    real_uuid4 = backup.uuid.uuid4
 
-    before = checks()
+    def spy():
+        made.append(real_uuid4())
+        return made[-1]
+
+    monkeypatch.setattr(backup.uuid, "uuid4", spy)
     assert backup.verify(dump, ADMIN_URL) == []
-    assert checks() == before  # Wegwerf-Datenbank wieder entfernt
+    names = ["restore_check_" + u.hex[:10] for u in made]
+    with psycopg.connect(ADMIN_URL) as conn:
+        left = conn.execute("SELECT count(*) FROM pg_database WHERE datname = ANY(%s)", (names,)).fetchone()[0]
+    assert len(names) == 1 and left == 0  # Wegwerf-Datenbank wieder entfernt
     with pytest.raises(backup.BackupError):
         backup.create(pg.admin_url, tmp_path, T0)  # nie eine Sicherung ueberschreiben
 
