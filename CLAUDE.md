@@ -98,7 +98,8 @@ bash scripts/cloud_test_db.sh && set -a && source /tmp/ai-trading-test-db.env &&
 ```
 Geprüft am 2026-10-15 (AP-03): `python3` ist in der Cloud 3.11 – deshalb ausdrücklich `python3.12`. Python 3.9 für die
 Kernprüfung gibt es über `uv venv -p 3.9`. `scripts/cloud_test_db.sh` läuft als root ohne Rückfrage (ca. 1 min).
-Die Gegenprobe (über 500 Einträge) läuft in `preflight.py --mutation` in drei Gruppen gleichzeitig; nacheinander dauerte sie
+Die Gegenprobe (über 500 Einträge) läuft in `preflight.py --mutation` in fünf gleichzeitigen Teilen (Kern-Gruppe dreigeteilt,
+`mutation_check.py kern --shard 1/3`); nacheinander dauerte sie
 in der Cloud über 2 Stunden (Zeitlimit für Hintergrund-Befehle). Lange Läufe als Hintergrund-Befehl mit 2 h Zeitlimit starten.
 Lässt sich in der Cloud keine Datenbank einrichten, meldet `preflight.py` ehrlich NICHT STABIL (Datenbank-Tests übersprungen):
 dann nur nach `develop` zusammenführen, **keine** `stable/*`-Tags setzen und den Umstand in `docs/BLOCKERS.md` festhalten.
