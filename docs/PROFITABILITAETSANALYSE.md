@@ -11,7 +11,7 @@ keine kostenpflichtigen Daten. Alles sind Backtests auf öffentlichen historisch
 ## Kurzfassung
 
 1. **Keine Strategie ist belastbar profitabel.** Nach den vorab festgelegten Regeln hat keine der 92 geprüften
-   Kombinationen aus Strategie, Agenten-Variante und Markt die Validierung bestanden; damit gibt es **keinen Kandidaten**
+   Kombinationen aus Strategie, Agenten-Variante und Marktart (Spot / Futures-Näherung) die Validierung bestanden; damit gibt es **keinen Kandidaten**
    und keine Strategie mit der Einstufung „statistisch ausreichend belastbar“.
 2. **Die ursprünglichen sieben Strategien (Stundenkerzen) verdienen heute nach Kosten nichts.** Im Training (2017–2022)
    waren Momentum und Trendfolge profitabel (Momentum, Futures-Näherung: +6.337 USD auf 10.000 USD in 6 Jahren,
@@ -20,8 +20,8 @@ keine kostenpflichtigen Daten. Alles sind Backtests auf öffentlichen historisch
    2022 −0,9 Tsd. USD).
 3. **Am besten schneidet `trend-4h` ab** (Trendfolge auf 4-Stunden-Kerzen, eine der nach dem Training festgelegten
    Verbesserungen): in **jedem** Abschnitt leicht im Plus (Spot: +213 / +251 / +243 USD Handelsnetto in Training,
-   Validierung, Test), nie ein Not-Aus, größter Rückgang 2–6 %. Aber: nur 37–38 Trades je Abschnitt, rund 1 % Ertrag
-   pro Jahr, der Vertrauensbereich schließt 0 ein, und nach Serverkosten bleibt bei 10.000 USD Kapital fast nichts.
+   Validierung, Test), nie ein Not-Aus, größter Rückgang 2–6 %. Aber: nur 37–38 Trades in Validierung und Test, 0,4–1,4 %
+   Ertrag pro Jahr, der Vertrauensbereich schließt 0 ein, und nach Serverkosten bleibt bei 10.000 USD Kapital fast nichts.
    Einstufung: **„historisch profitabel (Validierung und Test), nicht belastbar“** – kein Beleg für einen echten Vorteil.
 4. **Kosten sind der Hauptgegner.** Gebühren und Spread/Slippage verbrauchen bei den Stunden-Strategien 45 % (Training)
    bis über 100 % (Validierung) des Ergebnisses vor Kosten. Mit Gebühren wie bei Coinbase für Einsteiger (0,6 %) lehnt RIN
@@ -32,8 +32,7 @@ keine kostenpflichtigen Daten. Alles sind Backtests auf öffentlichen historisch
    macht aber keine Strategie profitabel.
 6. **KI:** Es wurde **keine echte KI** eingesetzt (kein freigegebenes Budget). Die KI-Kosten des ursprünglichen Designs
    wären verschwindend gering (typisch höchstens 0,06 USD, im ungünstigsten Fall 0,36 USD je Strategie in zwei Jahren
-   bei Haiku-Preisen), aber ein Nutzen ist nicht
-   belegt – die KI bleibt aus.
+   bei Haiku-Preisen), aber ein Nutzen ist nicht belegt – die KI bleibt aus.
 7. **Scalping lohnt sich mit den verfügbaren Daten nicht:** Die typische Kursbewegung in 5 Minuten (0,10 %) ist kleiner als
    die Kosten einer Rundreise (0,18–0,26 %). Für Scalping im Sekundenbereich fehlen Tick- und Orderbuchdaten; dazu wird
    keine Aussage gemacht.
@@ -49,6 +48,9 @@ keine kostenpflichtigen Daten. Alles sind Backtests auf öffentlichen historisch
 genannten Abschnitt · *statistisch ausreichend belastbar* = Kandidat in der Validierung **und** im Test positiv
 (auch unter Kosten-Stress) **und** 95-%-Vertrauensbereich des Tagesergebnisses über Validierung+Test über 0 ·
 *noch nicht überprüft* = dafür fehlen Daten.
+
+**Technisch erfolgreich getestet:** alle 880 Läufe (552 Hauptauswertung, 296 strenger Modus, 32 Kurzzeit-Diagnose)
+liefen fehlerfrei; in jedem stimmt das Kapital-Ergebnis auf den Cent mit der Summe der einzelnen Trades überein.
 
 ---
 
@@ -209,7 +211,7 @@ Rückgang 3,4 %.
 | trend-4h, Test | 289 | 119 | 69 | −15 | 116 | 129 | −13 |
 
 (Spread+Slippage aus dem Kostenmodell geschätzt; sie stecken in den Ausführungskursen. Buchhaltungsprobe: In allen
-552 Läufen der Hauptauswertung stimmt das Kapital-Ergebnis auf den Cent mit der Summe der Trades überein.)
+880 Läufen stimmt das Kapital-Ergebnis auf den Cent mit der Summe der Trades überein.)
 
 * Bei den Stunden-Strategien fressen Kosten 45 % (Training) bis über 100 % (Validierung) des Ergebnisses vor Kosten.
   Weniger Trades (4-h-Kerzen) senken die Kosten auf ein Fünftel bis ein Drittel – das war die wirksamste Verbesserung.

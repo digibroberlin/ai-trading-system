@@ -104,3 +104,19 @@ Git: `0dd5d3e` auf `develop` · Python 3.12.3 · Linux
 - ✅ mypy --strict: Success: no issues found in 109 source files
 - ✅ Tests: 1821 bestanden, 0 uebersprungen, 0 fehlgeschlagen (294 s)
 - ✅ Gegenprobe: ERGEBNIS: 513 entdeckt, 0 nicht entdeckt, 0 nicht geprueft (kern 1/3 76/76, kern 2/3 75/75, kern 3/3 75/75, backtest 182/182, datenbank 105/105) (3472 s)
+
+### 2026-10-17 12:28 UTC - NICHT STABIL
+Git: `771eb8b` auf `ap/20-profitabilitaet` · Python 3.12.3 · Linux
+
+- ✅ Geheimnis-Scan (inkl. Geschichte): GEHEIMNIS-SCAN: keine Funde (Arbeitsstand und gesamte Geschichte).
+- ✅ ruff: All checks passed!
+- ✅ mypy --strict: Success: no issues found in 116 source files
+- ❌ Tests: 1884 bestanden, 0 uebersprungen, 1 fehlgeschlagen (425 s); FAILED tests/test_public_ws.py::test_websocket_handshake_messages_ping_and_close
+- ✅ Gegenprobe: ERGEBNIS: 529 entdeckt, 0 nicht entdeckt, 0 nicht geprueft (kern 1/3 77/77, kern 2/3 76/76, kern 3/3 76/76, backtest 193/193, datenbank 107/107) (3227 s)
+
+*Nachtrag (AP-20):* Eintrag wörtlich aus dem Prüfprotokoll wiederhergestellt, nachdem er beim Aufräumen versehentlich
+verworfen worden war. Ursache des Fehlschlags: Das WebSocket-Gegenstück **im Test** verwarf eine Textnachricht, die unter
+Last im selben Datenpaket wie die Pong-Antwort ankam, und wartete dann endlos (kein Fehler im Handelscode). Behoben in
+`tests/test_public_ws.py`; neuer Test `test_text_arriving_together_with_the_pong_is_not_lost` erzeugt die Lage gezielt
+(mit der alten Testhilfe scheitert er, mit der neuen besteht er). Python 3.9 im selben Stand: 1639 bestanden,
+16 übersprungen (erwartet).
