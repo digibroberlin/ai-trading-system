@@ -736,7 +736,23 @@ def check(mutant: Mutant, copy: Path, with_db: bool) -> Tuple[bool, str]:
                      % (key, run.returncode, run.stdout[-800:], run.stderr[-800:]))
 
 
+def shard(mutants: Sequence[Mutant], part: int, parts: int) -> List[Mutant]:
+    """Teil `part` von `parts` (1-basiert) - jeder Eintrag landet in genau einem Teil (fuer gleichzeitige Laeufe)."""
+    if not 1 <= part <= parts:
+        raise SystemExit("--shard erwartet TEIL/ANZAHL mit 1 <= TEIL <= ANZAHL")
+    return [m for i, m in enumerate(mutants) if i % parts == part - 1]
+
+
 def main(argv: Sequence[str]) -> int:
+    argv = list(argv)
+    part, parts = 1, 1
+    if "--shard" in argv:  # z. B. --shard 2/3: nur jeder dritte Eintrag, beginnend beim zweiten
+        i = argv.index("--shard")
+        try:
+            part, parts = (int(n) for n in argv[i + 1].split("/"))
+        except (IndexError, ValueError):
+            raise SystemExit("--shard erwartet TEIL/ANZAHL, z. B. --shard 1/3") from None
+        del argv[i:i + 2]
     only: List[str] = []
     if "--only" in argv:
         i = list(argv).index("--only")
@@ -765,7 +781,7 @@ def main(argv: Sequence[str]) -> int:
                              "(%s). Erst das beheben." % detail)
         print("[BASIS] Kopie ohne eingebauten Fehler: alle Tests bestanden", flush=True)
         for group in wanted:
-            for mutant in GROUPS[group]:
+            for mutant in shard(GROUPS[group], part, parts):
                 key, name, _, tests = mutant
                 if only and key not in only:
                     continue
