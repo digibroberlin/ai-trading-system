@@ -379,10 +379,15 @@ ergebnis = BacktestEngine(datensatz, build_strategy("breakout"), BacktestConfig(
 * **Marktdaten-Adapter (AP-14) noch nicht gegen die echten Börsen geprüft:** Die Antwortformen sind nach der
   Schnittstellenbeschreibung nachgebildet; der eine echte Testabruf scheitert in der Cloud an der Netzregel (B-008). Der
   Kurs zur Funding-Abrechnung ist eine Näherung (Kerzen-Schluss statt Mark-Preis). Bitget nur bis 4-Stunden-Kerzen.
-* **Kein Profitnachweis.** Strategien (AP-16), KIBO und YUZU (AP-17) sind regelbasiert und technisch geprüft, aber nur
-  auf erfundenen Daten. Ob sie nach allen Kosten einen Vorteil bringen, ist offen (AP-18/20). KIBO/YUZU geben bei zu wenig
-  Kerzen (unter ~115) kein Urteil ab und halten dann nichts auf – die Sicherheit hängt an RIN, SORA und dem Risikomanager.
-* **Nur erfundene Daten.** Es gibt noch keinen Adapter für echte historische oder laufende Marktdaten.
+* **Kein Profitnachweis – geprüft (AP-20, D-034):** Auf echten historischen Daten (Bitstamp BTC/USD 2017–2026, öffentliche
+  Kopie) hat **keine** Strategie nach allen Kosten einen belastbaren Vorteil; die ursprünglichen Strategien verlieren seit
+  2023, `trend-4h` ist leicht positiv, aber nicht belastbar (`docs/PROFITABILITAETSANALYSE.md`). KIBO/YUZU nützen den
+  Trendfolgern nicht messbar. Nicht geprüft: Coinbase-/Bitget-Kurse, ETH, echte Funding-Sätze (B-008), echte KI (B-004).
+  KIBO/YUZU geben bei zu wenig Kerzen (unter ~115) kein Urteil ab und halten dann nichts auf – die Sicherheit hängt an RIN,
+  SORA und dem Risikomanager.
+* **Echte Daten nur für die Forschung:** historische Minutenkerzen per Datei-Import (`trading.marketdata.localfile`);
+  die Börsen-Adapter selbst warten auf die Netzfreigabe (B-008). Keine Tick- oder Orderbuchdaten – Scalping im
+  Sekundenbereich lässt sich nicht seriös prüfen.
 * **Das Stress-Limit wirkt strenger als die Exposure-Grenze** (siehe „Annahmen“): praktisch knapp 50 % Gesamtgröße.
 * **Der Stress-Test wird nur in der Anwendung gerechnet** (unter der Konto-Sperre). Die Datenbank prüft beim Commit zusätzlich
   Gesamtrisiko und Exposure, den Stress-Test nicht.

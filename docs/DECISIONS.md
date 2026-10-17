@@ -546,3 +546,27 @@ Berechtigungen eines Börsen-Schlüssels (Handel/Abhebung) lassen sich nur bei d
 bis dahin darf kein Börsen-Schlüssel vorhanden sein. Ergebnis in der Cloud-Umgebung am 2026-10-16: OK (keine Funde).
 **Demo und Echtgeld:** Demo-Handel braucht die ausdrückliche Freigabe des Eigners (AP-29, B-003); echter Handel eine separate
 Freigabe und zusätzliche Sicherheitsprüfungen – im Code gibt es dafür heute keinen Weg.
+
+## D-034 · 2026-10-17 · Historische Profitabilitätsanalyse und Agenten-Vergleich (AP-20)
+**Anlass:** Auftrag des Eigners vom 2026-10-17 (AP-20 mit Varianten A–E, Kosten A/B, Scalping, einmaliger Test).
+**Daten:** Die Börsen-Schnittstellen sind in der Cloud gesperrt (B-008). Statt eines Umwegs über andere Server-Namen wird eine
+öffentliche, kostenlose Kopie der Bitstamp-BTC/USD-Minutenkerzen genutzt (GitHub, CC BY-SA 4.0, Commit und Prüfsummen fest;
+`marketdata/localfile.py`: strenge Prüfung, Füllwerte ohne Umsatz verworfen, Lücken ausgewiesen statt aufgefüllt).
+`Exchange.BITSTAMP` ist nur für die Forschung zugelassen (Laufzeit und Datenbank lehnen ihn ab). Futures nur genähert
+(Spotkurs, Funding als Szenario).
+**Vorgehen:** Protokoll vorab festgelegt (`docs/AP20_PROTOKOLL.md`, drei datierte Nachträge): Training 2017–2022,
+Validierung 2023–2024, Test 2025-01-01 bis 2026-10-16 (Teil ab 2026-07-01 gesondert); Kostenszenarien F, S, K und Stress
+× 1,5; Varianten V0, A, B, C, D (KI-Kosten als Szenario), S (Schatten), E (ohne KIBO/YUZU, SORA halbiert ab 5 % Rückgang
+das Risiko) und 4-h-Zeitrahmen als einzige Verbesserungen, vor der Validierung festgelegt; Kandidat nur mit Netto A und B
+> 0, ≥ 30 Trades, Stress > 0 und deflationierter Sharpe-Schwelle (N = 92); Testumfang vor dem ersten Testlauf
+eingefroren (`docs/ap20/freeze.json`, Prüfsumme) und je Zelle genau einmal gerechnet (Werkzeug verweigert Wiederholung).
+Nach einem Not-Aus: simulierte monatliche Prüfung des Eigners (`release_halt`, gleiche Grenzen) – zusätzlich streng ohne
+Freigabe.
+**Ergebnis:** kein Kandidat, keine Strategie belastbar profitabel; die ursprünglichen Strategien verlieren seit 2023 nach
+Kosten; `trend-4h` in allen Abschnitten leicht positiv, aber nicht belastbar. KIBO/YUZU ohne Nutzen für Trendfolger,
+KIBO nützt bei Mean Reversion. Bericht: `docs/PROFITABILITAETSANALYSE.md`.
+**Nebenbefunde, behoben:** (1) „stiller Stillstand“ – knapp unter der Drawdown-Grenze lehnt SORA jede Order ab, ohne dass
+der Not-Aus auslöst: Gesundheitscheck warnt ab 90 % einer Grenze („Notbremse fast erreicht“, Gegenprobe OP12).
+(2) Ein KI-Anbieter mit Preis 0 wäre ohne Budget-Freigabe und ohne erwarteten Nutzen aufrufbar gewesen: Budget 0 sperrt
+jetzt jeden Aufruf (Anwendung und Datenbank-Grenzen), Wertschranke 0 ebenso (Z50, Z51, G94, G95).
+**Grenzen:** nur BTC/USD einer Börse; keine Tick-/Orderbuchdaten; keine echte KI; Kosten als Annahmen.

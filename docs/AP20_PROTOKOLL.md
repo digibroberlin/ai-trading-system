@@ -183,3 +183,7 @@ Befunde aus dem Training (Hauptauswertung, Szenarien F und S; Einzelheiten im Be
   Prüfsumme der eingefrorenen Liste: SHA-256 `08183e756b095c5fc9b727135e2214a2b85cec4ae69bf683004f4cf3a724d1ba`,
   erstellt 2026-10-17 10:56:55 UTC (die Notiz in `freeze.json` nennt versehentlich 10:58 UTC; maßgeblich ist
   `created_at`). Liste und Protokoll wurden vor dem ersten Testlauf eingecheckt.
+
+**Durchführung des Tests (2026-10-17, ca. 10:57–11:07 UTC):** alle 223 eingefrorenen Zellen je einmal gerechnet, ohne
+Fehler; danach der strenge Modus für dieselben Zellen in F und S (beschreibend). Keine Zelle wurde wiederholt, nichts am
+Protokoll, an den Strategien oder an den Daten verändert. Ergebnis und Einstufung: `docs/PROFITABILITAETSANALYSE.md`.

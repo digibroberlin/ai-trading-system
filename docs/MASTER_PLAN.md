@@ -1,6 +1,6 @@
 # Master-Plan – vom Paper-Grundsystem zur technisch fertigen Software
 
-Stand: 2026-10-15 · Ziel: technisch fertige, getestete und dokumentierte Software, **bereit für die Demo-Einrichtung**.
+Stand: 2026-10-17 (AP-20 abgeschlossen) · Ziel: technisch fertige, getestete und dokumentierte Software, **bereit für die Demo-Einrichtung**.
 Der Handel selbst (Demo oder echt) wird nicht von Claude gestartet. Wirtschaftliches Ziel des Systems: langfristig möglichst
 hoher, robuster **risikobereinigter Netto**gewinn nach **sämtlichen** Kosten – Handelsergebnis, Börsengebühren, Spread und
 Slippage, Funding, **KI-API-Kosten, Server, Marktdaten und sonstige Betriebskosten** (Vorgabe des Eigners, D-016). Ein solcher
@@ -77,7 +77,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 |---|---|---|---|
 | AP-31 | Betriebskosten und Nettoergebnis nach ALLEN Kosten in AKI: KI-Aufrufe/Tokens/Kosten je Agent, je Modell, je Analyse, je Signal, je Tag/Monat; Kosten je Trade direkt und voll umgelegt (mehrere Analysen je Trade, Analysen ohne Trade); Server/Marktdaten/Sonstiges zeitanteilig | Tests, Gegenprobe | ✅ D-016 |
 | AP-32 | KI-Orchestrierung: datierte Preistabelle, Token- und Kostenmessung je Aufruf, harte Budgets je Aufruf/Tag/Monat (Standard 0, Obergrenze vor jedem Aufruf reserviert, im Betrieb zusätzlich als Datenbank-Gurt, Migration 006), Regeln zuerst, Cache/Doppel-Erkennung, ereignisbasierte Aktivierung mit Abkühlzeit, Modellstufen billig→teuer mit Wertschranke, kompakte strukturierte Prompts | Tests (nur Attrappe), Gegenprobe | ✅ D-016 |
-| AP-33 | Wirtschaftlichkeitsnachweis: gepaarter Vergleich zweier Methoden (z. B. Regeln vs. Regeln+KI, kleines vs. großes Modell) auf denselben Setups nach Analysekosten, Bootstrap-Vertrauensbereich, im Zweifel die günstigere | Rahmen getestet ✅; Nachweis mit echten Daten in AP-20 | 🔄 Rahmen ✅ |
+| AP-33 | Wirtschaftlichkeitsnachweis: gepaarter Vergleich zweier Methoden (z. B. Regeln vs. Regeln+KI, kleines vs. großes Modell) auf denselben Setups nach Analysekosten, Bootstrap-Vertrauensbereich, im Zweifel die günstigere | Rahmen getestet ✅; Nachweis mit echten Daten in AP-20 | ✅ Rahmen; AP-20: Regeln (KIBO/YUZU) gegen V0 gepaart geprüft – kein Nutzen außer KIBO bei Mean Reversion; echte KI nicht geprüft (B-004) |
 
 ### Phase D – Marktdaten und Börsen (nur lesend)
 | AP | Inhalt | Abnahme | Status |
@@ -93,7 +93,7 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 | AP-17 | Marktphasen-Erkennung (Trend/Seitwärts, Volatilität) – Grundlage für KIBO und YUZU (regelbasiert) | Tests | ✅ D-019 |
 | AP-18 | Forschungsrahmen: Trainings-/Validierungs-/Testdaten strikt getrennt, Walk-forward, Kostenempfindlichkeit, Zählung aller Versuche gegen Überanpassung, Strategie-Register mit Freigabestatus | Tests; Test-Daten nur einmal je Strategie-Version | ✅ D-022 |
 | AP-19 | AKI: Bewertung von Strategien und Agenten (Nettoergebnis **nach allen Kosten inkl. KI** (AP-31), Erwartungswert, Drawdown, Profit-Faktor, Stabilität über Marktphasen); Backtests rechnen Betriebs- und Analysekosten mit ein | Tests | ✅ D-022 (KI-Kosten im Backtest erst mit AP-22 real) |
-| AP-20 | Erste ehrliche Untersuchung auf echten historischen Daten (technische Validierung), Bericht – auch wenn kein Vorteil gefunden wird; inkl. Wirtschaftlichkeitsvergleich (AP-33): lohnt eine Analyse ihre Kosten gegenüber der günstigeren Alternative? | Bericht in `docs/` | ⛔ B-008 (Werkzeug ✅ D-032; Ausführung braucht Netz zu den Börsen) |
+| AP-20 | Erste ehrliche Untersuchung auf echten historischen Daten (technische Validierung), Bericht – auch wenn kein Vorteil gefunden wird; inkl. Wirtschaftlichkeitsvergleich (AP-33): lohnt eine Analyse ihre Kosten gegenüber der günstigeren Alternative? Erweitert durch den Auftrag des Eigners vom 2026-10-17: alle Strategien × Agenten-Varianten V0, A–E, Kosten A/B, Marktphasen, Scalping-Kostenhürde, Training/Validierung/einmaliger Test | Bericht in `docs/` | ✅ D-034: [`PROFITABILITAETSANALYSE.md`](PROFITABILITAETSANALYSE.md) auf Bitstamp BTC/USD 2017–2026 (öffentliche Kopie) – **kein belastbarer Vorteil**; bestes Ergebnis `trend-4h` (historisch profitabel, nicht belastbar). Offen (B-008): Gegenprobe auf Coinbase-/Bitget-Daten, ETH, echte Funding-Sätze |
 
 ### Phase F – Laufzeit-Engine (bleibt deaktiviert)
 | AP | Inhalt | Abnahme | Status |

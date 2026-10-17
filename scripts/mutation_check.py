@@ -67,6 +67,8 @@ AIA = "src/trading/ai/activation.py"
 AUC = "src/trading/audit/costs.py"
 AUV = "src/trading/audit/ai_value.py"
 PAB = "src/trading/persistence/ai_budget.py"
+CA20 = "src/trading/research/campaign.py"  # AP-20
+LF = "src/trading/marketdata/localfile.py"  # AP-20
 S6 = "db/migrations/006_ai_budget.sql"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
@@ -110,6 +112,8 @@ PG = ["tests/test_pg_accounts.py", "tests/test_pg_schema.py", "tests/test_pg_exe
 RC = ["tests/test_db_keeper.py", "tests/test_pg_reconnect.py"]  # Wiederverbindung (AP-11)
 AIT = ["tests/test_ai_orchestration.py", "tests/test_operating_costs.py"]  # KI-Kosten (D-016), ohne Datenbank
 PGB = ["tests/test_pg_ai_budget.py"]  # KI-Budget in der Datenbank
+AP20T = ["tests/test_ap20_tools.py", "tests/test_localfile.py", "tests/test_backtest_data.py",
+         "tests/test_backtest_engine.py"]  # Profitabilitaetsanalyse (AP-20)
 
 KERN: List[Mutant] = []
 
@@ -366,6 +370,7 @@ z("Z42","AKI verliert den Messpunkt bei Protokollfehler","src/trading/agents/aki
 z("Z43","Betriebskosten-Zeitraum ohne Zeitzone still angenommen",AUC,"        if not (is_aware(start) and is_aware(end)):  # sonst deutete astimezone() sie still als Ortszeit des Rechners\n            raise ValueError(\"Zeitraum ohne Zeitzone.\")\n","")
 z("Z44","Abfragezeitraum der Betriebskosten nicht nach UTC",AUC,"        start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)\n","")
 KERN.append(("Z25","Geheimnis-Scan nimmt jeden Namen mit 'tokens' aus",[("scripts/secret_scan.py","    return bool(TOKEN_COUNT_NAME.match(name))","    return 'tokens' in name.lower()")],["tests/test_secret_scan.py"]))
+KERN.append(("OP12","Warnung 'Notbremse fast erreicht' fehlt",[("src/trading/ops/health.py","            if value >= BRAKE_WARN_SHARE * limit]","            if False]")],OPT))
 
 
 BACKTEST: List[Mutant] = [
@@ -552,6 +557,17 @@ BACKTEST: List[Mutant] = [
  ("BD07", "Funding bei Spot erlaubt", [(DA, "        if series.funding or series.initial_funding_rate is not None:", "        if False:")], BT),
  ("BD08", "Fingerabdruck ignoriert Reihenfolge-Sortierung", [(DA, "ordered = tuple(sorted(series, key=lambda s: s.instrument.key))", "ordered = tuple(series)")], BT),
  ("BD09", "Funding eines fremden Instruments erlaubt", [(DA, "if not isinstance(ev, FundingEvent) or ev.instrument != series.instrument:", "if not isinstance(ev, FundingEvent):")], BT),
+ ("BA01", "Ausgewiesene Luecke beliebig lang", [(DA, "                or gap[1] - gap[0] > MAX_DECLARED_GAP):", "                or False):")], AP20T),
+ ("BA02", "Nicht ausgewiesene Luecke gilt als ausgewiesen", [(DA, "            if gap in declared:", "            if True:")], AP20T),
+ ("BA03", "Handel schon im Vorlauf", [(EN, "            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie", "            if not tick.closes:  # Vorlauf: nur Historie")], AP20T),
+ ("BA04", "Test einer nicht eingefrorenen Zelle erlaubt", [(CA20, "    if \"%s|%s|%s\" % (scenario, strategy, variant) not in freeze.cells:", "    if False:")], AP20T),
+ ("BA05", "Test derselben Zelle mehrfach erlaubt", [(CA20, "    if cell_path(results, key).exists():\n        raise GuardViolation", "    if False:\n        raise GuardViolation")], AP20T),
+ ("BA06", "Test ohne Einfrieren erlaubt", [(CA20, "    if not freeze_path.exists():\n        raise GuardViolation", "    if False:\n        raise GuardViolation")], AP20T),
+ ("BA07", "SORA senkt das Risiko im Drawdown nicht", [(SO, "                return self.risk_per_trade * self.drawdown_factor", "                return self.risk_per_trade")], AP20T),
+ ("BA08", "Widerspruechliche doppelte Minuten erlaubt", [(LF, "                        if row != previous:", "                        if False:")], AP20T),
+ ("BA09", "Ungeordnete Minuten erlaubt", [(LF, "                    if t < previous[0]:", "                    if False:")], AP20T),
+ ("BA10", "Fehlende Minuten der Quelle werden ueberbrueckt", [(LF, "        if last_minute is not None and t != last_minute + MINUTE:", "        if False:")], AP20T),
+ ("BA11", "Unvollstaendige Abdeckung des Zeitraums erlaubt", [(LF, "    if first_minute is None or last_minute is None or first_minute > start or last_minute < end - MINUTE:", "    if False:")], AP20T),
 ]
 
 LOCK: Edit = (EX, '"SELECT * FROM accounts WHERE account_id = %s FOR UPDATE"',

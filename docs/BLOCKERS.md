@@ -30,6 +30,9 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
   WAS DANACH: Die nächste Sitzung lädt eine Woche BTC-Kerzen (Coinbase Spot, Bitget Spot/Futures), prüft sie und hält das
   Ergebnis im Testbericht fest, beobachtet einige Minuten den Live-Strom (`python -m trading.marketdata.watch`, ohne
   Handel) und führt AP-20 aus (`python -m trading.research.study ...`, D-032 – das Werkzeug ist fertig).
+  **Stand 2026-10-17 (AP-20, D-034):** Die Profitabilitätsanalyse wurde ersatzweise auf einer öffentlichen Kopie der
+  Bitstamp-BTC/USD-Daten durchgeführt (`docs/PROFITABILITAETSANALYSE.md`). Die Freigabe bleibt nötig für die Gegenprobe
+  auf Coinbase-/Bitget-Kursen, für ETH und andere Coins und für **echte Funding-Sätze** (Futures sind bisher nur genähert).
 
 * **B-009 Geprüfte Stände nach `main` übernehmen (Eigner, ca. 1 Minute) – seit der Ergänzung vom 2026-10-16.**
   WAS: Claude verändert `main` nicht mehr selbst. Ist ein Stand STABLE (Preflight STABIL + volle Gegenprobe), steht der Commit
