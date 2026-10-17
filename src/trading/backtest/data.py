@@ -24,9 +24,12 @@ from trading.audit.events import to_jsonable
 from trading.domain.instrument import Exchange, InstrumentId, MarketType, is_instrument
 from trading.domain.models import Candle, FundingEvent
 from trading.domain.numeric import is_finite_decimal, is_positive_decimal
-from trading.marketdata.candles import is_aware, validate_series
+from trading.marketdata.candles import IssueKind, is_aware, validate_series
 from trading.marketdata.synthetic import SyntheticMarket, funding_events
 from trading.safety.limits import HARD_MAX_PRICE_JUMP
+
+
+MAX_DECLARED_GAP = timedelta(hours=24)  # laengere Ausfaelle: Zeitraum anders waehlen, nie ueberbruecken
 
 
 class DataQualityError(ValueError):
@@ -49,6 +52,9 @@ class InstrumentSeries:
     funding: Tuple[FundingEvent, ...] = ()
     initial_funding_rate: Optional[Decimal] = None  # zu Beginn bekannter Satz (bis zur ersten Abrechnung)
     spread_bps: Decimal = Decimal("2")  # angenommener Bid/Ask-Spread fuer simulierte Ausfuehrungen
+    # Von der Quelle AUSDRUECKLICH ausgewiesene Luecken (Beginn, Ende), z. B. Ausfall der Boerse - nur diese sind erlaubt,
+    # jede andere Luecke bleibt ein Fehler. Nichts wird aufgefuellt; hoechstens MAX_DECLARED_GAP je Luecke (AP-20).
+    declared_gaps: Tuple[Tuple[datetime, datetime], ...] = ()
 
 
 def series_problems(series: InstrumentSeries, max_price_jump: Decimal) -> Tuple[List[str], List[str]]:
@@ -71,9 +77,21 @@ def series_problems(series: InstrumentSeries, max_price_jump: Decimal) -> Tuple[
         error("keine Kerzen")
         return errors, warnings
 
+    declared = set()
+    for gap in series.declared_gaps:
+        if (not isinstance(gap, tuple) or len(gap) != 2 or not all(is_aware(g) for g in gap) or gap[1] <= gap[0]
+                or gap[1] - gap[0] > MAX_DECLARED_GAP):
+            error("ausgewiesene Luecke ungueltig oder laenger als %s: %r" % (MAX_DECLARED_GAP, gap))
+            continue
+        declared.add(gap)
     report = validate_series(series.candles, max_price_jump)
     for issue in report.issues:
         text = "Kerze %d (%s): %s - %s" % (issue.index, issue.time, issue.kind.value, issue.detail)
+        if issue.kind is IssueKind.GAP and 0 < issue.index < len(series.candles):
+            gap = (series.candles[issue.index - 1].close_time, series.candles[issue.index].open_time)
+            if gap in declared:
+                warnings.append("%s: %s (von der Quelle ausgewiesen)" % (key, text))
+                continue
         (errors if issue.is_error else warnings).append("%s: %s" % (key, text))
     for i, c in enumerate(series.candles):
         if isinstance(c, Candle) and (c.instrument != series.instrument or c.interval_s != series.interval_s):
@@ -159,7 +177,7 @@ class MarketDataset:
             if candles:
                 funding = tuple(f for f in s.funding if f.time <= candles[-1].close_time)
                 cut.append(InstrumentSeries(s.instrument, s.interval_s, candles, funding,
-                                            s.initial_funding_rate, s.spread_bps))
+                                            s.initial_funding_rate, s.spread_bps, _gaps_within(s, candles)))
         return MarketDataset.build(cut)
 
     def window(self, start: datetime, end: datetime) -> "MarketDataset":
@@ -175,10 +193,16 @@ class MarketDataset:
             funding = tuple(f for f in s.funding if candles[0].open_time < f.time <= candles[-1].close_time)
             known = [f.rate for f in s.funding if f.time <= candles[0].open_time]
             initial = known[-1] if known else s.initial_funding_rate
-            cut.append(InstrumentSeries(s.instrument, s.interval_s, candles, funding, initial, s.spread_bps))
+            cut.append(InstrumentSeries(s.instrument, s.interval_s, candles, funding, initial, s.spread_bps,
+                                        _gaps_within(s, candles)))
         if not cut:
             raise ValueError("Keine Kerzen im Zeitraum.")
         return MarketDataset.build(cut)
+
+
+def _gaps_within(series: InstrumentSeries, candles: Tuple[Candle, ...]) -> Tuple[Tuple[datetime, datetime], ...]:
+    """Ausgewiesene Luecken, die ganz zwischen der ersten und der letzten der ausgewaehlten Kerzen liegen."""
+    return tuple(g for g in series.declared_gaps if candles[0].close_time <= g[0] and g[1] <= candles[-1].open_time)
 
 
 class HistoricalDataSource(ABC):

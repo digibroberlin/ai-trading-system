@@ -163,15 +163,40 @@ def test_metrics_cover_market_engine_budget_and_portfolio():
     from trading.domain.models import PortfolioState
 
     switch = InMemoryKillSwitch(FixedClock(T0))
-    state = PortfolioState(D(9000), D(0), D(9000), D(9000), D(10000), D(10000), D(0), 1, frozenset(), D(0), D(0), True)
+    # 5 % unter dem Hoechststand, heute nichts verloren: weit genug von den Notbremsen (Warnung erst ab 90 %)
+    state = PortfolioState(D(9500), D(0), D(9500), D(9500), D(9500), D(10000), D(0), 1, frozenset(), D(0), D(0), True)
     p, clock = probe(kill_switch=switch, monitor=FakeMonitor(last=T0 - timedelta(seconds=4)),
                      budget=InMemoryBudgetLedger(AIBudget(D("0.05"), D(1), D(10)), FixedClock(T0)),
                      portfolio=lambda: state)
     values = {m.name: m.value for m in p.metrics()}
     assert values["trading_up"] == 1 and values["trading_health_status"] == 0
     assert values["trading_kill_switch_halted"] == 0 and values["trading_market_data_age_seconds"] == 4
-    assert values["trading_drawdown_ratio"] == D("0.1") and values["trading_open_positions"] == 1
+    assert values["trading_drawdown_ratio"] == D("0.05") and values["trading_open_positions"] == 1
     assert values["trading_ai_budget_blocked"] == 0 and values["trading_market_candles_total"] == 10
+
+
+def test_brakes_close_to_their_limit_warn_before_trading_silently_stops():
+    """Befund AP-20: knapp unter der Grenze lehnt SORA jede neue Order ab, der Not-Aus loest aber nicht aus."""
+    from trading.domain.models import PortfolioState
+
+    def level(equity, day_start, peak):
+        state = PortfolioState(D(equity), D(0), D(equity), D(equity), D(day_start), D(peak), D(0), 0, frozenset(),
+                               D(0), D(0), True)
+        p, _ = probe(portfolio=lambda: state)
+        report = p.report()
+        return report.level, next(c for c in report.checks if c.name == "brakes").detail
+
+    assert level(9200, 9200, 10000)[0] is Level.OK  # 8 % Drawdown: noch ruhig
+    lvl, detail = level(9050, 9050, 10000)  # 9,5 % von hoechstens 10 %
+    assert lvl is Level.WARN and "Drawdown 9.50 %" in detail and "Not-Aus" in detail
+    lvl, detail = level(9720, 10000, 10000)  # 2,8 % Tagesverlust von hoechstens 3 %
+    assert lvl is Level.WARN and "Tagesverlust" in detail
+
+    def broken():
+        raise RuntimeError("weg")
+
+    p, _ = probe(portfolio=broken)
+    assert next(c for c in p.report().checks if c.name == "brakes").level is Level.WARN
 
 
 # ------------------------------------------------------------------ Meldungen der Bausteine

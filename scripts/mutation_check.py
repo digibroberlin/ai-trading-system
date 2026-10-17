@@ -67,6 +67,8 @@ AIA = "src/trading/ai/activation.py"
 AUC = "src/trading/audit/costs.py"
 AUV = "src/trading/audit/ai_value.py"
 PAB = "src/trading/persistence/ai_budget.py"
+CA20 = "src/trading/research/campaign.py"  # AP-20
+LF = "src/trading/marketdata/localfile.py"  # AP-20
 S6 = "db/migrations/006_ai_budget.sql"
 
 ALL_TESTS: List[str] = []  # leer = ganze Testsuite
@@ -110,6 +112,8 @@ PG = ["tests/test_pg_accounts.py", "tests/test_pg_schema.py", "tests/test_pg_exe
 RC = ["tests/test_db_keeper.py", "tests/test_pg_reconnect.py"]  # Wiederverbindung (AP-11)
 AIT = ["tests/test_ai_orchestration.py", "tests/test_operating_costs.py"]  # KI-Kosten (D-016), ohne Datenbank
 PGB = ["tests/test_pg_ai_budget.py"]  # KI-Budget in der Datenbank
+AP20T = ["tests/test_ap20_tools.py", "tests/test_localfile.py", "tests/test_backtest_data.py",
+         "tests/test_backtest_engine.py"]  # Profitabilitaetsanalyse (AP-20)
 
 KERN: List[Mutant] = []
 
@@ -324,7 +328,7 @@ z("Z06","Kosten ueber der Reservierung sperren nicht",AIB,"            if actual
 z("Z07","Kostenobergrenze ohne Ausgabe-Tokens",AIP,"               + Decimal(max_output_tokens) * self.output_per_mtok) / MILLION",") / MILLION")
 z("Z08","Kostenobergrenze mit dem billigeren Eingabepreis",AIP,"worst_input_price = max(self.input_per_mtok, self.cache_write_per_mtok)","worst_input_price = self.input_per_mtok")
 z("Z09","KI-Kosten abgerundet",AIP,"               + Decimal(usage.cache_read_tokens) * self.cache_read_per_mtok) / MILLION\n        return cost_up(raw)","               + Decimal(usage.cache_read_tokens) * self.cache_read_per_mtok) / MILLION\n        return raw.quantize(Decimal('0.00000001'), rounding='ROUND_DOWN')")
-z("Z10","Wertschranke abgeschaltet",AIO,"        if run.spent + ceiling > request.expected_value_usd * self._routing.max_cost_share:","        if False:")
+z("Z10","Wertschranke abgeschaltet",AIO,"        if value_cap <= 0 or run.spent + ceiling > value_cap:","        if False:")
 z("Z11","Teurere Stufe auch bei sicherer Antwort",AIO,"            if answer is not None and confidence >= self._routing.accept_confidence:\n                break","            if False:\n                break")
 z("Z12","Sichere Regeln trotzdem per KI geprueft",AIO,"        if valid_rules is not None and valid_rules.confidence >= self._routing.rule_confidence:","        if False:")
 z("Z13","Cache / Doppel-Erkennung abgeschaltet",AIO,"            cached = self._cached(key)\n","            cached = None\n")
@@ -341,11 +345,13 @@ z("Z46","Voll umgelegte KI-Kosten nur aus dem Zeitraum",AUC,"    total = on_trad
 z("Z47","0 Ausgabe-Tokens fuer eine Antwort werden geglaubt",AIO,"        charge: Optional[Decimal] = None if wrong_model or no_usage or no_output else price.cost(usage)\n","        charge: Optional[Decimal] = None if wrong_model or no_usage else price.cost(usage)\n")
 z("Z48","Nicht zustaendige Anfragen reservieren Budget",AIO,"        if not self._activation.ready(request.agent, request.trigger, request.subject or request.kind):","        if False:")
 z("Z49","Nicht schreibbare Sperre laesst den Prozess weiter zahlen",AIO,"            self._local_block = reason or \"gesperrt\"\n","            pass\n")
+z("Z50","Ohne erwarteten Nutzen trotzdem KI-Aufruf (Preis 0)",AIO,"        if value_cap <= 0 or run.spent","        if run.spent")
+z("Z51","Budget 0 erlaubt Aufrufe zum Preis 0",AIB,"            if not self._budget.allows_spending:  # Budget 0","            if False:  # Budget 0")
 z("Z21","Nettoergebnis ohne Betriebskosten",AUC,"        net - operating, ai, attribute_ai_costs(records, period_trades, earlier, unmeasured_ai),","        net, ai, attribute_ai_costs(records, period_trades, earlier, unmeasured_ai),")
 z("Z22","Zeitraum-Kosten nicht anteilig",AUC,"        return cost_up(self.amount * Decimal(str(overlap)) / Decimal(str(whole)))","        return self.amount")
 z("Z23","Teure Methode schon bei positivem Mittelwert bevorzugt",AUV,"    elif low > 0:","    elif mean_diff > 0:")
 z("Z24","Teure Methode schon mit wenigen Daten bevorzugt",AUV,"    if n < min_samples:","    if False:")
-z("Z27","Wertschranke nur je Stufe statt je Analyse",AIO,"        if run.spent + ceiling > request.expected_value_usd","        if ceiling > request.expected_value_usd")
+z("Z27","Wertschranke nur je Stufe statt je Analyse",AIO,"or run.spent + ceiling > value_cap:","or ceiling > value_cap:")
 z("Z28","Fehlender Verbrauch wird als 0 USD abgerechnet",AIO,"        charge: Optional[Decimal] = None if wrong_model or no_usage or no_output else price.cost(usage)","        charge: Optional[Decimal] = None if wrong_model or no_output else price.cost(usage)")
 z("Z29","Anderes Modell des Anbieters bleibt unbemerkt",AIO,"        wrong_model = response.provider != target.provider or response.model != target.model","        wrong_model = False")
 z("Z30","Ausgabe ueber max_tokens sperrt nicht",AIO,"        if usage.output_tokens > request.max_output_tokens:","        if False:")
@@ -364,6 +370,7 @@ z("Z42","AKI verliert den Messpunkt bei Protokollfehler","src/trading/agents/aki
 z("Z43","Betriebskosten-Zeitraum ohne Zeitzone still angenommen",AUC,"        if not (is_aware(start) and is_aware(end)):  # sonst deutete astimezone() sie still als Ortszeit des Rechners\n            raise ValueError(\"Zeitraum ohne Zeitzone.\")\n","")
 z("Z44","Abfragezeitraum der Betriebskosten nicht nach UTC",AUC,"        start, end = start.astimezone(timezone.utc), end.astimezone(timezone.utc)\n","")
 KERN.append(("Z25","Geheimnis-Scan nimmt jeden Namen mit 'tokens' aus",[("scripts/secret_scan.py","    return bool(TOKEN_COUNT_NAME.match(name))","    return 'tokens' in name.lower()")],["tests/test_secret_scan.py"]))
+KERN.append(("OP12","Warnung 'Notbremse fast erreicht' fehlt",[("src/trading/ops/health.py","            if value >= BRAKE_WARN_SHARE * limit]","            if False]")],OPT))
 
 
 BACKTEST: List[Mutant] = [
@@ -377,7 +384,7 @@ BACKTEST: List[Mutant] = [
  ("B07", "Abgestuerzte Strategie liefert trotzdem ein Ergebnis", [(EN, "        if log.of_type(EventType.SYSTEM_ERROR):", "        if False:")], BT),
  ("B08", "Verworfene Marktdaten werden hingenommen", [(EN, "        if log.of_type(EventType.DATA_REJECTED):", "        if False:")], BT_PG),
  ("B09", "Bezeichnung des Laufs veraendert den Fingerabdruck", [(EN, 'if k != "label"', 'if k != "kein-feld"')], BT),
- ("B10", "Kapitalpunkt VOR dem Funding desselben Zeitpunkts", [(EN, "            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes:\n                continue\n            aki.record_equity(now, executor.portfolio_state())  # 3. Kapitalkurve\n", "            if tick.closes:\n                aki.record_equity(now, executor.portfolio_state())\n            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes:\n                continue\n")], BT),
+ ("B10", "Kapitalpunkt VOR dem Funding desselben Zeitpunkts", [(EN, "            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie\n                continue\n", "            if tick.closes and now >= trade_from:\n                aki.record_equity(now, executor.portfolio_state())\n            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie\n                continue\n"), (EN, "            aki.record_equity(now, executor.portfolio_state())  # 3. Kapitalkurve\n", "")], BT),
  ("B11", "Verlaufsfenster um eine Kerze zu gross", [(EN, "bars={i: tuple(bars[-cfg.history_bars:])", "bars={i: tuple(bars[-cfg.history_bars - 1:])")], BT),
  ("B12", "Per Signal geschlossene Trades fehlen in der Auswertung", [(EN, "                    exits_executed += 1\n                    aki.register_closed_trades([outcome.result.trade])", "                    exits_executed += 1")], BT),
  ("B13", "Per Stop/Ziel geschlossene Trades fehlen in der Auswertung", [(EN, "aki.register_closed_trades(executor.on_candle(candle))", "executor.on_candle(candle)")], BT),
@@ -402,7 +409,7 @@ BACKTEST: List[Mutant] = [
  ("KY07", "YUZU ignoriert den Spread im Verhaeltnis zum Stop", [(YZ, "        if stop_distance > 0 and spread > cfg.max_spread_stop_share * stop_distance:", "        if False:")], KYT),
  ("KY08", "Trend ohne Effizienz-Schwelle", [(RG, "    if efficiency >= config.trend_efficiency and slope > 0 and price > now:", "    if slope > 0 and price > now:")], KYT),
  ("KY09", "Gleichstaende im Volatilitaets-Rang nicht beruecksichtigt", [(RG, " + D(sum(1 for v in earlier if v == current)) / 2)", ")")], KYT),
- ("KY10", "Backtest nutzt wieder neutrale Platzhalter", [("src/trading/backtest/engine.py", "        kibo = self._kibo or RuleBasedKibo()", "        kibo = self._kibo or NeutralKibo()")], KYT),
+ ("KY10", "Backtest nutzt wieder neutrale Platzhalter", [("src/trading/backtest/engine.py", "        kibo: KiboAgent = self._kibo or RuleBasedKibo()", "        kibo: KiboAgent = self._kibo or NeutralKibo()")], KYT),
  ("DA01", "Dashboard laesst Modus LIVE zu", [(DSH_API, "    if source.mode is Mode.LIVE:", "    if False:")], DBT),
  ("DA02", "Dashboard liefert beliebige Dateien aus", [(DSH_API, "        if name not in STATIC_FILES:  # feste Liste - kein Zugriff auf andere Dateien", "        if not (STATIC / name).is_file():")], DBT),
  ("DA03", "Dashboard ohne Sicherheits-Header", [(DSH_API, "            response.headers[key] = value", "            pass")], DBT),
@@ -550,6 +557,17 @@ BACKTEST: List[Mutant] = [
  ("BD07", "Funding bei Spot erlaubt", [(DA, "        if series.funding or series.initial_funding_rate is not None:", "        if False:")], BT),
  ("BD08", "Fingerabdruck ignoriert Reihenfolge-Sortierung", [(DA, "ordered = tuple(sorted(series, key=lambda s: s.instrument.key))", "ordered = tuple(series)")], BT),
  ("BD09", "Funding eines fremden Instruments erlaubt", [(DA, "if not isinstance(ev, FundingEvent) or ev.instrument != series.instrument:", "if not isinstance(ev, FundingEvent):")], BT),
+ ("BA01", "Ausgewiesene Luecke beliebig lang", [(DA, "                or gap[1] - gap[0] > MAX_DECLARED_GAP):", "                or False):")], AP20T),
+ ("BA02", "Nicht ausgewiesene Luecke gilt als ausgewiesen", [(DA, "            if gap in declared:", "            if True:")], AP20T),
+ ("BA03", "Handel schon im Vorlauf", [(EN, "            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie", "            if not tick.closes:  # Vorlauf: nur Historie")], AP20T),
+ ("BA04", "Test einer nicht eingefrorenen Zelle erlaubt", [(CA20, "    if \"%s|%s|%s\" % (scenario, strategy, variant) not in freeze.cells:", "    if False:")], AP20T),
+ ("BA05", "Test derselben Zelle mehrfach erlaubt", [(CA20, "    if cell_path(results, key).exists():\n        raise GuardViolation", "    if False:\n        raise GuardViolation")], AP20T),
+ ("BA06", "Test ohne Einfrieren erlaubt", [(CA20, "    if not freeze_path.exists():\n        raise GuardViolation", "    if False:\n        raise GuardViolation")], AP20T),
+ ("BA07", "SORA senkt das Risiko im Drawdown nicht", [(SO, "                return self.risk_per_trade * self.drawdown_factor", "                return self.risk_per_trade")], AP20T),
+ ("BA08", "Widerspruechliche doppelte Minuten erlaubt", [(LF, "                        if row != previous:", "                        if False:")], AP20T),
+ ("BA09", "Ungeordnete Minuten erlaubt", [(LF, "                    if t < previous[0]:", "                    if False:")], AP20T),
+ ("BA10", "Fehlende Minuten der Quelle werden ueberbrueckt", [(LF, "        if last_minute is not None and t != last_minute + MINUTE:", "        if False:")], AP20T),
+ ("BA11", "Unvollstaendige Abdeckung des Zeitraums erlaubt", [(LF, "    if first_minute is None or last_minute is None or first_minute > start or last_minute < end - MINUTE:", "    if False:")], AP20T),
 ]
 
 LOCK: Edit = (EX, '"SELECT * FROM accounts WHERE account_id = %s FOR UPDATE"',
@@ -654,6 +672,8 @@ DATENBANK: List[Mutant] = [
  ("G91","KI-Budget: eine Verbindung ohne Sperre fuer alle Threads",[(PAB,"        with self._lock:\n            conn = self._db.get()","        if True:\n            conn = self._db.get()")], PGB),
  ("G92","KI-Budget arbeitet in fremder offener Transaktion",[(PAB,"            if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:","            if False:")], PGB),
  ("G93","KI-Reservierung schon abgerechnet angelegt",[(S6,"    IF NEW.actual IS NOT NULL THEN\n        RAISE EXCEPTION 'KI-Budget: neue Reservierung ist noch nicht abgerechnet'","    IF false THEN\n        RAISE EXCEPTION 'KI-Budget: neue Reservierung ist noch nicht abgerechnet'")], PGB),
+ ("G94","DB-Budget: Budget 0 der Anwendung erlaubt Aufrufe zum Preis 0",[(PAB,"        if not self._budget.allows_spending:  # Budget 0","        if False:  # Budget 0")], PGB),
+ ("G95","DB-Budget: Grenzen 0 in der Datenbank erlauben Aufrufe zum Preis 0",[(PAB,"                if min(lim[2], lim[3], lim[4]) <= 0:","                if False:")], PGB),
  ("BK01", "Beschaedigte Sicherung nicht erkannt", [(BKS, "    if sha256_of(dump) != meta.get(\"sha256\"):", "    if False:")], BKT),
  ("BK02", "Fehlende Zeilen nach dem Rueckspielen nicht erkannt", [(BKS, "            if got is None or got < count:", "            if False:")], BKT),
  ("BK03", "Kaputte Ereigniskette nach dem Rueckspielen nicht erkannt", [(BKS, "        if not result.ok:\n            findings.append(\"Ereigniskette", "        if False:\n            findings.append(\"Ereigniskette")], BKT),

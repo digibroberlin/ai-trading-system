@@ -42,6 +42,9 @@ def test_fresh_database_allows_no_paid_call_at_all(pg):
         led.reserve(D("0.00000001"), "KIBO", "m")
     status = led.status()
     assert status.budget.daily_usd == 0 and not status.blocked
+    with pytest.raises(BudgetError, match="nicht freigegeben"):
+        led.reserve(D(0), "KIBO", "none")  # auch ein Anbieter zum Preis 0 braucht die Freigabe des Administrators
+    assert led.status().spent_today == 0
 
 
 def test_database_limits_hold_even_if_the_application_allows_more(pg):
@@ -66,6 +69,8 @@ def test_application_budget_is_also_respected(pg):
     with pytest.raises(BudgetError):
         led.reserve(D("0.1"), "KIBO", "m")
     assert led.status().budget == AIBudget(D("0.1"), D("0.2"), D("1"))  # die strengere Grenze gilt
+    with pytest.raises(BudgetError, match="nicht freigegeben"):
+        ledger(pg, AIBudget()).reserve(D(0), "KIBO", "none")  # Budget 0 der Anwendung: auch zum Preis 0 kein Aufruf
 
 
 def server_today(pg):

@@ -26,6 +26,9 @@ class Exchange(str, Enum):
     SYNTHETIC = "synthetic"  # erfundene Daten fuer Tests und Backtests
     COINBASE = "coinbase"
     BITGET = "bitget"
+    # Nur Herkunft historischer Forschungsdaten (AP-20: Bitstamp-1m-Kerzen aus einer oeffentlichen Kopie). Kein Adapter,
+    # kein Betrieb: Der Paper-Dienst kennt keine Intervalle dafuer, die Datenbank laesst die Boerse nicht zu.
+    BITSTAMP = "bitstamp"
 
 
 _SYMBOL_FORMAT = re.compile(r"^[A-Z0-9]{2,12}-[A-Z]{2,6}$")

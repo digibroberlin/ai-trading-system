@@ -3,14 +3,15 @@
 Wird bei jedem Arbeitspaket aktualisiert. So geschrieben, dass eine neue Sitzung (oder eine Cloud-Routine) ohne
 Informationsverlust weitermachen kann.
 
-> **AP-20 IN ARBEIT (interaktive Sitzung, Auftrag des Eigners vom 2026-10-17):** historische Profitabilitätsanalyse
-> und Optimierung der sechs Agenten – nur Backtests, Simulationen und technische Tests, **kein Handel**.
-> Grundlage: geprüfter Stand `stable/005-release-candidate` (`develop` @ `0dd5d3e`, Abschlussbericht
-> [`docs/ABSCHLUSSBERICHT.md`](ABSCHLUSSBERICHT.md)). Arbeitszweig `ap/20-profitabilitaet`.
+> **AP-20 ABGESCHLOSSEN (2026-10-17, Auftrag des Eigners):** historische Profitabilitätsanalyse und Agenten-Vergleich auf
+> echten Daten (Bitstamp BTC/USD 2017–2026) – **kein belastbarer Vorteil**; Bericht
+> [`docs/PROFITABILITAETSANALYSE.md`](PROFITABILITAETSANALYSE.md). Laut Auftrag nach dieser Phase **gestoppt**: Wie es
+> weitergeht (Netzfreigabe B-008 für die Gegenprobe auf Börsendaten, Demo-Einrichtung), entscheidet der Eigner.
+> Es wurde nicht gehandelt.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-17 10:18 UTC für AP-20 (Profitabilitätsanalyse)
+keine
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -18,15 +19,21 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## Aktueller Stand (2026-10-17) – für die Wiederaufnahme (Ergänzung des Eigners, Punkt 6)
 
 * **Handel:** keiner. Es läuft kein Bot, kein Paper-, Demo- oder Echtgeld-Betrieb; Handel ist standardmäßig aus.
-* **Letzter Git-Checkpoint:** `develop` auf GitHub (Abschlussbericht nach dem geprüften Stand `0dd5d3e`, nur Doku).
+* **Letzter Git-Checkpoint:** `develop` auf GitHub mit AP-20 (Zusammenführung von `ap/20-profitabilitaet`, geprüfter
+  Stand `521f1a9`): Preflight STABIL am 2026-10-17 12:37 UTC – 1886/1886 Tests mit PostgreSQL, 0 übersprungen;
+  Gegenprobe 529/529 im Lauf davor (12:28 UTC, auf `771eb8b`; seither nur eine Testhilfe und Doku geändert);
+  Python 3.9: 1639 bestanden, 16 übersprungen (erwartet). Nicht als STABLE gekennzeichnet (dafür fehlt eine volle
+  Gegenprobe auf genau diesem Stand).
 * **Letzter STABLE-Stand:** `stable/005-release-candidate` = `develop` @ `0dd5d3e` – Preflight STABIL am 2026-10-17
   01:28 UTC: 1821/1821 Tests (0 übersprungen), Gegenprobe 513/513, Python 3.9: 1575 bestanden, GitHub Actions grün.
   Der Tag ist nur lokal gesetzt: Die Cloud darf keine Tags hochladen (403, B-007). **`main` verändert Claude nicht selbst**
   (Ergänzung 2026-10-16): `main` = `ad6cc9f` (`stable/004-safety-stage2`); der Eigner übernimmt den Stand (B-009).
 * **Zweige:** `main` (stabil, nur durch den Eigner), `develop` (Integration), Arbeitszweige `ap/NN-name`.
-* **Was fehlt (alles wartet auf den Eigner):** AP-20 ausführen (Werkzeug fertig, braucht Netz B-008) · AP-29
-  (Entscheidung B-003) · Server (B-005) · KI-Budget (B-004, optional) · `main`/Tags (B-009, B-007).
-* **Als Nächstes:** gemeinsame Demo-Einrichtung mit dem Eigner (Reihenfolge im Abschlussbericht, Abschnitt 5).
+* **Was fehlt (alles wartet auf den Eigner):** Gegenprobe von AP-20 auf Coinbase-/Bitget-Daten, ETH und echten
+  Funding-Sätzen (Netzfreigabe B-008) · AP-29 (Entscheidung B-003) · Server (B-005) · KI-Budget (B-004, optional) ·
+  `main`/Tags (B-009, B-007).
+* **Als Nächstes:** Entscheidung des Eigners zu den Empfehlungen in `docs/PROFITABILITAETSANALYSE.md`, Abschnitt 11
+  (keine Strategie mit Gewinnerwartung; Demo höchstens zur technischen Erprobung mit `trend-4h`, BTC Spot).
 * **Arbeitsort:** die Cloud (D-008); der Mac-Ordner ist nur Sicherung.
 
 ## In Arbeit (Zwischenstand)
@@ -35,6 +42,14 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 
 ## Zuletzt erledigt
 
+* **AP-20 Historische Profitabilitätsanalyse und Agenten-Vergleich** (interaktive Cloud-Sitzung, 2026-10-17, D-034):
+  Daten: öffentliche Kopie der Bitstamp-BTC/USD-Minutenkerzen (Börsen-Schnittstellen gesperrt, B-008), streng geprüft,
+  Lücken ausgewiesen. Protokoll vorab (`docs/AP20_PROTOKOLL.md`, 3 Nachträge), Training 2017–2022, Validierung 2023–2024,
+  Test 2025–2026 eingefroren (223 Zellen, Prüfsumme) und einmal gerechnet; 7 Strategien + 3 Varianten auf 4-h-Kerzen ×
+  Agenten-Varianten V0, A–E, S × Kostenszenarien F, S, K, Stress; Not-Aus mit simulierter monatlicher Prüfung und streng.
+  Ergebnis: kein Kandidat, keine Strategie belastbar profitabel; `trend-4h` in allen Abschnitten leicht positiv, nicht
+  belastbar; KIBO/YUZU ohne Nutzen für Trendfolger. Nebenbei behoben: Warnung „Notbremse fast erreicht“ (stiller
+  Stillstand), KI-Budget 0 sperrt auch Anbieter zum Preis 0. Ergebnistabellen `docs/ap20/`.
 * **AP-30 Abschlussprüfung und Abschlussbericht** (interaktive Cloud-Sitzung, 2026-10-17): volle Prüfung auf dem
   Endstand `0dd5d3e` STABIL – 1821/1821 Tests mit PostgreSQL, Gegenprobe 513/513, Python 3.9 1575 bestanden, GitHub
   Actions grün; gekennzeichnet als `stable/005-release-candidate` (Tag lokal, B-007). Unterwegs gefunden und behoben:

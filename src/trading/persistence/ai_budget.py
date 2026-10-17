@@ -20,7 +20,7 @@ from typing import Any, Iterator, Optional, Tuple
 
 import psycopg
 
-from trading.ai.budget import AIBudget, BudgetError, BudgetLedger, BudgetStatus, Reservation, check_amount
+from trading.ai.budget import NOT_APPROVED, AIBudget, BudgetError, BudgetLedger, BudgetStatus, Reservation, check_amount
 from trading.clock import Clock
 from trading.persistence.db import ConnectionKeeper, DatabaseUnavailableError, connect
 
@@ -64,16 +64,21 @@ class PostgresBudgetLedger(BudgetLedger):
     def reserve(self, amount: Decimal, agent: str, model: str) -> Reservation:
         check_amount(amount)
         now = self._clock.now()  # nur fuer die Kennung; Tag und Zeit der Buchung setzt die Datenbank
+        if not self._budget.allows_spending:  # Budget 0 = keine Freigabe: auch kein Aufruf zum Preis 0
+            raise BudgetError(NOT_APPROVED)
         if amount > self._budget.per_call_usd:
             raise BudgetError("Aufruf (%s USD) ueber dem Einzelbudget der Anwendung." % amount)
         rid = "%s-%s" % (now.strftime("%Y%m%dT%H%M%S"), secrets.token_hex(6))
         try:
             with self._tx() as cur:
                 # schreibend gesperrt (nicht FOR UPDATE): unter REPEATABLE READ bricht eine ueberholte Reservierung ab
-                cur.execute("UPDATE ai_budget_limits SET blocked = blocked WHERE id = 1 RETURNING blocked, block_reason")
+                cur.execute("UPDATE ai_budget_limits SET blocked = blocked WHERE id = 1"
+                            " RETURNING blocked, block_reason, per_call_usd, daily_usd, monthly_usd")
                 lim = cur.fetchone()
                 if lim is None or lim[0]:
                     raise BudgetError("KI-Budget gesperrt: %s" % ((lim[1] if lim else "") or "Zeile fehlt"))
+                if min(lim[2], lim[3], lim[4]) <= 0:  # Datenbank-Grenzen ohne Freigabe des Administrators
+                    raise BudgetError(NOT_APPROVED)
                 _, today, month = _spent(cur)
                 if today + amount > self._budget.daily_usd or month + amount > self._budget.monthly_usd:
                     raise BudgetError("Budget der Anwendung reicht nicht (heute %s, Monat %s, Aufruf %s)."

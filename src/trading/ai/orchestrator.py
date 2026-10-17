@@ -321,7 +321,9 @@ class AIOrchestrator:
             self._note(run, request, Source.SKIPPED, "PREIS_ODER_ANBIETER_UNBEKANNT", **meta)
             return "PREIS_ODER_ANBIETER_UNBEKANNT"
         # Wertschranke fuer die ganze Analyse: bisherige Stufen + Obergrenze dieser Stufe
-        if run.spent + ceiling > request.expected_value_usd * self._routing.max_cost_share:
+        # Ohne erwarteten Nutzen kein Aufruf - auch nicht bei einem Anbieter zum Preis 0.
+        value_cap = request.expected_value_usd * self._routing.max_cost_share
+        if value_cap <= 0 or run.spent + ceiling > value_cap:
             self._note(run, request, Source.SKIPPED, "NUTZEN_ZU_GERING", reserved=ceiling, **meta)
             return "NUTZEN_ZU_GERING"
         if self._local_block:  # bis zum Neustart nach Pruefung der Ursache

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 
 import pytest
 
@@ -30,6 +31,15 @@ class WsServer(threading.Thread):
         self.ws.receive_data(data or None)
         return list(self.ws.events())
 
+    def take(self, events):
+        # Jedes Ereignis zaehlt - auch eine Textnachricht, die im selben Paket wie ein Pong ankommt (frueher verworfen:
+        # unter Last wartete das Gegenstueck dann ewig, der Test scheiterte zufaellig).
+        for ev in events:
+            if isinstance(ev, TextMessage):
+                self.received.append(ev.data)
+            elif isinstance(ev, Pong):
+                self.pongs += 1
+
     def run(self):
         for ev in self.events():
             if isinstance(ev, Request):
@@ -45,16 +55,12 @@ class WsServer(threading.Thread):
                 self.sock.sendall(self.ws.send(Ping(payload=b"x")))
             elif kind == "expect_pong":
                 while not self.pongs:
-                    for ev in self.events():
-                        if isinstance(ev, Pong):
-                            self.pongs += 1
+                    self.take(self.events())
             elif kind == "expect":
                 while len(self.received) < value:
-                    for ev in self.events():
-                        if isinstance(ev, TextMessage):
-                            self.received.append(ev.data)
-                        elif isinstance(ev, Pong):
-                            self.pongs += 1
+                    self.take(self.events())
+            elif kind == "sleep":  # langsames Gegenstueck: Pong und Text kommen dann im selben Datenpaket an
+                time.sleep(value)
             elif kind == "close":
                 self.sock.sendall(self.ws.send(CloseConnection(code=1000)))
 
@@ -82,6 +88,21 @@ def test_websocket_handshake_messages_ping_and_close():
     ws.send("ping")
     with pytest.raises(ConnectionLost):
         for _ in range(10):
+            ws.recv(2)
+    server.join(5)
+    assert server.received == ["ping"] and server.pongs == 1
+    ws.close()
+
+
+def test_text_arriving_together_with_the_pong_is_not_lost():
+    """Regression (Preflight 2026-10-17): Ein langsames Gegenstueck liest Pong und Text in einem Paket."""
+    ws, server, opened = ws_pair([("ping", None), ("sleep", 0.8), ("expect_pong", None), ("expect", 1),
+                                  ("close", None)])
+    ws.connect("wss://ws.bitget.com/v2/ws/public")
+    assert ws.recv(0.3) is None  # Ping beantwortet
+    ws.send("ping")  # bevor das Gegenstueck wieder liest
+    with pytest.raises(ConnectionLost):
+        for _ in range(5):
             ws.recv(2)
     server.join(5)
     assert server.received == ["ping"] and server.pongs == 1

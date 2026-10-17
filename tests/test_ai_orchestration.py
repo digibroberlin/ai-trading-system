@@ -26,6 +26,7 @@ from trading.ai.orchestrator import (
     RuleAnswer,
     Source,
     Tier,
+    TierModel,
     canonical_payload,
     parse_answer,
 )
@@ -297,6 +298,37 @@ def test_without_budget_nothing_is_called():
     env = Env(budget=NO_BUDGET)
     a = env.orch.analyze(request())
     assert env.provider.calls == [] and a.source is Source.SKIPPED and a.reason == "BUDGET"
+
+
+class FreeProvider(FakeProvider):
+    """Anbieter zum Preis 0 (z. B. ein lokales Modell): auch er braucht Freigabe und erwarteten Nutzen."""
+
+    name = "null"
+
+    def __init__(self):
+        super().__init__(confidence={"none": 0.9})
+
+
+FREE_ROUTING = RoutingPolicy({Tier.CHEAP: TierModel("null", "none")})
+
+
+def test_zero_priced_provider_is_never_called_without_approved_budget():
+    env = Env(provider=FreeProvider(), budget=NO_BUDGET, routing=FREE_ROUTING)
+    a = env.orch.analyze(request(), RuleAnswer({"approve": False}, D("0.5")))
+    assert env.provider.calls == [] and a.source is Source.RULES and a.reason == "REGELN_ERSATZ:BUDGET"
+    led, _ = ledger(NO_BUDGET)
+    with pytest.raises(BudgetError, match="nicht freigegeben"):
+        led.reserve(D(0), "KIBO", "none")  # auch der Betrag 0 wird ohne Freigabe nicht reserviert
+    assert led._entries == {}
+
+
+def test_no_call_without_expected_value_even_at_price_zero():
+    env = Env(provider=FreeProvider(), routing=FREE_ROUTING)
+    a = env.orch.analyze(request(expected_value_usd=D(0)))
+    assert env.provider.calls == [] and a.source is Source.SKIPPED and a.reason == "NUTZEN_ZU_GERING"
+    approved = Env(provider=FreeProvider(), routing=FREE_ROUTING)
+    b = approved.orch.analyze(request())  # mit Freigabe und Nutzen: Aufruf, Kosten 0
+    assert len(approved.provider.calls) == 1 and b.source is Source.AI and b.cost == 0
 
 
 def test_budget_is_never_exceeded_over_many_analyses():
