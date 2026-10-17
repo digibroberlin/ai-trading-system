@@ -111,7 +111,7 @@ def test_service_warms_up_without_trading_then_processes_live_candles():
     assert len(service.engine._history[BG]) == 35  # 30 aufgewaermt + 5 live
     report = service.probe.report()
     assert report.level is Level.OK and {c.name for c in report.checks} == {
-        "kill_switch", "database", "market_data", "engine"}
+        "kill_switch", "database", "market_data", "engine", "brakes"}
 
 
 def test_failed_warm_up_only_delays_the_strategy():

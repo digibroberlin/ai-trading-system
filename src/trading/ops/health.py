@@ -25,6 +25,7 @@ from trading.domain.models import PortfolioState
 from trading.marketdata.stream import MarketStreamMonitor
 from trading.runtime.engine import RuntimeEngine
 from trading.safety.kill_switch import KillSwitch
+from trading.safety.limits import DEFAULT_LIMITS, SafetyLimits
 
 
 class Level(str, Enum):
@@ -34,6 +35,7 @@ class Level(str, Enum):
 
 
 SEVERITY = {Level.OK: 0, Level.WARN: 1, Level.CRITICAL: 2}
+BRAKE_WARN_SHARE = Decimal("0.9")  # Warnung ab 90 % einer Notbremse (Tagesverlust, Drawdown)
 
 
 @dataclass(frozen=True)
@@ -78,10 +80,12 @@ class HealthProbe:
         engine: Optional[RuntimeEngine] = None,
         budget: Optional[BudgetLedger] = None,
         portfolio: Optional[Callable[[], PortfolioState]] = None,
+        limits: SafetyLimits = DEFAULT_LIMITS,
     ) -> None:
         self._clock = clock
         self._kill_switch, self._database, self._monitor = kill_switch, database, monitor
         self._engine, self._budget, self._portfolio = engine, budget, portfolio
+        self._limits = limits
 
     # ------------------------------------------------------------------ Gesundheit
 
@@ -101,6 +105,8 @@ class HealthProbe:
                                 % self._engine.stats.events))
         if self._budget is not None:
             checks.append(self._check_budget())
+        if self._portfolio is not None:
+            checks.append(self._check_brakes())
         level = max((c.level for c in checks), key=SEVERITY.__getitem__, default=Level.OK)
         return HealthReport(now, level, tuple(checks))
 
@@ -115,6 +121,26 @@ class HealthProbe:
                 status.since.isoformat() if status.since else "?", status.reason.value if status.reason else "",
                 status.note))
         return Check("kill_switch", Level.OK, "nicht ausgeloest")
+
+    def _check_brakes(self) -> Check:
+        """Notbremsen fast erreicht (AP-20-Befund "stiller Stillstand"): Liegt Tagesverlust oder Drawdown nahe an der
+        Grenze, lehnt SORA neue Orders schon ab (deren Kosten rissen die Grenze), der Not-Aus loest aber erst AN der
+        Grenze aus - ohne diese Warnung stuende der Handel still, ohne dass es jemand merkt."""
+        assert self._portfolio is not None
+        try:
+            p = self._portfolio()
+        except Exception as exc:  # noqa: BLE001
+            return Check("brakes", Level.WARN, "Konto nicht lesbar (%s)" % type(exc).__name__)
+        drawdown = (p.peak_equity - p.equity) / p.peak_equity if p.peak_equity > 0 else Decimal(0)
+        day_loss = (p.day_start_equity - p.equity) / p.day_start_equity if p.day_start_equity > 0 else Decimal(0)
+        near = [(name, value, limit) for name, value, limit in (
+            ("Drawdown", drawdown, self._limits.max_drawdown), ("Tagesverlust", day_loss, self._limits.max_daily_loss))
+            if value >= BRAKE_WARN_SHARE * limit]
+        if not near:
+            return Check("brakes", Level.OK, "Drawdown %.2f %%, Tagesverlust %.2f %%" % (drawdown * 100, day_loss * 100))
+        text = "; ".join("%s %.2f %% von hoechstens %.2f %%" % (n, v * 100, lim * 100) for n, v, lim in near)
+        return Check("brakes", Level.WARN, "Notbremse fast erreicht (%s): neue Orders werden ggf. abgelehnt, ohne dass "
+                                           "der Not-Aus ausloest - bitte pruefen" % text)
 
     def _check_database(self) -> Check:
         assert self._database is not None

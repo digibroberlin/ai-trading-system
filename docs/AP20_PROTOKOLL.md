@@ -144,3 +144,26 @@ Strategie. Im Betrieb prüft der Eigner einen Not-Aus und gibt ihn mit Namen und
 * **Zusätzlich („streng“):** ohne jede Freigabe – nach dem ersten Not-Aus keine neue Position bis zum Ende des Abschnitts.
 * **Stiller Stillstand** (gefunden im Training): Liegt der Drawdown einen Hauch unter der Grenze, lehnt SORA jede neue Order ab (schon die Gebühr risse die Grenze), der Not-Aus löst aber nicht aus – im Betrieb gäbe es keinen Alarm. In beiden Modi wird das als Ereignis `BREMSE_OHNE_NOT_AUS` gezählt; „monatlich“ behandelt es wie einen Not-Aus (Prüfung am Folgemonatsersten), „streng“ lässt es bestehen. Für den Betrieb ist das ein Befund (Bericht, Abschnitt Empfehlungen).
 * Keine Grenze wird verändert; Agenten lösen nichts frei. Die Trainingsläufe wurden in beiden Modi neu gerechnet.
+
+**Nachtrag 2 (2026-10-17 10:43 UTC, vor jedem Validierungslauf) – Variante E und Umfang der Validierung.**
+Befunde aus dem Training (Hauptauswertung, Szenarien F und S; Einzelheiten im Bericht):
+* KIBO/YUZU ohne messbaren Nutzen für die Trendfolger (gepaarte Tagesdifferenzen um 0); KIBO nützt nur bei Mean
+  Reversion (verhindert Gegen-Trend-Einstiege), die aber auch so deutlich verliert. YUZU blockiert fast nie.
+* Kosten fressen 40–60 % des Bruttoergebnisses (Momentum: Gebühren 3,4 Tsd. + Spread/Slippage 1,8 Tsd. bei 11,7 Tsd.
+  vor Kosten); viele Not-Aus-Ereignisse durch die 10-%-Drawdown-Bremse.
+* Der Vorteil der Trendfolger nimmt über die Jahre ab (Momentum F: 2017 +3,7 Tsd. → 2022 −0,9 Tsd.).
+
+**E-Kandidaten (fachlich begründet, keine Rastersuche; je Kandidat nur eine Einstellung):**
+1. **Zeitrahmen 4 h** für `momentum`, `trend`, `breakout` mit Standard-Einstellungen (`momentum-4h`, `trend-4h`,
+   `breakout-4h`): weniger Trades, geringerer Kostenanteil, weniger Rauschen.
+2. **Variante E** (optimierte Zusammenarbeit): MOMO → RIN → SORA → Executor ohne KIBO/YUZU (kein belegter Nutzen,
+   spart Rechenzeit und mögliche KI-Kosten) **und** SORA senkt ab 5 % Drawdown das Risiko je Trade auf die Hälfte
+   (`SoraConfig.drawdown_cut=0,05`, `drawdown_factor=0,5` – nur strenger, nie lockerer).
+
+**Validierungsläufe (alle werden gerechnet und berichtet):**
+* Ursprüngliche Strategien (7) × Varianten V0, A, B, C, D × Szenarien F, S – und dieselben Zellen unter Kosten-Stress
+  (Fx, Sx); Variante S (Schatten) in F und S zur Diagnose.
+* E: `momentum` und `trend` mit Variante E; `momentum-4h`, `trend-4h`, `breakout-4h` mit V0, C und E – in F, S, Fx, Sx.
+* Empfindlichkeit (nicht für die Auswahl): Szenario K für V0 und C; strenger Modus für F und S.
+* **Versuchszahl N für die deflationierte Sharpe-Schwelle = 92** (70 ursprüngliche + 22 E-Zellen in F und S).
+

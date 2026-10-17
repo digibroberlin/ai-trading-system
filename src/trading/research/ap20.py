@@ -24,10 +24,12 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
+from trading.agents.sora_rules import SoraConfig
 from trading.backtest.engine import MONTHLY_REVIEW
 from trading.domain.instrument import Exchange, InstrumentId, MarketType
 from trading.marketdata.localfile import build_series
 from trading.research.campaign import (
+    NEUTRAL,
     PERIODS,
     SCENARIOS,
     STANDARD_KEYS,
@@ -43,6 +45,7 @@ from trading.research.campaign import (
     save_cell,
     standard_strategies,
 )
+from trading.strategies import STRATEGY_TYPES
 
 COMMIT = "163afe666e556b8a556103565eb1515acb06b92b"
 DATA_DIR = Path("data/external/bitstamp-btcusd-1m") / COMMIT
@@ -52,16 +55,31 @@ DESCRIPTION = ("Bitstamp BTC/USD 1-Minuten-Kerzen (Spot), oeffentliche Kopie git
                "2025-01-07 aus dem Kaggle-Datensatz 'Bitcoin Historical Data' (Zielak, Version 706)" % COMMIT[:7])
 LICENSE = "CC BY-SA 4.0 (Altbestand, Zielak/Kaggle); Aktualisierungen laut Repository (CC BY 4.0, Code MIT)"
 INSTRUMENT = InstrumentId(Exchange.BITSTAMP, MarketType.SPOT, "BTC-USD")
-DATA_START = datetime(2016, 12, 1, tzinfo=timezone.utc)  # Vorlauf vor dem Training
+DATA_START = datetime(2016, 6, 1, tzinfo=timezone.utc)  # Vorlauf vor dem Training (300 Kerzen auch bei 4 h)
 DATA_END = datetime(2026, 10, 16, tzinfo=timezone.utc)
 RESULTS = Path("data/ap20/results")
 RESULTS_STRICT = Path("data/ap20/results-streng")
 _CENT = Decimal("0.01")
 FREEZE = Path("docs/ap20/freeze.json")
 
-# Variante E (optimiert) - wird NACH dem Training und VOR der Validierung festgelegt (docs/AP20_PROTOKOLL.md, Abschnitt 6).
-EXTRA_STRATEGIES: Dict[str, Callable[[], StrategySpec]] = {}
-EXTRA_VARIANTS: Dict[str, Variant] = {}
+# Variante E (optimiert) - NACH dem Training und VOR der Validierung festgelegt (docs/AP20_PROTOKOLL.md, Nachtrag 2):
+#   E-Zeitrahmen: dieselben Strategien mit Standard-Einstellungen auf 4-Stunden-Kerzen (weniger Trades, weniger Kosten).
+#   Variante E: ohne KIBO/YUZU (im Training ohne messbaren Nutzen fuer Trendfolger) + SORA senkt ab 5 % Drawdown das
+#   Risiko je Trade auf die Haelfte (nur strenger, nie lockerer).
+FOUR_HOURS = 4 * 3600
+def _four_hours(key: str) -> Callable[[], StrategySpec]:
+    def spec() -> StrategySpec:
+        return StrategySpec("%s-4h" % key, key, {"einstellungen": "standard", "kerzen": "4h"}, STRATEGY_TYPES[key],
+                            FOUR_HOURS)
+    return spec
+
+
+EXTRA_STRATEGIES: Dict[str, Callable[[], StrategySpec]] = {"%s-4h" % k: _four_hours(k)
+                                                           for k in ("momentum", "trend", "breakout")}
+EXTRA_VARIANTS: Dict[str, Variant] = {
+    "E": Variant("E", "MOMO -> RIN -> SORA (Risiko halbiert ab 5 % Drawdown) -> Executor, ohne KIBO/YUZU",
+                 NEUTRAL, NEUTRAL, sora=SoraConfig(drawdown_cut=Decimal("0.05"), drawdown_factor=Decimal("0.5"))),
+}
 
 
 def load_bundle(data_dir: Path = DATA_DIR, interval_s: int = 3600, cache_dir: Optional[Path] = Path("data/derived")

@@ -123,6 +123,10 @@ class SoraConfig:
     liquidation_safety: Decimal = D("1.5")  # Liquidation mind. 1,5x so weit weg wie der Stop
     quantity_step: Decimal = D("0.0001")
     min_notional: Decimal = D("10")
+    # Dynamisches Risiko (AP-20): ab `drawdown_cut` Rueckgang vom Hoechststand nur noch `drawdown_factor` x Risiko je
+    # Trade. Kann das Risiko nur SENKEN (Faktor <= 1); 0 = aus. Die Grenzen des Risikomanagers gelten unveraendert.
+    drawdown_cut: Decimal = D("0")
+    drawdown_factor: Decimal = D("1")
 
     def __post_init__(self) -> None:
         for name in ("risk_per_trade", "max_leverage", "margin_utilization",
@@ -131,6 +135,18 @@ class SoraConfig:
                 raise ValueError("%s muss eine positive Decimal-Zahl sein." % name)
         if self.margin_utilization > 1:
             raise ValueError("margin_utilization darf 1 (=100 %) nicht uebersteigen.")
+        if not is_finite_decimal(self.drawdown_cut) or not D(0) <= self.drawdown_cut < 1:
+            raise ValueError("drawdown_cut muss zwischen 0 und 1 liegen.")
+        if not is_positive_decimal(self.drawdown_factor) or self.drawdown_factor > 1:
+            raise ValueError("drawdown_factor muss in (0, 1] liegen - das Risiko darf nur sinken.")
+
+    def risk_for(self, portfolio: PortfolioState) -> Decimal:
+        """Risiko je Trade fuer den aktuellen Zustand: gesenkt, solange der Rueckgang >= drawdown_cut ist."""
+        if self.drawdown_cut > 0 and portfolio.peak_equity > 0:
+            drawdown = (portfolio.peak_equity - portfolio.equity) / portfolio.peak_equity
+            if drawdown >= self.drawdown_cut:
+                return self.risk_per_trade * self.drawdown_factor
+        return self.risk_per_trade
 
 
 class RuleBasedSora(SoraAgent):
@@ -158,7 +174,7 @@ class RuleBasedSora(SoraAgent):
     def risk_budget(self, portfolio: PortfolioState) -> Decimal:
         """Betrag (in Geld), den ein NEUER Trade nach den beiden Risiko-Grenzen hoechstens riskieren darf
         (ohne Exposure-, Stress- und Margin-Grenze - die begrenzen die Menge zusaetzlich)."""
-        per_trade = self._cfg.risk_per_trade * portfolio.equity
+        per_trade = self._cfg.risk_for(portfolio) * portfolio.equity
         remaining = self._policy.max_portfolio_risk * portfolio.equity - portfolio.open_risk
         return max(min(per_trade, remaining), ZERO)
 
@@ -240,7 +256,7 @@ class RuleBasedSora(SoraAgent):
         def cap(budget: Decimal, per_unit: Decimal, limit: Decimal) -> Decimal:
             return budget / (per_unit + limit * cost_unit)
 
-        by_trade = cfg.risk_per_trade * equity / loss_unit
+        by_trade = cfg.risk_for(portfolio) * equity / loss_unit
         by_risk = cap(pol.max_portfolio_risk * equity - portfolio.open_risk,
                       loss_unit - fee_unit, pol.max_portfolio_risk)
         by_exposure = cap(pol.max_gross_exposure * equity - portfolio.gross_exposure,

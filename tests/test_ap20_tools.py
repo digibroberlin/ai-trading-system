@@ -358,3 +358,22 @@ def test_a_silent_brake_blockade_is_reported_and_reviewed_like_a_halt():
     assert [h[1] for h in strict.halts] == [SILENT_STOP] and strict.halts[0][2] is None
     assert [s.stage for s in review.setup_log][1:] == ["SORA", "FILLED"]
     assert review.halts[0][1] == SILENT_STOP and review.halts[0][2] == datetime(2025, 2, 1, tzinfo=UTC)
+
+
+def test_sora_can_only_lower_its_risk_in_a_drawdown():
+    from trading.agents.sora_rules import SoraConfig
+    from trading.domain.models import PortfolioState
+
+    def state(equity, peak):
+        return PortfolioState(balance=D(equity), unrealized_pnl=D(0), equity=D(equity), free_margin=D(equity),
+                              day_start_equity=D(equity), peak_equity=D(peak), open_risk=D(0), open_count=0,
+                              open_keys=frozenset(), gross_exposure=D(0), stress_loss=D(0), valuation_complete=True)
+
+    cfg = SoraConfig(drawdown_cut=D("0.05"), drawdown_factor=D("0.5"))
+    assert cfg.risk_for(state(9600, 10000)) == D("0.004")  # 4 % Rueckgang: volles Risiko
+    assert cfg.risk_for(state(9500, 10000)) == D("0.002")  # ab 5 %: halbes Risiko
+    assert SoraConfig().risk_for(state(5000, 10000)) == D("0.004")  # Standard: aus
+    for bad in ({"drawdown_factor": D("1.5")}, {"drawdown_factor": D(0)}, {"drawdown_cut": D(1)},
+                {"drawdown_cut": D("-0.1")}):
+        with pytest.raises(ValueError):
+            SoraConfig(**bad)
