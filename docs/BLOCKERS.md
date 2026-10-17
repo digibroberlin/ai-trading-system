@@ -13,6 +13,10 @@ Offene Punkte stehen oben. Erledigte werden mit Datum nach unten verschoben.
   886/886 Tests, Gegenprobe 278/278"` und `git push origin stable/004-safety-stage2`.
   WAS DANACH: Die Routine prüft den Tag beim nächsten Lauf. Dauerhaft besser: der Cloud-Umgebung erlauben, Tags `stable/*`
   zu pushen (Einstellung der Claude-GitHub-App bzw. der Umgebung); bis dahin wird jeder künftige stabile Stand so gemeldet.
+  **Neu (2026-10-17): auch `stable/005-release-candidate`** (Commit `0dd5d3e` auf `develop`; 1821/1821 Tests, Gegenprobe
+  513/513). Im Browser wie oben, aber Target: „Recent Commits“ → `0dd5d3e` („Merge Gegenprobe in gleichzeitigen Teilen …“).
+  Oder auf dem Mac: `git fetch origin && git tag -a stable/005-release-candidate 0dd5d3e -m "stable/005: 1821/1821 Tests,
+  Gegenprobe 513/513"` und `git push origin stable/005-release-candidate`.
 
 * **B-008 Echter Testabruf historischer Marktdaten braucht Netzfreigabe (Eigner, ca. 2 Minuten; kostenlos).**
   WAS: Die Marktdaten-Adapter (AP-14) sind fertig und mit nachgebildeten Antworten getestet. Der geplante **eine** echte Abruf
