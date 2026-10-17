@@ -206,22 +206,70 @@ def validation_table(rows: Sequence[Row], trials: int) -> List[str]:
     for r in _order([r for r in rows if r["scenario"] in ("F", "S") and r["variant"] != "S"]):
         c = r["card"]
         stress = by.get((r["scenario"] + "x", r["strategy"], r["variant"]))
-        reasons = []
-        if not (float(c["trading_net"]) > 0 and float(c["economic_net"]) > 0):
-            reasons.append("Netto ≤ 0")
-        if c["trades"] < 30:
-            reasons.append("< 30 Trades")
-        if stress is None:
-            reasons.append("Stress fehlt")
-        elif float(stress["card"]["trading_net"]) <= 0:
-            reasons.append("Stress ≤ 0")
-        ok, sr, required = deflated_sharpe_ok(returns_of(daily_of(r), INITIAL), trials)
-        if not ok:
-            reasons.append("Sharpe/Tag %s < %s" % (_f(sr, 4), _f(required, 4)))
+        reasons = _criteria(r, stress, trials)
         body.append((r["scenario"], r["strategy"], r["variant"], _money(c["trading_net"]), _money(c["economic_net"]),
                      "–" if stress is None else _money(stress["card"]["trading_net"]), str(c["trades"]),
                      "**Kandidat**" if not reasons else "; ".join(reasons)))
     return table(("Sz.", "Strategie", "Var.", "Netto A", "Netto B", "Stress A", "Trades", "Ergebnis"), body)
+
+
+POST_CUTOFF = date(2026, 7, 1)  # Testteil nach dem Wissensstand des Entwicklers (Protokoll, Abschnitt 2)
+
+
+def _criteria(row: Row, stress: Optional[Row], trials: int, min_trades: int = 30) -> List[str]:
+    c = row["card"]
+    reasons = []
+    if not (float(c["trading_net"]) > 0 and float(c["economic_net"]) > 0):
+        reasons.append("Netto ≤ 0")
+    if c["trades"] < min_trades:
+        reasons.append("< %d Trades" % min_trades)
+    if stress is None:
+        reasons.append("Stress fehlt")
+    elif float(stress["card"]["trading_net"]) <= 0:
+        reasons.append("Stress ≤ 0")
+    ok, sr, required = deflated_sharpe_ok(returns_of(daily_of(row), INITIAL), trials)
+    if not ok:
+        reasons.append("Sharpe/Tag %s < %s" % (_f(sr, 4), _f(required, 4)))
+    return reasons
+
+
+def classification_table(rows: Sequence[Row], trials: int) -> List[str]:
+    """Einstufung nach Protokoll Abschnitt 8 je Szenario (F, S), Strategie und Variante (ohne Schatten)."""
+    by = {(r["period"], r["scenario"], r["strategy"], r["variant"]): r for r in rows}
+    keys = sorted({(r["scenario"], r["strategy"], r["variant"]) for r in rows
+                   if r["scenario"] in ("F", "S") and r["variant"] != "S" and r["period"] in ("validierung", "test")})
+    body = []
+    for scenario, strategy, variant in keys:
+        val = by.get(("validierung", scenario, strategy, variant))
+        test = by.get(("test", scenario, strategy, variant))
+        val_stress = by.get(("validierung", scenario + "x", strategy, variant))
+        test_stress = by.get(("test", scenario + "x", strategy, variant))
+        cand = val is not None and not _criteria(val, val_stress, trials)
+        test_ok = (test is not None and float(test["card"]["trading_net"]) > 0 and float(test["card"]["economic_net"]) > 0
+                   and test_stress is not None and float(test_stress["card"]["trading_net"]) > 0)
+        both = [r for r in (val, test) if r is not None]
+        ci = combined_interval(both) if len(both) == 2 else None
+        post = None
+        if test is not None:
+            post = sum(v for d, v in pnl_of(test) if d >= POST_CUTOFF)
+        if val is None or test is None:
+            level = "noch nicht überprüft"
+        elif cand and test_ok and ci is not None and ci.low > 0:
+            level = "**statistisch ausreichend belastbar**"
+        elif float(val["card"]["economic_net"]) > 0 and float(test["card"]["economic_net"]) > 0:
+            level = "historisch profitabel (Validierung und Test), nicht belastbar"
+        elif float(test["card"]["economic_net"]) > 0 or float(val["card"]["economic_net"]) > 0:
+            level = "nur in einem Abschnitt profitabel"
+        else:
+            level = "nicht profitabel"
+        body.append((scenario, strategy, variant,
+                     "–" if val is None else _money(val["card"]["economic_net"]),
+                     "ja" if cand else "nein",
+                     "–" if test is None else _money(test["card"]["economic_net"]),
+                     "–" if test_stress is None else _money(test_stress["card"]["trading_net"]),
+                     _ci(ci), "–" if post is None else _money(post), level))
+    return table(("Sz.", "Strategie", "Var.", "Netto B Validierung", "Kandidat", "Netto B Test", "Stress A Test",
+                  "Ø USD/Tag Val+Test [95 %]", "Test ab 2026-07-01", "Einstufung"), body)
 
 
 def write_report(results: Path, out: Path, bundle: Bundle) -> Path:
@@ -262,6 +310,9 @@ def write_report(results: Path, out: Path, bundle: Bundle) -> Path:
         if period == "validierung":
             lines += ["### Validierungskriterien (N = %d Versuche)" % max(1, validation_trials), ""]
             lines += validation_table([r for r in rows if r["period"] == period], max(1, validation_trials)) + [""]
+    if any(r["period"] == "test" for r in rows):
+        lines += ["## Einstufung nach Protokoll (Validierung + Test, N = %d)" % max(1, validation_trials), ""]
+        lines += classification_table(rows, max(1, validation_trials)) + [""]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out

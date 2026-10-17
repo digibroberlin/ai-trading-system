@@ -324,7 +324,7 @@ z("Z06","Kosten ueber der Reservierung sperren nicht",AIB,"            if actual
 z("Z07","Kostenobergrenze ohne Ausgabe-Tokens",AIP,"               + Decimal(max_output_tokens) * self.output_per_mtok) / MILLION",") / MILLION")
 z("Z08","Kostenobergrenze mit dem billigeren Eingabepreis",AIP,"worst_input_price = max(self.input_per_mtok, self.cache_write_per_mtok)","worst_input_price = self.input_per_mtok")
 z("Z09","KI-Kosten abgerundet",AIP,"               + Decimal(usage.cache_read_tokens) * self.cache_read_per_mtok) / MILLION\n        return cost_up(raw)","               + Decimal(usage.cache_read_tokens) * self.cache_read_per_mtok) / MILLION\n        return raw.quantize(Decimal('0.00000001'), rounding='ROUND_DOWN')")
-z("Z10","Wertschranke abgeschaltet",AIO,"        if run.spent + ceiling > request.expected_value_usd * self._routing.max_cost_share:","        if False:")
+z("Z10","Wertschranke abgeschaltet",AIO,"        if value_cap <= 0 or run.spent + ceiling > value_cap:","        if False:")
 z("Z11","Teurere Stufe auch bei sicherer Antwort",AIO,"            if answer is not None and confidence >= self._routing.accept_confidence:\n                break","            if False:\n                break")
 z("Z12","Sichere Regeln trotzdem per KI geprueft",AIO,"        if valid_rules is not None and valid_rules.confidence >= self._routing.rule_confidence:","        if False:")
 z("Z13","Cache / Doppel-Erkennung abgeschaltet",AIO,"            cached = self._cached(key)\n","            cached = None\n")
@@ -341,11 +341,13 @@ z("Z46","Voll umgelegte KI-Kosten nur aus dem Zeitraum",AUC,"    total = on_trad
 z("Z47","0 Ausgabe-Tokens fuer eine Antwort werden geglaubt",AIO,"        charge: Optional[Decimal] = None if wrong_model or no_usage or no_output else price.cost(usage)\n","        charge: Optional[Decimal] = None if wrong_model or no_usage else price.cost(usage)\n")
 z("Z48","Nicht zustaendige Anfragen reservieren Budget",AIO,"        if not self._activation.ready(request.agent, request.trigger, request.subject or request.kind):","        if False:")
 z("Z49","Nicht schreibbare Sperre laesst den Prozess weiter zahlen",AIO,"            self._local_block = reason or \"gesperrt\"\n","            pass\n")
+z("Z50","Ohne erwarteten Nutzen trotzdem KI-Aufruf (Preis 0)",AIO,"        if value_cap <= 0 or run.spent","        if run.spent")
+z("Z51","Budget 0 erlaubt Aufrufe zum Preis 0",AIB,"            if not self._budget.allows_spending:  # Budget 0","            if False:  # Budget 0")
 z("Z21","Nettoergebnis ohne Betriebskosten",AUC,"        net - operating, ai, attribute_ai_costs(records, period_trades, earlier, unmeasured_ai),","        net, ai, attribute_ai_costs(records, period_trades, earlier, unmeasured_ai),")
 z("Z22","Zeitraum-Kosten nicht anteilig",AUC,"        return cost_up(self.amount * Decimal(str(overlap)) / Decimal(str(whole)))","        return self.amount")
 z("Z23","Teure Methode schon bei positivem Mittelwert bevorzugt",AUV,"    elif low > 0:","    elif mean_diff > 0:")
 z("Z24","Teure Methode schon mit wenigen Daten bevorzugt",AUV,"    if n < min_samples:","    if False:")
-z("Z27","Wertschranke nur je Stufe statt je Analyse",AIO,"        if run.spent + ceiling > request.expected_value_usd","        if ceiling > request.expected_value_usd")
+z("Z27","Wertschranke nur je Stufe statt je Analyse",AIO,"or run.spent + ceiling > value_cap:","or ceiling > value_cap:")
 z("Z28","Fehlender Verbrauch wird als 0 USD abgerechnet",AIO,"        charge: Optional[Decimal] = None if wrong_model or no_usage or no_output else price.cost(usage)","        charge: Optional[Decimal] = None if wrong_model or no_output else price.cost(usage)")
 z("Z29","Anderes Modell des Anbieters bleibt unbemerkt",AIO,"        wrong_model = response.provider != target.provider or response.model != target.model","        wrong_model = False")
 z("Z30","Ausgabe ueber max_tokens sperrt nicht",AIO,"        if usage.output_tokens > request.max_output_tokens:","        if False:")
@@ -377,7 +379,7 @@ BACKTEST: List[Mutant] = [
  ("B07", "Abgestuerzte Strategie liefert trotzdem ein Ergebnis", [(EN, "        if log.of_type(EventType.SYSTEM_ERROR):", "        if False:")], BT),
  ("B08", "Verworfene Marktdaten werden hingenommen", [(EN, "        if log.of_type(EventType.DATA_REJECTED):", "        if False:")], BT_PG),
  ("B09", "Bezeichnung des Laufs veraendert den Fingerabdruck", [(EN, 'if k != "label"', 'if k != "kein-feld"')], BT),
- ("B10", "Kapitalpunkt VOR dem Funding desselben Zeitpunkts", [(EN, "            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie\n                continue\n            aki.record_equity(now, executor.portfolio_state())  # 3. Kapitalkurve\n", "            if tick.closes and now >= trade_from:\n                aki.record_equity(now, executor.portfolio_state())\n            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes or now < trade_from:\n                continue\n")], BT),
+ ("B10", "Kapitalpunkt VOR dem Funding desselben Zeitpunkts", [(EN, "            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie\n                continue\n", "            if tick.closes and now >= trade_from:\n                aki.record_equity(now, executor.portfolio_state())\n            for event in tick.fundings:  # 2. Funding\n                executor.apply_funding(event)\n                funding_rate[event.instrument] = event.rate\n            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie\n                continue\n"), (EN, "            aki.record_equity(now, executor.portfolio_state())  # 3. Kapitalkurve\n", "")], BT),
  ("B11", "Verlaufsfenster um eine Kerze zu gross", [(EN, "bars={i: tuple(bars[-cfg.history_bars:])", "bars={i: tuple(bars[-cfg.history_bars - 1:])")], BT),
  ("B12", "Per Signal geschlossene Trades fehlen in der Auswertung", [(EN, "                    exits_executed += 1\n                    aki.register_closed_trades([outcome.result.trade])", "                    exits_executed += 1")], BT),
  ("B13", "Per Stop/Ziel geschlossene Trades fehlen in der Auswertung", [(EN, "aki.register_closed_trades(executor.on_candle(candle))", "executor.on_candle(candle)")], BT),
@@ -654,6 +656,8 @@ DATENBANK: List[Mutant] = [
  ("G91","KI-Budget: eine Verbindung ohne Sperre fuer alle Threads",[(PAB,"        with self._lock:\n            conn = self._db.get()","        if True:\n            conn = self._db.get()")], PGB),
  ("G92","KI-Budget arbeitet in fremder offener Transaktion",[(PAB,"            if conn.info.transaction_status != psycopg.pq.TransactionStatus.IDLE:","            if False:")], PGB),
  ("G93","KI-Reservierung schon abgerechnet angelegt",[(S6,"    IF NEW.actual IS NOT NULL THEN\n        RAISE EXCEPTION 'KI-Budget: neue Reservierung ist noch nicht abgerechnet'","    IF false THEN\n        RAISE EXCEPTION 'KI-Budget: neue Reservierung ist noch nicht abgerechnet'")], PGB),
+ ("G94","DB-Budget: Budget 0 der Anwendung erlaubt Aufrufe zum Preis 0",[(PAB,"        if not self._budget.allows_spending:  # Budget 0","        if False:  # Budget 0")], PGB),
+ ("G95","DB-Budget: Grenzen 0 in der Datenbank erlauben Aufrufe zum Preis 0",[(PAB,"                if min(lim[2], lim[3], lim[4]) <= 0:","                if False:")], PGB),
  ("BK01", "Beschaedigte Sicherung nicht erkannt", [(BKS, "    if sha256_of(dump) != meta.get(\"sha256\"):", "    if False:")], BKT),
  ("BK02", "Fehlende Zeilen nach dem Rueckspielen nicht erkannt", [(BKS, "            if got is None or got < count:", "            if False:")], BKT),
  ("BK03", "Kaputte Ereigniskette nach dem Rueckspielen nicht erkannt", [(BKS, "        if not result.ok:\n            findings.append(\"Ereigniskette", "        if False:\n            findings.append(\"Ereigniskette")], BKT),

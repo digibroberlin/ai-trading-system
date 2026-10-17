@@ -54,6 +54,7 @@ class AIBudget:
 
 
 NO_BUDGET = AIBudget()
+NOT_APPROVED = "KI nicht freigegeben (Budget 0): kein Aufruf, auch nicht zum Preis 0."
 BUDGET_ENV = ("AI_BUDGET_PER_CALL_USD", "AI_BUDGET_DAILY_USD", "AI_BUDGET_MONTHLY_USD")
 
 
@@ -150,6 +151,8 @@ class InMemoryBudgetLedger(BudgetLedger):
         with self._lock:
             if self._blocked:
                 raise BudgetError("KI-Budget gesperrt: %s" % self._blocked)
+            if not self._budget.allows_spending:  # Budget 0 = keine Freigabe: auch kein Aufruf zum Preis 0
+                raise BudgetError(NOT_APPROVED)
             if amount > self._budget.per_call_usd:
                 raise BudgetError("Aufruf (%s USD) ueber dem Einzelbudget (%s USD)." % (amount, self._budget.per_call_usd))
             today, month = self._spent(day)
