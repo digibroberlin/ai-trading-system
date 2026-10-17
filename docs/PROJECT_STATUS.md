@@ -10,7 +10,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-17 08:53 UTC für AP-20 (Profitabilitätsanalyse)
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-17 10:18 UTC für AP-20 (Profitabilitätsanalyse)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
