@@ -11,7 +11,7 @@ Informationsverlust weitermachen kann.
 
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-17 10:18 UTC für AP-20 (Profitabilitätsanalyse)
+keine
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
@@ -19,7 +19,11 @@ Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert n
 ## Aktueller Stand (2026-10-17) – für die Wiederaufnahme (Ergänzung des Eigners, Punkt 6)
 
 * **Handel:** keiner. Es läuft kein Bot, kein Paper-, Demo- oder Echtgeld-Betrieb; Handel ist standardmäßig aus.
-* **Letzter Git-Checkpoint:** `develop` auf GitHub (Abschlussbericht nach dem geprüften Stand `0dd5d3e`, nur Doku).
+* **Letzter Git-Checkpoint:** `develop` auf GitHub mit AP-20 (Zusammenführung von `ap/20-profitabilitaet`, geprüfter
+  Stand `521f1a9`): Preflight STABIL am 2026-10-17 12:37 UTC – 1886/1886 Tests mit PostgreSQL, 0 übersprungen;
+  Gegenprobe 529/529 im Lauf davor (12:28 UTC, auf `771eb8b`; seither nur eine Testhilfe und Doku geändert);
+  Python 3.9: 1639 bestanden, 16 übersprungen (erwartet). Nicht als STABLE gekennzeichnet (dafür fehlt eine volle
+  Gegenprobe auf genau diesem Stand).
 * **Letzter STABLE-Stand:** `stable/005-release-candidate` = `develop` @ `0dd5d3e` – Preflight STABIL am 2026-10-17
   01:28 UTC: 1821/1821 Tests (0 übersprungen), Gegenprobe 513/513, Python 3.9: 1575 bestanden, GitHub Actions grün.
   Der Tag ist nur lokal gesetzt: Die Cloud darf keine Tags hochladen (403, B-007). **`main` verändert Claude nicht selbst**

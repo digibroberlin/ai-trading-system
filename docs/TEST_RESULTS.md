@@ -120,3 +120,11 @@ Last im selben Datenpaket wie die Pong-Antwort ankam, und wartete dann endlos (k
 `tests/test_public_ws.py`; neuer Test `test_text_arriving_together_with_the_pong_is_not_lost` erzeugt die Lage gezielt
 (mit der alten Testhilfe scheitert er, mit der neuen besteht er). Python 3.9 im selben Stand: 1639 bestanden,
 16 übersprungen (erwartet).
+
+### 2026-10-17 12:37 UTC - STABIL
+Git: `521f1a9` auf `ap/20-profitabilitaet` · Python 3.12.3 · Linux
+
+- ✅ Geheimnis-Scan (inkl. Geschichte): GEHEIMNIS-SCAN: keine Funde (Arbeitsstand und gesamte Geschichte).
+- ✅ ruff: All checks passed!
+- ✅ mypy --strict: Success: no issues found in 116 source files
+- ✅ Tests: 1886 bestanden, 0 uebersprungen, 0 fehlgeschlagen (365 s)
