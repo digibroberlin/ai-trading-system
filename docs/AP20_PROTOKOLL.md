@@ -142,4 +142,5 @@ Strategie. Im Betrieb prüft der Eigner einen Not-Aus und gibt ihn mit Namen und
   Folgemonats (00:00 UTC). Jeder Not-Aus wird mit Zeitpunkt, Grund und Freigabe gezählt und im Bericht ausgewiesen; viele
   Not-Aus-Ereignisse sind selbst ein negatives Ergebnis.
 * **Zusätzlich („streng“):** ohne jede Freigabe – nach dem ersten Not-Aus keine neue Position bis zum Ende des Abschnitts.
+* **Stiller Stillstand** (gefunden im Training): Liegt der Drawdown einen Hauch unter der Grenze, lehnt SORA jede neue Order ab (schon die Gebühr risse die Grenze), der Not-Aus löst aber nicht aus – im Betrieb gäbe es keinen Alarm. In beiden Modi wird das als Ereignis `BREMSE_OHNE_NOT_AUS` gezählt; „monatlich“ behandelt es wie einen Not-Aus (Prüfung am Folgemonatsersten), „streng“ lässt es bestehen. Für den Betrieb ist das ein Befund (Bericht, Abschnitt Empfehlungen).
 * Keine Grenze wird verändert; Agenten lösen nichts frei. Die Trainingsläufe wurden in beiden Modi neu gerechnet.

@@ -334,3 +334,27 @@ def test_simulated_monthly_review_releases_a_halt_on_the_first_of_next_month_wit
     with pytest.raises(ValueError):
         config(halt_review="sofort")
     assert next_month(datetime(2025, 12, 31, 23, tzinfo=UTC)) == datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def test_a_silent_brake_blockade_is_reported_and_reviewed_like_a_halt():
+    """Drawdown knapp unter der Grenze: jede neue Order wuerde sie reissen -> abgelehnt, der Not-Aus loest aber nicht
+    aus. Streng: bleibt so (und wird gemeldet). Mit Pruefung: Freigabe am Ersten des Folgemonats."""
+    from trading.backtest.engine import SILENT_STOP
+
+    n = 36 * 24
+    # Der erste Trade verliert per Stop genau 39,999589 (Handrechnung im Engine-Test) -> Drawdown 0,39999589 %. Die
+    # (verschaerfte) Grenze liegt einen Hauch darueber: kein Not-Aus, aber schon die kleinste Order (Gebuehr) risse sie.
+    limits = DEFAULT_LIMITS.tightened(max_drawdown=D("0.0039999590"))
+    ohlc = [[100, 100, 100, 100], [100, 100.5, 99, 100], [99, 99, 94.9, 95]] + flat(n - 3, 95)
+    jan2 = T0 + timedelta(days=1)
+    feb1 = datetime(2025, 2, 1, 1, tzinfo=UTC)
+    plan = {T0 + HOUR: long(), jan2: long(stop=90, tp=105), feb1: long(stop=90, tp=105)}
+    strict, _ = engine_run(ohlc, plan, config(limits=limits))
+    review, _ = engine_run(ohlc, plan, config(limits=limits, halt_review="monatlich"))
+    first = strict.trades[0]
+    assert first.exit_reason is ExitReason.STOP_LOSS and first.net_pnl == D("-39.999589")
+    assert not strict.halted_at  # kein Not-Aus ...
+    assert [s.stage for s in strict.setup_log][1:] == ["SORA", "SORA"]  # ... aber jede neue Order abgelehnt
+    assert [h[1] for h in strict.halts] == [SILENT_STOP] and strict.halts[0][2] is None
+    assert [s.stage for s in review.setup_log][1:] == ["SORA", "FILLED"]
+    assert review.halts[0][1] == SILENT_STOP and review.halts[0][2] == datetime(2025, 2, 1, tzinfo=UTC)

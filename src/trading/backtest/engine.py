@@ -78,6 +78,8 @@ from trading.safety.risk_manager import RiskManager
 
 LogFactory = Callable[[Clock], EventLog]
 MONTHLY_REVIEW = "monatlich"
+SILENT_STOP = "BREMSE_OHNE_NOT_AUS"
+BRAKES = frozenset({"DRAWDOWN_LIMIT", "DAILY_LOSS_LIMIT"})
 REVIEW_OPERATOR = "Backtest-Simulation: monatliche Pruefung des Eigners"
 ExecutorFactory = Callable[[Clock, RiskManager, EventLog], Executor]
 
@@ -102,7 +104,9 @@ class BacktestConfig:
     close_at_end: bool = False
     # Simulierte Pruefung durch den Eigner (AP-20): Nach einem Not-Aus wird er am Ersten des Folgemonats mit dem
     # vorgesehenen Ablauf freigegeben (Name + Bestaetigung, gemessen wird ab dann neu - mit DENSELBEN Grenzen).
-    # "" = streng: nach einem Not-Aus wird bis zum Ende nicht mehr eroeffnet. Jeder Not-Aus steht in `halts`.
+    # Ebenso ein "stiller Stillstand": Orders werden wegen Tagesverlust-/Drawdown-Bremse abgelehnt, ohne dass der
+    # Not-Aus ausloest (Konto knapp unter der Grenze, jede neue Order wuerde sie reissen) - im Betrieb ohne Alarm.
+    # "" = streng: keine Freigabe bis zum Ende. Jedes Ereignis steht in `halts` (Grund BREMSE_OHNE_NOT_AUS bzw. Not-Aus).
     halt_review: str = ""
 
     def __post_init__(self) -> None:
@@ -303,6 +307,8 @@ class BacktestEngine:
         setup_log: List[SetupRecord] = []
         release_at: Optional[datetime] = None
         releases: List[datetime] = []
+        silent: List[datetime] = []  # Beginn eines stillen Stillstands
+        silent_open = False
 
         def release(target: Executor, moment: datetime) -> None:
             if not hasattr(target, "release_halt"):
@@ -323,7 +329,7 @@ class BacktestEngine:
                 continue
             if cfg.halt_review and release_at is not None and now >= release_at:
                 release(executor, now)
-                release_at = None
+                release_at, silent_open = None, False
             aki.record_equity(now, executor.portfolio_state())  # 3. Kapitalkurve
 
             decision_data = [context(series.instrument, candle.close) for series, candle in tick.closes]
@@ -350,7 +356,11 @@ class BacktestEngine:
                 by_stage[stage] = by_stage.get(stage, 0) + 1
                 setup_log.append(SetupRecord(setup.setup_id, now, setup.instrument.key, setup.side.value, stage,
                                              tuple(r.value for r in result.reasons)))
-            if cfg.halt_review and release_at is None and halted(executor):
+            stopped = halted(executor)
+            if not stopped and not silent_open and any(BRAKES & set(s.reasons) for s in setup_log if s.time == now):
+                silent.append(now)  # stiller Stillstand: Bremse blockiert, der Not-Aus loest aber nicht aus
+                silent_open = stopped = True
+            if cfg.halt_review and release_at is None and stopped:
                 release_at = next_month(now)
 
         if cfg.close_at_end:  # zum letzten Schlusskurs schliessen - mit Gebuehr, Spread und Slippage wie jeder Ausstieg
@@ -391,8 +401,12 @@ class BacktestEngine:
         halts = log.of_type(EventType.HALT_ACTIVATED)
         halted_at = datetime.fromisoformat(halts[0].ts) if halts else None
         halt_reason = str(halts[0].payload.get("reason", "")) if halts else ""
-        halt_list = tuple((datetime.fromisoformat(h.ts), str(h.payload.get("reason", "")),
-                           releases[i] if i < len(releases) else None) for i, h in enumerate(halts))
+        events_list: List[Tuple[datetime, str]] = [(datetime.fromisoformat(h.ts), str(h.payload.get("reason", "")))
+                                                    for h in halts]
+        events_list += [(moment, SILENT_STOP) for moment in silent]
+        events_list.sort()
+        halt_list = tuple((moment, reason, next((r for r in releases if r >= moment), None))
+                          for moment, reason in events_list)
         return BacktestResult(
             strategy=self._strategy.name, label=cfg.label, start=trade_from, end=data.end,
             dataset_fingerprint=data.fingerprint, assumptions_fingerprint=assumptions_fp,
