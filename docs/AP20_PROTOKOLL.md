@@ -1,0 +1,136 @@
+# AP-20 – Protokoll der historischen Profitabilitätsanalyse (vorab festgelegt)
+
+**Festgelegt am 2026-10-17, bevor ein Lauf auf Training, Validierung oder Test ausgewertet wurde.** Änderungen nach diesem
+Zeitpunkt sind nur als Nachtrag mit Datum und Begründung erlaubt und werden im Bericht genannt. Einzige Ausnahme vorher:
+technische Probeläufe auf dem ersten Halbjahr 2017 (Teil des Trainings) zur Prüfung der Werkzeuge.
+
+Ziel: ehrlich feststellen, ob eine der vorhandenen Strategien – mit welcher Agenten-Kombination – **nach sämtlichen
+Kosten** einen belastbaren Vorteil hat. „Kein belastbarer Vorteil“ ist ein gültiges Ergebnis. Es wird **nicht gehandelt**:
+nur Backtests auf historischen Daten.
+
+## 1. Daten
+
+* **Quelle:** Bitstamp BTC/USD, 1-Minuten-Kerzen (Spot), öffentliche Kopie
+  `github.com/ff137/bitstamp-btcusd-minute-data`, Commit `163afe666e556b8a556103565eb1515acb06b92b` (Stand 2026-10-17
+  01:40 UTC). Erzeugt per täglicher GitHub Action aus der öffentlichen Bitstamp-OHLC-Schnittstelle; Altbestand bis
+  2025-01-07 aus dem Kaggle-Datensatz „Bitcoin Historical Data“ (Zielak, Version 706). Lizenz: CC BY-SA 4.0
+  (Altbestand), Aktualisierungen laut Repository.
+* **Abruf** (lesend, kostenlos, über `raw.githubusercontent.com` – die Börsen-Schnittstellen selbst sind in der Cloud
+  gesperrt, B-008):
+  ```bash
+  C=163afe666e556b8a556103565eb1515acb06b92b; D=data/external/bitstamp-btcusd-1m/$C; mkdir -p $D
+  for p in data/historical/btcusd_bitstamp_1min_2012-2025.csv.gz data/updates/btcusd_bitstamp_1min_latest.csv \
+           data/original/source-manifest.json data/provenance/btcusd_bitstamp_1min.csv; do
+    curl -sS --fail -o $D/$(basename $p) https://raw.githubusercontent.com/ff137/bitstamp-btcusd-minute-data/$C/$p; done
+  ```
+  Prüfsumme des Altbestands: SHA-256 `1be152060b39327b669cbed236eeb283191fadaf3862f76c1e974be54ceb1a20` (= Angabe im
+  Herkunftsnachweis der Quelle). Die Dateien liegen nicht im Repository (`data/` ist ausgeschlossen).
+* **Qualität (geprüft):** keine Dubletten, keine formal fehlerhaften Kerzen, lückenloses Minutenraster. Die Quelle füllt
+  Minuten ohne Handel mit flachen Kerzen ohne Umsatz auf; diese Füllwerte werden **nicht** verwendet. Ab 2017 fehlen je
+  Jahr höchstens 4 Stunden ohne jeden Handel (belegte Wartungen/Ausfälle); sie bleiben Lücken (ausgewiesen, nicht
+  aufgefüllt). Zwei echte Kurssprünge > 20 % in einer Stunde (10.03.2017, 13.03.2020) bleiben drin.
+* **Verdichtung:** 1 Minute → 1 Stunde (Hauptuntersuchung); nur Minuten mit Umsatz. Für die Scalping-Prüfung werden die
+  1-Minuten-Daten direkt ausgewertet (Abschnitt 7). Tick-, Trade- oder Orderbuchdaten sind **nicht verfügbar**.
+* **Nicht verfügbar (dokumentierte Einschränkung):** ETH und andere Coins, Coinbase- und Bitget-Kurse, echte
+  Futures-Kurse und echte Funding-Sätze. Ursache: Netzsperre der Cloud (B-008); ohne Freigabe keine Aussage dazu.
+
+## 2. Zeitabschnitte (fest, nie verschoben)
+
+| Abschnitt | Zeitraum (UTC) | Inhalt (grob) | Zweck |
+|---|---|---|---|
+| Vorlauf | ab 2016-12-01 | – | nur Historie für Indikatoren (300 Kerzen vor jedem Abschnitt) |
+| Training | 2017-01-01 – 2023-01-01 | Hausse 2017, Baisse 2018, Erholung 2019, Crash und Hausse 2020/21, Baisse 2022 | Diagnose, Ableitung von Variante E |
+| Validierung | 2023-01-01 – 2025-01-01 | Erholung 2023, Anstieg 2024 | Auswahl, Prüfung der Kandidaten |
+| Test | 2025-01-01 – 2026-10-16 | unberührt | einmalige Prüfung eingefrorener Kandidaten |
+
+Jeder Abschnitt startet mit 10 000 USD; am Ende werden alle Positionen zum letzten Kurs **mit allen Kosten** geschlossen.
+**Hinweis zur Unabhängigkeit:** Der Entwickler (ein KI-Modell) kennt den groben Kursverlauf bis etwa Mitte 2026 aus seinen
+Trainingsdaten. Deshalb werden Strategien und Parameter nur aus Fachliteratur-Standards und dem Trainingsabschnitt
+abgeleitet, Kandidaten vor dem Test eingefroren, und der Testteil **ab 2026-07-01** wird zusätzlich gesondert ausgewiesen
+(nach dem Wissensstand des Entwicklers – der sauberste, aber kurze Teil).
+
+## 3. Kostenszenarien (Annahmen – vor einer Demo gegen die aktuellen Tarife prüfen)
+
+| Szenario | Markt | Gebühren Taker/Maker | Spread | Slippage (Stop) | Funding |
+|---|---|---|---|---|---|
+| **F** Futures-Näherung (wie Bitget USDT-M Standard) | Futures, Long und Short | 0,06 % / 0,02 % | 2 bp | 2 bp (5 bp) | Szenario +0,01 % je 8 h (Long zahlt) |
+| **S** Spot (wie Bitget Spot Standard) | Spot, nur Long | 0,10 % / 0,10 % | 2 bp | 2 bp (5 bp) | – |
+| **K** Spot teuer (wie Coinbase Advanced Einstiegsstufe) | Spot, nur Long | 0,60 % / 0,40 % | 2 bp | 2 bp (5 bp) | – (nur Empfindlichkeit) |
+| **Stress** | wie F bzw. S | × 1,5 | × 1,5 | × 1,5 | × 1,5 |
+
+Futures-Näherung heißt: Bitstamp-Spotkurse als Perpetual-Kurs, Funding als Szenario (kein echter Satz).
+**Betriebskosten (Annahme):** Server 6 USD/Monat (B-005), Marktdaten 0 (öffentlich), Sonstiges 0.
+**KI-Kosten:** Es gibt keine freigegebene KI (B-004) – also auch **keine echte KI-Entscheidung**. Variante D rechnet die
+Kosten der KI-Zweitmeinungen, die die Regeln angefragt hätten (unsicheres Urteil ohne harte Ablehnung), mit den Preisen
+der Preistabelle (Stand 2026-10-06): typisch 600 Eingabe- / 60 Ausgabe-Tokens, Obergrenze 2 000 Bytes / 400 Tokens.
+
+## 4. Strategien und Vergleichsmaßstäbe
+
+Vorhandene Strategien mit **Standardeinstellungen** (keine Optimierung): `trend`, `momentum`, `mean_reversion`,
+`breakout`, `volatility`, `scalping` (RSI(2)-Rücksetzer – auf Stundenkerzen), `sma_cross` (Referenz). Vergleich:
+Nicht-Handeln (0), Kaufen-und-Halten (gleiche Kosten).
+
+## 5. Agenten-Varianten (unter identischen Bedingungen)
+
+| Variante | Ablauf |
+|---|---|
+| V0 | MOMO → RIN → SORA → Executor (KIBO/YUZU neutral) – Grundgerüst |
+| A | MOMO → RIN → SORA → **KIBO** → Executor |
+| B | MOMO → RIN → SORA → **YUZU** → Executor |
+| C | MOMO → RIN → SORA → **KIBO/YUZU** → Executor (Regel-Architektur) |
+| D | ursprüngliche Architektur = C + KI-Zweitmeinung; Entscheidungen wie C (keine echte KI), KI-Kosten als Szenario |
+| S | Diagnose: Entscheidungen wie V0, KIBO/YUZU urteilen nur im Schatten (Nutzen je Trade messbar) |
+| E | optimiert – nach dem Training, vor der Validierung festgelegt (Abschnitt 6) |
+
+AKI wertet jeden Lauf aus. RIN, SORA, Risikomanager, Executor und alle Sicherheitsgrenzen (2 % Gesamtrisiko, 0,5 % je
+Trade, 100 % Exposure, Stresstest, Not-Aus) bleiben in **jeder** Variante unverändert.
+
+## 6. Ableitung von Variante E (Regeln gegen Überanpassung)
+
+* Nur aus dem **Training** (Diagnose: Blockaden je Stufe, Schatten-Urteile, Marktphasen, Kosten).
+* Höchstens **6 Kandidaten**, jeder mit schriftlicher Begründung, **vor** dem ersten Validierungslauf in diesem Protokoll
+  nachgetragen (Abschnitt 10). Keine Parametersuche über Raster.
+* Jeder Kandidat zählt als Versuch (Abschnitt 8). Sicherheitsgrenzen werden nie gelockert.
+
+## 7. Scalping-Prüfung
+
+Mit den 1-Minuten-Daten wird für 1/5/15/60 Minuten die Verteilung der Kursbewegung und der größten günstigen Bewegung
+mit den Rundreise-Kosten jedes Szenarios verglichen (Kostenhürde). Es wird **keine** sekundengenaue Ausführung
+vorgetäuscht: Ausführung frühestens zum Eröffnungskurs der nächsten Minute; ohne Tick- und Orderbuchdaten keine Aussage
+über Warteschlange und Teilausführungen.
+
+## 8. Bewertung
+
+**Kennzahlen je Lauf:** Signale, freigegebene und blockierte Setups je Stufe, Trades, Gewinn/Verlust, Gebühren,
+Funding, Spread/Slippage (geschätzt), Handelsnetto (A), wirtschaftliches Netto (B, nach Betriebs- und KI-Kosten),
+Erwartungswert je Trade, Ø Gewinn, Ø Verlust, Profit-Faktor, Trefferquote, max. Drawdown, Sharpe/Sortino (Tageswerte),
+CAGR, Calmar, Long/Short, Marktphase, Jahr, Not-Aus-Zeitpunkt, Entscheidungslatenz je Agent (Rechenzeit der Regeln).
+
+**Validierung – „Kandidat“** (alle Bedingungen):
+1. Handelsnetto (A) **und** wirtschaftliches Netto (B) > 0;
+2. mindestens 30 Trades;
+3. auch unter Kosten-Stress > 0 (A);
+4. Sharpe je Tag über der deflationierten Schwelle (z = 1,645) für **N = alle** Validierungsversuche der Reihe.
+
+**Test (einmal, nur eingefrorene Zellen):** alle ursprünglichen Varianten (V0, A, B, C, D) aller Strategien in F und S
+plus die E-Kandidaten werden vor dem Test in `docs/ap20/freeze.json` eingefroren (Prüfsumme) und je **genau einmal**
+gerechnet. Danach wird nichts mehr verändert.
+
+**Einstufung im Bericht:**
+* *technisch erfolgreich getestet* – Lauf fehlerfrei, Buchhaltung stimmt;
+* *historisch profitabel* – Netto (A und B) > 0 im jeweiligen Abschnitt;
+* *statistisch ausreichend belastbar* – Kandidat in der Validierung **und** im Test Netto (A, B, Stress) > 0 **und**
+  untere Grenze des 95-%-Block-Bootstrap-Vertrauensbereichs des mittleren Tagesergebnisses über Validierung+Test > 0;
+* *noch nicht überprüft* – alles, wofür Daten fehlen (ETH, Altcoins, echte Futures/Funding, echte KI).
+
+**Agentennutzen:** gepaarter Vergleich der Tagesergebnisse (Variante gegen V0, gleiche Tage, Block-Bootstrap) und je Trade
+über die Schatten-Urteile (Netto der Trades, die KIBO/YUZU verhindert hätten). Im Zweifel gilt die einfachere Variante.
+
+## 9. Was nicht gemacht wird
+
+Keine Order, kein Demo- oder Paper-Betrieb, keine bezahlte KI, keine kostenpflichtigen Daten, keine Änderung an den
+Testdaten, keine Wiederholung eines Tests, keine Lockerung von Sicherheitsgrenzen.
+
+## 10. Nachträge
+
+*(noch keine)*

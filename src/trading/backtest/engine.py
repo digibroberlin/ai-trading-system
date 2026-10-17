@@ -22,13 +22,21 @@ KIBO und YUZU arbeiten standardmaessig regelbasiert (AP-17); neutrale Platzhalte
 Reproduzierbarkeit: keine Systemuhr, kein ungesetzter Zufall, feste Reihenfolge der Instrumente.
 Gleicher Datensatz + gleiche Einstellungen + gleiche Strategie ergeben bitgleiche Ergebnisse
 (`BacktestResult.result_hash`).
+
+Vorlauf (AP-20, `BacktestConfig.trade_from`): Kerzen VOR `trade_from` fuellen nur die Historie (Indikatoren, Marktphase,
+zuletzt bekannter Funding-Satz) - keine Entscheidung, kein Punkt der Kapitalkurve, keine Position. Das sind Daten aus der
+Vergangenheit des Zeitraums, also kein Blick in die Zukunft; ohne Vorlauf waeren die ersten 50-200 Kerzen jedes Fensters
+"blind". Kennzahlen und Kurve beginnen bei `trade_from`.
+Ausgewertet wird zusaetzlich je Setup, an welcher Stufe es endete (`setup_log`, `blocked_by_stage`), wann der Not-Aus
+griff (`halted_at`) und - mit `measure=True` - die Rechenzeit je Agent (`timings`, nicht deterministisch, nie im Hash).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -37,8 +45,11 @@ from trading.agents.aki import AkiAgent
 from trading.agents.contracts import MarketContext
 from trading.agents.kibo import KiboAgent
 from trading.agents.kibo_rules import RuleBasedKibo
+from trading.agents.momo import MomoAgent
+from trading.agents.rin import RinAgent
 from trading.agents.neutral import NeutralKibo, NeutralYuzu
 from trading.agents.rin_rules import RinConfig, RuleBasedRin
+from trading.agents.sora import SoraAgent
 from trading.agents.sora_rules import RuleBasedSora, SizingPolicy, SoraConfig
 from trading.agents.yuzu import YuzuAgent
 from trading.agents.yuzu_rules import RuleBasedYuzu
@@ -46,16 +57,18 @@ from trading.audit.event_log import EventLog, InMemoryEventLog
 from trading.audit.events import EventType, to_jsonable
 from trading.audit.performance import EquityPoint, PerformanceReport
 from trading.backtest.data import InstrumentSeries, MarketDataset
+from trading.backtest.instrumentation import Stopwatch, TimedKibo, TimedMomo, TimedRin, TimedSora, TimedYuzu
 from trading.backtest.strategy import MarketView, Strategy, StrategyMomo
 from trading.clock import Clock, FixedClock
 from trading.domain.exchange_rules import ExchangeRules
 from trading.domain.instrument import InstrumentId
-from trading.domain.models import Candle, ClosedTrade, FundingEvent, Position
+from trading.domain.models import Candle, ClosedTrade, ExitReason, FundingEvent, Position
 from trading.domain.numeric import is_positive_decimal
 from trading.domain.universe import TradingUniverse
 from trading.execution.costs import CostModel
 from trading.execution.paper_executor import PaperExecutor
 from trading.execution.protocol import Executor
+from trading.marketdata.candles import is_aware
 from trading.marketdata.synthetic import snapshot_from_price
 from trading.pipeline import TradingPipeline
 from trading.safety.data_validator import SnapshotValidator
@@ -80,17 +93,36 @@ class BacktestConfig:
     history_bars: int = 200  # so viele abgeschlossene Kerzen sieht die Strategie je Instrument
     rules: Optional[ExchangeRules] = None  # Boersenregeln je Instrument (AP-13); None = nur eigene Limits
     label: str = ""
+    trade_from: Optional[datetime] = None  # Vorlauf: davor nur Historie, keine Entscheidung (AP-20); None = ab Beginn
+    # Am Ende offene Positionen zum letzten Schlusskurs MIT allen Ausstiegskosten schliessen (Grund MANUAL) - sonst werden
+    # sie nur bewertet (ohne Gebuehr, Spread, Slippage), was das Ergebnis schoent (AP-20).
+    close_at_end: bool = False
 
     def __post_init__(self) -> None:
         if not is_positive_decimal(self.initial_equity):
             raise ValueError("initial_equity muss eine positive Decimal-Zahl sein.")
         if not isinstance(self.history_bars, int) or self.history_bars < 1:
             raise ValueError("history_bars muss eine ganze Zahl >= 1 sein.")
+        if self.trade_from is not None and not is_aware(self.trade_from):
+            raise ValueError("trade_from braucht eine Zeitzone.")
 
 
 def _digest(obj: Any) -> str:
     text = json.dumps(to_jsonable(obj), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class SetupRecord:
+    """Ein Vorschlag von MOMO und wo er endete: "FILLED" oder die blockierende Stufe (RIN, SORA, KIBO, YUZU, EXECUTOR,
+    PIPELINE) mit Gruenden. Zeit = Entscheidungszeitpunkt (Kerzenschluss)."""
+
+    setup_id: str
+    time: datetime
+    instrument: str
+    side: str
+    stage: str
+    reasons: Tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -116,6 +148,11 @@ class BacktestResult:
     events: int
     log_head: str  # Hash des letzten Protokolleintrags
     result_hash: str  # Fingerabdruck aller Ergebnisse - gleich bei jedem identischen Lauf
+    blocked_by_stage: Dict[str, int] = field(default_factory=dict)  # je SETUP die Stufe, an der es endete
+    setup_log: Tuple[SetupRecord, ...] = ()
+    halted_at: Optional[datetime] = None  # erster Not-Aus im Lauf (danach keine neuen Positionen mehr)
+    halt_reason: str = ""
+    timings: Dict[str, Dict[str, float]] = field(default_factory=dict, compare=False)  # nur mit measure=True
 
     def summary(self) -> Dict[str, Any]:
         r, t, e = self.report, self.report.trades, self.report.equity
@@ -135,8 +172,10 @@ class BacktestResult:
         }
 
     def to_json(self) -> str:
-        """Kanonische Textform des gesamten Ergebnisses (zum Ablegen und spaeteren Vergleichen)."""
-        return json.dumps(to_jsonable(self), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        """Kanonische Textform des gesamten Ergebnisses (zum Ablegen und spaeteren Vergleichen) - ohne die nicht
+        deterministischen Rechenzeiten."""
+        body = {f.name: getattr(self, f.name) for f in fields(self) if f.name != "timings"}
+        return json.dumps(to_jsonable(body), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 @dataclass
@@ -157,6 +196,7 @@ class BacktestEngine:
         yuzu: Optional[YuzuAgent] = None,
         log_factory: Optional[LogFactory] = None,
         executor_factory: Optional[ExecutorFactory] = None,
+        measure: bool = False,
     ) -> None:
         self._dataset = dataset
         self._strategy = strategy
@@ -164,6 +204,7 @@ class BacktestEngine:
         self._kibo, self._yuzu = kibo, yuzu
         self._log_factory = log_factory
         self._executor_factory = executor_factory
+        self._measure = measure
 
     def _timeline(self) -> Dict[datetime, _Tick]:
         ticks: Dict[datetime, _Tick] = {}
@@ -177,6 +218,9 @@ class BacktestEngine:
 
     def run(self) -> BacktestResult:
         cfg, data = self._config, self._dataset
+        trade_from = cfg.trade_from or data.start
+        if not data.start <= trade_from < data.end:
+            raise BacktestError("trade_from liegt nicht im Datensatz (%s bis %s)." % (data.start, data.end))
         clock = FixedClock(data.start)
         log = self._log_factory(clock) if self._log_factory else InMemoryEventLog(clock)
         risk = RiskManager(cfg.limits, cfg.costs, cfg.rules)
@@ -210,29 +254,31 @@ class BacktestEngine:
             opening = tick.opens.get(instrument)
             return context(instrument, opening[1].open) if opening is not None else None
 
-        kibo = self._kibo or RuleBasedKibo()
-        yuzu = self._yuzu or RuleBasedYuzu()
-        pipeline = TradingPipeline(
-            StrategyMomo(self._strategy, clock, view, cfg.rules),
-            RuleBasedRin(TradingUniverse(frozenset(data.instruments)), clock, cfg.rin, cfg.costs),
-            kibo,
-            yuzu,
-            RuleBasedSora(SizingPolicy.from_limits(cfg.limits), cfg.costs, cfg.sora, rules=cfg.rules),
-            aki,
-            executor,
-        )
+        kibo: KiboAgent = self._kibo or RuleBasedKibo()
+        yuzu: YuzuAgent = self._yuzu or RuleBasedYuzu()
         placeholders = tuple(name for name, neutral in (("KIBO", isinstance(kibo, NeutralKibo)),
                                                        ("YUZU", isinstance(yuzu, NeutralYuzu))) if neutral)
+        momo: MomoAgent = StrategyMomo(self._strategy, clock, view, cfg.rules)
+        rin: RinAgent = RuleBasedRin(TradingUniverse(frozenset(data.instruments)), clock, cfg.rin, cfg.costs)
+        sora: SoraAgent = RuleBasedSora(SizingPolicy.from_limits(cfg.limits), cfg.costs, cfg.sora, rules=cfg.rules)
+        watch = Stopwatch()
+        if self._measure:  # nur Zeitmessung um dieselben Agenten - Entscheidungen bleiben identisch
+            momo, rin, sora = TimedMomo(momo, watch), TimedRin(rin, watch), TimedSora(sora, watch)
+            kibo, yuzu = TimedKibo(kibo, watch), TimedYuzu(yuzu, watch)
+        pipeline = TradingPipeline(momo, rin, kibo, yuzu, sora, aki, executor)
         config_fp = _digest({k: v for k, v in to_jsonable(cfg).items() if k != "label"})
         assumptions_fp = _digest((cfg.initial_equity, cfg.costs, cfg.limits) + ((cfg.rules,) if cfg.rules else ()))
         log.append(EventType.BACKTEST_STARTED, {
             "strategy": self._strategy.name, "label": cfg.label, "dataset": data.fingerprint,
             "config": config_fp, "instruments": [i.key for i in data.instruments],
             "start": data.start, "end": data.end, "placeholders": placeholders, "mode": "paper",
+            "trade_from": trade_from,
         })
 
         proposed = executed = exits_requested = exits_executed = 0
         blocked: Dict[str, int] = {}
+        by_stage: Dict[str, int] = {}
+        setup_log: List[SetupRecord] = []
         ticks = self._timeline()
         for now in sorted(ticks):
             tick = ticks[now]
@@ -243,7 +289,7 @@ class BacktestEngine:
             for event in tick.fundings:  # 2. Funding
                 executor.apply_funding(event)
                 funding_rate[event.instrument] = event.rate
-            if not tick.closes:
+            if not tick.closes or now < trade_from:  # Vorlauf: nur Historie
                 continue
             aki.record_equity(now, executor.portfolio_state())  # 3. Kapitalkurve
 
@@ -259,11 +305,31 @@ class BacktestEngine:
                     exits_executed += 1
                     aki.register_closed_trades([outcome.result.trade])
             for setup in setups:
+                started = time.perf_counter() if self._measure else 0.0
                 result = pipeline.process_setup(setup, fill(tick, setup.instrument))
+                if self._measure:
+                    watch.add("ENTSCHEIDUNG_GESAMT", time.perf_counter() - started)
                 if result.executed:
                     executed += 1
                 for reason in result.reasons:
                     blocked[reason.value] = blocked.get(reason.value, 0) + 1
+                stage = "FILLED" if result.executed else result.stage
+                by_stage[stage] = by_stage.get(stage, 0) + 1
+                setup_log.append(SetupRecord(setup.setup_id, now, setup.instrument.key, setup.side.value, stage,
+                                             tuple(r.value for r in result.reasons)))
+
+        if cfg.close_at_end:  # zum letzten Schlusskurs schliessen - mit Gebuehr, Spread und Slippage wie jeder Ausstieg
+            for position in executor.open_positions:
+                bars = history[position.instrument]
+                if not bars:
+                    continue
+                closing = executor.close_position(position.instrument, context(position.instrument, bars[-1].close).snapshot,
+                                                  ExitReason.MANUAL, "END-%s" % position.instrument.key)
+                if closing.closed and closing.trade is not None:
+                    aki.register_closed_trades([closing.trade])
+            if executor.open_positions:
+                raise BacktestError("Positionen liessen sich am Ende nicht schliessen.")
+            aki.update_equity(clock.now(), executor.portfolio_state())  # Punkt des letzten Zeitpunkts nach dem Schliessen
 
         # --- Vertrauenswuerdigkeit des Laufs ---
         if log.of_type(EventType.SYSTEM_ERROR):
@@ -287,12 +353,17 @@ class BacktestEngine:
         if not check.ok:
             raise BacktestError("Das Ereignisprotokoll des Laufs ist beschaedigt: %s" % check.message)
         events = log.events()
+        halts = log.of_type(EventType.HALT_ACTIVATED)
+        halted_at = datetime.fromisoformat(halts[0].ts) if halts else None
+        halt_reason = str(halts[0].payload.get("reason", "")) if halts else ""
         return BacktestResult(
-            strategy=self._strategy.name, label=cfg.label, start=data.start, end=data.end,
+            strategy=self._strategy.name, label=cfg.label, start=trade_from, end=data.end,
             dataset_fingerprint=data.fingerprint, assumptions_fingerprint=assumptions_fp,
             config_fingerprint=config_fp, report=report, trades=trades, equity_curve=curve,
             open_positions=open_positions, setups_proposed=proposed, setups_executed=executed,
             blocked_by_reason=dict(sorted(blocked.items())), exits_requested=exits_requested,
             exits_executed=exits_executed, placeholders=placeholders, data_warnings=data.warnings,
             events=len(events), log_head=events[-1].hash, result_hash=result_hash,
+            blocked_by_stage=dict(sorted(by_stage.items())), setup_log=tuple(setup_log), halted_at=halted_at,
+            halt_reason=halt_reason, timings=watch.summary(),
         )
