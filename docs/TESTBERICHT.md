@@ -652,3 +652,17 @@ Umgebung: interaktive Cloud-Sitzung (Linux/amd64), Python 3.12.3, PostgreSQL 16.
 * **Gegenprobe:** AS01–AS20 **20/20 entdeckt**.
 * **Prüfung der Cloud-Umgebung:** `check_api_config.py` → OK (keine Börsen-Zugangsdaten, kein Echtgeld-Schalter, Modus PAPER).
 * **Preflight:** STABIL – **1817/1817** Tests, 0 übersprungen; Python 3.9: 1571 bestanden, 16 übersprungen (erwartet).
+
+## Nachtrag 2026-10-17 – AP-30 Abschlussprüfung
+
+* **Endstand** `develop` @ `0dd5d3e` (`stable/005-release-candidate`): Preflight **STABIL** – Geheimnis-Scan ohne Funde,
+  ruff/mypy ohne Befund, **1821/1821** Tests (PostgreSQL 16, 0 übersprungen), Gegenprobe **513/513** entdeckt; Python 3.9:
+  1575 bestanden, 16 übersprungen (erwartet); GitHub Actions grün.
+* **Gegenprobe beschleunigt:** nacheinander über 2 Stunden (Zeitlimit der Cloud) → fünf gleichzeitige Teile (Kern
+  dreigeteilt mit `--shard`), 58 min. Test `test_preflight_mutation` (4): Summen, unentdeckte Fehler und abgebrochene
+  Teile machen NICHT STABIL, Zeitlimit beendet alle Teile, jeder Eintrag liegt in genau einem Teil.
+* **Gefunden durch die Grundprobe:** Gleichzeitige Testläufe änderten die serverweite Rolle `trading_app` gleichzeitig
+  bzw. legten dieselbe Hilfsrolle an; der Sicherungs-Test zählte fremde Wegwerf-Datenbanken mit. Behoben (Sperre,
+  eindeutige Namen, Prüfung genau der eigenen Datenbank); nachgeprüft mit dreimal gleichzeitig allen Datenbank-Tests
+  (je 211 bestanden). Der Lauf davor steht ehrlich als NICHT STABIL in `TEST_RESULTS.md`.
+* **Abschlussbericht:** `docs/ABSCHLUSSBERICHT.md`.

@@ -120,14 +120,14 @@ Fest in die Architektur eingebaut: Jede KI-Analyse läuft durch den Orchestrator
 |---|---|---|---|
 | AP-34 | Sicherheitsnachweis (Ergänzung 2026-10-16): automatisierte Tests, dass keine echte Börsenorder ausgelöst werden kann (kein Order-Endpunkt, kein schreibender Netzzugang, Handel standardmäßig aus, keine Freigabe für Echtgeld im Code); Prüfung vorhandener API-Konfigurationen (Umgebung, Passwort-Dateien) auf Handelsberechtigungen ohne Ausgabe von Geheimnissen | Tests, Gegenprobe | ✅ D-033 (Gegenprobe AS01–AS20) |
 | AP-29 | Order-Anbindung für Börsen-Demokonten (z. B. Bitget Demo), standardmäßig aus, nur gegen Attrappen getestet | Tests | ⛔ B-003 (Entscheidung) |
-| AP-30 | Abschlussprüfung aller Teile, Abschlussbericht, Meldung „SOFTWARE BEREIT FÜR GEMEINSAME DEMO-EINRICHTUNG.“ | vollständige Prüfung dokumentiert | 🔄 |
+| AP-30 | Abschlussprüfung aller Teile, Abschlussbericht, Meldung „SOFTWARE BEREIT FÜR GEMEINSAME DEMO-EINRICHTUNG.“ | vollständige Prüfung dokumentiert | ✅ `docs/ABSCHLUSSBERICHT.md` (`stable/005-release-candidate`, Gegenprobe 513/513) |
 
-## 3. Geplante stabile Stände
+## 3. Stabile Stände
 
 `stable/001-phase1-3-foundation` ✅ · `stable/002-stage1-core-backtesting` ✅ · `stable/003-autonomy-baseline` ✅ (AP-01) ·
-`stable/004-safety-stage2` (AP-06…12) ✅ · `stable/005-market-data` (AP-13…15) · `stable/006-strategy-research` (AP-16…20) ·
-`stable/007-trading-engine` (AP-21…22) · `stable/008-dashboard` (AP-23…24) · `stable/009-operations` (AP-25…28) ·
-`stable/010-release-candidate` (AP-29…30). Die Nummern folgen dem tatsächlichen Verlauf.
+`stable/004-safety-stage2` (AP-06…12) ✅ · `stable/005-release-candidate` (AP-13…34, `develop` @ `0dd5d3e`) ✅.
+Geplant waren für AP-13…30 einzelne Stände 005–010; geprüft und gekennzeichnet wurde stattdessen der Gesamtstand.
+Künftig (z. B. nach AP-29 oder AP-20): `stable/006-…`. Tags lädt der Eigner hoch (B-007), `main` übernimmt er (B-009).
 
 ## 4. „Technisch fertig“ heißt
 

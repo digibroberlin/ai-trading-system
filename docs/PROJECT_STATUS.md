@@ -3,34 +3,46 @@
 Wird bei jedem Arbeitspaket aktualisiert. So geschrieben, dass eine neue Sitzung (oder eine Cloud-Routine) ohne
 Informationsverlust weitermachen kann.
 
+> **SOFTWAREENTWICKLUNG ABGESCHLOSSEN. BEREIT FÜR DEMO-EINRICHTUNG.** (2026-10-17, AP-30)
+> Abschlussbericht: [`docs/ABSCHLUSSBERICHT.md`](ABSCHLUSSBERICHT.md). Geprüfter Stand `develop` @ `0dd5d3e`, gekennzeichnet
+> als `stable/005-release-candidate`. Es läuft kein Handel; Demo- und Echtgeldhandel werden nicht selbst gestartet.
+> Alle offenen Arbeitspakete warten auf den Eigner (B-003, B-004, B-005, B-007, B-008, B-009). Weitere Läufe der Routine
+> prüfen nur den Status und ändern nichts.
+
 ## Sperre
 
-gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-17 00:54 UTC für AP-30 (Abschlussprüfung läuft)
+keine
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
 
-## Aktueller Stand (2026-10-16) – für die Wiederaufnahme (Ergänzung des Eigners, Punkt 6)
+## Aktueller Stand (2026-10-17) – für die Wiederaufnahme (Ergänzung des Eigners, Punkt 6)
 
 * **Handel:** keiner. Es läuft kein Bot, kein Paper-, Demo- oder Echtgeld-Betrieb; Handel ist standardmäßig aus.
-* **Letzter Git-Checkpoint:** siehe Abschnitt „Zuletzt erledigt“ (jeweils mit Commit); `develop` auf GitHub ist maßgeblich.
-* **Letzter STABLE-Stand:** `stable/004-safety-stage2` (`main` = `ad6cc9f`, 886 Tests, Gegenprobe 278/278). Neuere
-  geprüfte Stände werden als STABLE gekennzeichnet; **`main` verändert Claude nicht selbst** (Ergänzung 2026-10-16) – der
-  Eigner führt zusammen oder gibt frei (B-009). Tags kann die Cloud nicht hochladen (403, B-007).
+* **Letzter Git-Checkpoint:** `develop` auf GitHub (Abschlussbericht nach dem geprüften Stand `0dd5d3e`, nur Doku).
+* **Letzter STABLE-Stand:** `stable/005-release-candidate` = `develop` @ `0dd5d3e` – Preflight STABIL am 2026-10-17
+  01:28 UTC: 1821/1821 Tests (0 übersprungen), Gegenprobe 513/513, Python 3.9: 1575 bestanden, GitHub Actions grün.
+  Der Tag ist nur lokal gesetzt: Die Cloud darf keine Tags hochladen (403, B-007). **`main` verändert Claude nicht selbst**
+  (Ergänzung 2026-10-16): `main` = `ad6cc9f` (`stable/004-safety-stage2`); der Eigner übernimmt den Stand (B-009).
 * **Zweige:** `main` (stabil, nur durch den Eigner), `develop` (Integration), Arbeitszweige `ap/NN-name`.
-* **Was fehlt:** AP-20 ausführen (Werkzeug fertig, braucht Netz B-008) · AP-29 (Entscheidung B-003) · Abschlussprüfung
-  AP-30 (volle Gegenprobe auf dem Endstand, Abschlussbericht).
-* **Als Nächstes:** AP-30 (volle Gegenprobe auf dem Endstand, STABLE kennzeichnen, Abschlussbericht).
+* **Was fehlt (alles wartet auf den Eigner):** AP-20 ausführen (Werkzeug fertig, braucht Netz B-008) · AP-29
+  (Entscheidung B-003) · Server (B-005) · KI-Budget (B-004, optional) · `main`/Tags (B-009, B-007).
+* **Als Nächstes:** gemeinsame Demo-Einrichtung mit dem Eigner (Reihenfolge im Abschlussbericht, Abschnitt 5).
 * **Arbeitsort:** die Cloud (D-008); der Mac-Ordner ist nur Sicherung.
 
 ## In Arbeit (Zwischenstand)
 
-* Interaktive Sitzung (Eigner-Auftrag): **AP-30** (Abschlussprüfung). AP-34 ist fertig (Zweig `ap/30-ergaenzung`,
-  zusammen mit D-031/D-032). Volle Gegenprobe auf `develop` @ `f8a995b` läuft seit 21:20 UTC; danach Zusammenführen nach
-  `develop` und volle Gegenprobe auf dem Endstand.
+* nichts
 
 ## Zuletzt erledigt
 
+* **AP-30 Abschlussprüfung und Abschlussbericht** (interaktive Cloud-Sitzung, 2026-10-17): volle Prüfung auf dem
+  Endstand `0dd5d3e` STABIL – 1821/1821 Tests mit PostgreSQL, Gegenprobe 513/513, Python 3.9 1575 bestanden, GitHub
+  Actions grün; gekennzeichnet als `stable/005-release-candidate` (Tag lokal, B-007). Unterwegs gefunden und behoben:
+  Die Gegenprobe passte nacheinander nicht mehr ins 2-Stunden-Zeitlimit der Cloud → läuft jetzt in fünf gleichzeitigen
+  Teilen (58 min); dabei zeigte die strenge Grundprobe, dass gleichzeitige Testläufe sich an der serverweiten Datenbank-
+  Rolle stören → Sperre und eindeutige Namen in der Testumgebung (ein Lauf vorher ehrlich als NICHT STABIL protokolliert).
+  Abschlussbericht: `docs/ABSCHLUSSBERICHT.md`.
 * **AP-34 Sicherheitsnachweis und verbindliche Ergänzung des Eigners** (interaktive Cloud-Sitzung, 2026-10-16, D-033):
   Ergänzung dauerhaft in `CLAUDE.md` und `MASTER_PLAN.md` (Abschnitt 0). Automatisierte Tests belegen: keine Order-,
   Abhebungs- oder Signatur-Wege in Code, Skripten, Server-Dateien und Containern; nur Modus PAPER; nur bekannte
