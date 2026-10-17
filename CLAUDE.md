@@ -13,7 +13,7 @@ Ergänzung zum Master-Plan, **kein** Neustart: Fortschritte, Architektur und die
    Simulationen.
 2. **Sicherheit.** Technisch und durch automatisierte Tests sicherstellen, dass **keine echte Börsenorder** ausgelöst werden
    kann (`tests/test_no_real_trading.py`, AP-34). Handel ist **standardmäßig aus**. Vorhandene API-Konfigurationen werden auf
-   Handelsberechtigungen geprüft, **ohne Geheimnisse auszugeben** (`python -m trading.safety.credentials_check`, AP-34).
+   Handelsberechtigungen geprüft, **ohne Geheimnisse auszugeben** (`python scripts/check_api_config.py`, AP-34).
    Demo-Handel nur nach **ausdrücklicher Freigabe des Eigners**; echter Handel braucht eine **separate** Freigabe und
    zusätzliche Sicherheitsprüfungen (im Code gibt es heute keinen Weg dorthin).
 3. **GitHub-Checkpoints** nach jedem Arbeitspaket: relevante Tests → Fehler beheben → Ergebnisse dokumentieren

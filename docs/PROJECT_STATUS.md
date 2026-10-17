@@ -3,15 +3,14 @@
 Wird bei jedem Arbeitspaket aktualisiert. So geschrieben, dass eine neue Sitzung (oder eine Cloud-Routine) ohne
 Informationsverlust weitermachen kann.
 
-> **SOFTWAREENTWICKLUNG ABGESCHLOSSEN. BEREIT FÜR DEMO-EINRICHTUNG.** (2026-10-17, AP-30)
-> Abschlussbericht: [`docs/ABSCHLUSSBERICHT.md`](ABSCHLUSSBERICHT.md). Geprüfter Stand `develop` @ `0dd5d3e`, gekennzeichnet
-> als `stable/005-release-candidate`. Es läuft kein Handel; Demo- und Echtgeldhandel werden nicht selbst gestartet.
-> Alle offenen Arbeitspakete warten auf den Eigner (B-003, B-004, B-005, B-007, B-008, B-009). Weitere Läufe der Routine
-> prüfen nur den Status und ändern nichts.
+> **AP-20 IN ARBEIT (interaktive Sitzung, Auftrag des Eigners vom 2026-10-17):** historische Profitabilitätsanalyse
+> und Optimierung der sechs Agenten – nur Backtests, Simulationen und technische Tests, **kein Handel**.
+> Grundlage: geprüfter Stand `stable/005-release-candidate` (`develop` @ `0dd5d3e`, Abschlussbericht
+> [`docs/ABSCHLUSSBERICHT.md`](ABSCHLUSSBERICHT.md)). Arbeitszweig `ap/20-profitabilitaet`.
 
 ## Sperre
 
-keine
+gesperrt von Cloud-Sitzung (interaktiv, Eigner-Auftrag) seit 2026-10-17 08:53 UTC für AP-20 (Profitabilitätsanalyse)
 
 (Format: `gesperrt von <Sitzung/Routine> seit <Datum Uhrzeit UTC> für AP-xx` – Sperren älter als 3 Stunden gelten als verwaist.
 Mehrere Sperren sind erlaubt: eine Zeile je Arbeitspaket; jede Sitzung ändert nur ihre eigene Zeile.)
