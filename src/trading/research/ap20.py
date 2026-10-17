@@ -24,6 +24,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
+from trading.backtest.engine import MONTHLY_REVIEW
 from trading.domain.instrument import Exchange, InstrumentId, MarketType
 from trading.marketdata.localfile import build_series
 from trading.research.campaign import (
@@ -54,6 +55,7 @@ INSTRUMENT = InstrumentId(Exchange.BITSTAMP, MarketType.SPOT, "BTC-USD")
 DATA_START = datetime(2016, 12, 1, tzinfo=timezone.utc)  # Vorlauf vor dem Training
 DATA_END = datetime(2026, 10, 16, tzinfo=timezone.utc)
 RESULTS = Path("data/ap20/results")
+RESULTS_STRICT = Path("data/ap20/results-streng")
 _CENT = Decimal("0.01")
 FREEZE = Path("docs/ap20/freeze.json")
 
@@ -115,7 +117,8 @@ def cmd_run(args: argparse.Namespace, out: Callable[[str], None]) -> int:
                 started = time.perf_counter()
                 if spec.interval_s not in bundles:
                     bundles[spec.interval_s] = load_bundle(Path(args.data), spec.interval_s)
-                cell = run_cell(bundles[spec.interval_s], period, spec, variant, scenario)
+                cell = run_cell(bundles[spec.interval_s], period, spec, variant, scenario,
+                                halt_review="" if args.mode == "streng" else MONTHLY_REVIEW)
                 save_cell(Path(args.results), cell)
                 c = cell.card
                 out("%s  %5.1f s  Trades %4d  Netto(A) %10s  Netto(B) %10s  DD %5.1f %%" % (
@@ -156,12 +159,16 @@ def main(argv: Optional[Sequence[str]] = None, out: Callable[[str], None] = prin
     run.add_argument("--scenarios", default="F,S")
     run.add_argument("--strategies", default="all")
     run.add_argument("--variants", default="V0,A,B,C,D,S")
+    run.add_argument("--mode", choices=("monatlich", "streng"), default="monatlich",
+                     help="Not-Aus: simulierte monatliche Pruefung des Eigners (Standard) oder streng ohne Freigabe")
     fr = sub.add_parser("freeze")
     fr.add_argument("--cells", required=True)
     fr.add_argument("--note", required=True)
     rep = sub.add_parser("report")
     rep.add_argument("--out", default="docs/ap20/ergebnisse.md")
     args = parser.parse_args(argv)
+    if getattr(args, "mode", "") == "streng" and args.results == str(RESULTS):
+        args.results = str(RESULTS_STRICT)  # strenge Laeufe nie mit den Hauptergebnissen vermischen
     commands = {"run": cmd_run, "freeze": cmd_freeze, "report": cmd_report}
     return commands[args.command](args, out)
 

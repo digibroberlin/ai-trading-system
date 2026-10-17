@@ -313,3 +313,24 @@ def test_report_lists_every_cell_and_the_validation_criteria(tmp_path):
     text = out.read_text()
     assert "Abschnitt validierung" in text and "Validierungskriterien" in text and "Schatten" in text
     assert text.count("| breakout | V0 |") >= 3 and "C − V0" in text
+
+
+def test_simulated_monthly_review_releases_a_halt_on_the_first_of_next_month_with_the_same_limits():
+    from trading.backtest.engine import next_month
+
+    # T0 = 2025-01-01 12:00; Sturz durch den Stop am ersten Tag -> Not-Aus; Plan: am 2. Januar und am 1. Februar kaufen
+    n = 36 * 24
+    ohlc = [[100, 100, 100, 100], [100, 100.5, 99, 100], [50, 51, 49, 50]] + flat(n - 3, 50)
+    jan2 = T0 + timedelta(days=1)
+    feb1 = datetime(2025, 2, 1, 1, tzinfo=UTC)
+    plan = {T0 + HOUR: long(), jan2: long(stop=45, tp=60), feb1: long(stop=45, tp=60)}
+    strict, _ = engine_run(ohlc, plan)
+    review, _ = engine_run(ohlc, plan, config(halt_review="monatlich"))
+    assert len(strict.halts) == 1 and strict.halts[0][2] is None  # streng: nie freigegeben
+    assert [s.stage for s in strict.setup_log] == ["FILLED", "EXECUTOR", "EXECUTOR"]
+    halt_time, reason, released = review.halts[0]
+    assert reason and released == datetime(2025, 2, 1, tzinfo=UTC) == next_month(halt_time)
+    assert [s.stage for s in review.setup_log] == ["FILLED", "EXECUTOR", "FILLED"]  # Januar gesperrt, Februar frei
+    with pytest.raises(ValueError):
+        config(halt_review="sofort")
+    assert next_month(datetime(2025, 12, 31, 23, tzinfo=UTC)) == datetime(2026, 1, 1, tzinfo=UTC)

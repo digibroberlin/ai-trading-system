@@ -37,7 +37,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -72,10 +72,13 @@ from trading.marketdata.candles import is_aware
 from trading.marketdata.synthetic import snapshot_from_price
 from trading.pipeline import TradingPipeline
 from trading.safety.data_validator import SnapshotValidator
+from trading.safety.kill_switch import RELEASE_CONFIRMATION
 from trading.safety.limits import DEFAULT_LIMITS, SafetyLimits
 from trading.safety.risk_manager import RiskManager
 
 LogFactory = Callable[[Clock], EventLog]
+MONTHLY_REVIEW = "monatlich"
+REVIEW_OPERATOR = "Backtest-Simulation: monatliche Pruefung des Eigners"
 ExecutorFactory = Callable[[Clock, RiskManager, EventLog], Executor]
 
 
@@ -97,6 +100,10 @@ class BacktestConfig:
     # Am Ende offene Positionen zum letzten Schlusskurs MIT allen Ausstiegskosten schliessen (Grund MANUAL) - sonst werden
     # sie nur bewertet (ohne Gebuehr, Spread, Slippage), was das Ergebnis schoent (AP-20).
     close_at_end: bool = False
+    # Simulierte Pruefung durch den Eigner (AP-20): Nach einem Not-Aus wird er am Ersten des Folgemonats mit dem
+    # vorgesehenen Ablauf freigegeben (Name + Bestaetigung, gemessen wird ab dann neu - mit DENSELBEN Grenzen).
+    # "" = streng: nach einem Not-Aus wird bis zum Ende nicht mehr eroeffnet. Jeder Not-Aus steht in `halts`.
+    halt_review: str = ""
 
     def __post_init__(self) -> None:
         if not is_positive_decimal(self.initial_equity):
@@ -105,6 +112,8 @@ class BacktestConfig:
             raise ValueError("history_bars muss eine ganze Zahl >= 1 sein.")
         if self.trade_from is not None and not is_aware(self.trade_from):
             raise ValueError("trade_from braucht eine Zeitzone.")
+        if self.halt_review not in ("", MONTHLY_REVIEW):
+            raise ValueError("halt_review: '' (streng) oder %r." % MONTHLY_REVIEW)
 
 
 def _digest(obj: Any) -> str:
@@ -150,8 +159,9 @@ class BacktestResult:
     result_hash: str  # Fingerabdruck aller Ergebnisse - gleich bei jedem identischen Lauf
     blocked_by_stage: Dict[str, int] = field(default_factory=dict)  # je SETUP die Stufe, an der es endete
     setup_log: Tuple[SetupRecord, ...] = ()
-    halted_at: Optional[datetime] = None  # erster Not-Aus im Lauf (danach keine neuen Positionen mehr)
+    halted_at: Optional[datetime] = None  # erster Not-Aus im Lauf
     halt_reason: str = ""
+    halts: Tuple[Tuple[datetime, str, Optional[datetime]], ...] = ()  # (Zeitpunkt, Grund, simulierte Freigabe)
     timings: Dict[str, Dict[str, float]] = field(default_factory=dict, compare=False)  # nur mit measure=True
 
     def summary(self) -> Dict[str, Any]:
@@ -176,6 +186,18 @@ class BacktestResult:
         deterministischen Rechenzeiten."""
         body = {f.name: getattr(self, f.name) for f in fields(self) if f.name != "timings"}
         return json.dumps(to_jsonable(body), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def halted(executor: Executor) -> bool:
+    status = getattr(executor, "halt_status", None)
+    return bool(status is not None and status().halted)
+
+
+def next_month(moment: datetime) -> datetime:
+    """Erster Tag des Folgemonats, 00:00 UTC - Zeitpunkt der simulierten Pruefung durch den Eigner."""
+    utc = moment.astimezone(timezone.utc)
+    year, month = (utc.year + 1, 1) if utc.month == 12 else (utc.year, utc.month + 1)
+    return datetime(year, month, 1, tzinfo=timezone.utc)
 
 
 @dataclass
@@ -279,6 +301,14 @@ class BacktestEngine:
         blocked: Dict[str, int] = {}
         by_stage: Dict[str, int] = {}
         setup_log: List[SetupRecord] = []
+        release_at: Optional[datetime] = None
+        releases: List[datetime] = []
+
+        def release(target: Executor, moment: datetime) -> None:
+            if not hasattr(target, "release_halt"):
+                raise BacktestError("halt_review braucht einen Executor mit Freigabe (release_halt).")
+            target.release_halt(REVIEW_OPERATOR, RELEASE_CONFIRMATION)
+            releases.append(moment)
         ticks = self._timeline()
         for now in sorted(ticks):
             tick = ticks[now]
@@ -291,6 +321,9 @@ class BacktestEngine:
                 funding_rate[event.instrument] = event.rate
             if not tick.closes or now < trade_from:  # Vorlauf: nur Historie
                 continue
+            if cfg.halt_review and release_at is not None and now >= release_at:
+                release(executor, now)
+                release_at = None
             aki.record_equity(now, executor.portfolio_state())  # 3. Kapitalkurve
 
             decision_data = [context(series.instrument, candle.close) for series, candle in tick.closes]
@@ -317,6 +350,8 @@ class BacktestEngine:
                 by_stage[stage] = by_stage.get(stage, 0) + 1
                 setup_log.append(SetupRecord(setup.setup_id, now, setup.instrument.key, setup.side.value, stage,
                                              tuple(r.value for r in result.reasons)))
+            if cfg.halt_review and release_at is None and halted(executor):
+                release_at = next_month(now)
 
         if cfg.close_at_end:  # zum letzten Schlusskurs schliessen - mit Gebuehr, Spread und Slippage wie jeder Ausstieg
             for position in executor.open_positions:
@@ -356,6 +391,8 @@ class BacktestEngine:
         halts = log.of_type(EventType.HALT_ACTIVATED)
         halted_at = datetime.fromisoformat(halts[0].ts) if halts else None
         halt_reason = str(halts[0].payload.get("reason", "")) if halts else ""
+        halt_list = tuple((datetime.fromisoformat(h.ts), str(h.payload.get("reason", "")),
+                           releases[i] if i < len(releases) else None) for i, h in enumerate(halts))
         return BacktestResult(
             strategy=self._strategy.name, label=cfg.label, start=trade_from, end=data.end,
             dataset_fingerprint=data.fingerprint, assumptions_fingerprint=assumptions_fp,
@@ -365,5 +402,5 @@ class BacktestEngine:
             exits_executed=exits_executed, placeholders=placeholders, data_warnings=data.warnings,
             events=len(events), log_head=events[-1].hash, result_hash=result_hash,
             blocked_by_stage=dict(sorted(by_stage.items())), setup_log=tuple(setup_log), halted_at=halted_at,
-            halt_reason=halt_reason, timings=watch.summary(),
+            halt_reason=halt_reason, halts=halt_list, timings=watch.summary(),
         )

@@ -133,4 +133,13 @@ Testdaten, keine Wiederholung eines Tests, keine Lockerung von Sicherheitsgrenze
 
 ## 10. Nachträge
 
-*(noch keine)*
+**Nachtrag 1 (2026-10-17 09:47 UTC, vor jeder Validierung) – Not-Aus über mehrjährige Abschnitte.** Erste Trainingsläufe zeigten:
+Die 10-%-Drawdown-Bremse löst bei mehreren Strategien aus (z. B. Breakout am 01.02.2019); danach wurde bis zum Ende des
+sechsjährigen Abschnitts nichts mehr eröffnet. Das Ergebnis misst dann vor allem den Zeitpunkt der Bremse, nicht die
+Strategie. Im Betrieb prüft der Eigner einen Not-Aus und gibt ihn mit Namen und Bestätigung frei (vorhandener Ablauf
+`release_halt`: gemessen wird ab dann neu, **mit denselben Grenzen**). Festlegung:
+* **Hauptauswertung („monatlich“):** simulierte Prüfung des Eigners – nach einem Not-Aus Freigabe am Ersten des
+  Folgemonats (00:00 UTC). Jeder Not-Aus wird mit Zeitpunkt, Grund und Freigabe gezählt und im Bericht ausgewiesen; viele
+  Not-Aus-Ereignisse sind selbst ein negatives Ergebnis.
+* **Zusätzlich („streng“):** ohne jede Freigabe – nach dem ersten Not-Aus keine neue Position bis zum Ende des Abschnitts.
+* Keine Grenze wird verändert; Agenten lösen nichts frei. Die Trainingsläufe wurden in beiden Modi neu gerechnet.

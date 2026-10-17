@@ -10,6 +10,9 @@ Agenten-Variante. Jede Zelle:
   * zaehlt fuer Variante D die KI-Zweitmeinungen, die die Regeln ausgeloest haetten (unsicheres Urteil ohne harte
     Ablehnung) - als KOSTENSZENARIO; eine echte KI-Entscheidung gibt es nicht (keine Freigabe, B-004).
 
+Not-Aus (Nachtrag 1 zum Protokoll): Standard ist die simulierte monatliche Pruefung des Eigners - nach einem Not-Aus
+Freigabe am Ersten des Folgemonats, mit denselben Grenzen; jeder Not-Aus wird gezaehlt. Streng (`halt_review=""`): keine
+Freigabe, nach dem ersten Not-Aus keine neue Position bis zum Ende des Abschnitts.
 Die Abschnitte, Szenarien und Varianten sind VORAB festgelegt (docs/AP20_PROTOKOLL.md). Testlaeufe sind nur fuer
 eingefrorene Kandidaten erlaubt und je Zelle genau einmal (`TestGuard`).
 """
@@ -38,7 +41,7 @@ from trading.ai.pricing import DEFAULT_PRICES, ModelPrice, TokenUsage
 from trading.audit.event_log import EventLog, InMemoryEventLog
 from trading.audit.events import EventType, to_jsonable
 from trading.backtest.data import MarketDataset
-from trading.backtest.engine import BacktestConfig, BacktestEngine, BacktestResult
+from trading.backtest.engine import MONTHLY_REVIEW, BacktestConfig, BacktestEngine, BacktestResult
 from trading.backtest.instrumentation import ShadowKibo, ShadowYuzu
 from trading.backtest.strategy import Strategy
 from trading.clock import Clock
@@ -271,6 +274,8 @@ class Scorecard:
     ai_reviews: int  # Setups, bei denen KIBO/YUZU eine KI-Zweitmeinung angefragt haetten (D) - Zaehlung, kein Aufruf
     halted_at: Optional[datetime]
     halt_reason: str
+    halts: Tuple[Tuple[datetime, str, Optional[datetime]], ...]  # jeder Not-Aus (Zeit, Grund, simulierte Freigabe)
+    halt_review: str  # "monatlich" (simulierte Pruefung des Eigners) oder "" (streng)
     time_in_market_pct: float
     avg_exposure_pct: float
     by_regime: Mapping[str, Tuple[int, Decimal]]  # Marktphase beim Einstieg -> (Trades, Netto)
@@ -341,7 +346,7 @@ def _months(period_days: int) -> Decimal:
 
 def scorecard(result: BacktestResult, dataset: MarketDataset, scenario: CostScenario,
               operating: OperatingAssumptions = DEFAULT_OPERATING, ai_reviews: int = 0,
-              ai_overlay: bool = False) -> Scorecard:
+              ai_overlay: bool = False, halt_review: str = "") -> Scorecard:
     rep = result.report
     stats = rep.trades
     initial = float(rep.initial_equity)
@@ -381,7 +386,8 @@ def scorecard(result: BacktestResult, dataset: MarketDataset, scenario: CostScen
         short_trades=len(shorts), short_net=sum((t.net_pnl for t in shorts), ZERO),
         signals=result.setups_proposed, executed=result.setups_executed, by_stage=dict(result.blocked_by_stage),
         by_reason=dict(result.blocked_by_reason), ai_reviews=ai_reviews, halted_at=result.halted_at,
-        halt_reason=result.halt_reason, time_in_market_pct=float(rep.equity.time_in_market_pct),
+        halt_reason=result.halt_reason, halts=result.halts, halt_review=halt_review,
+        time_in_market_pct=float(rep.equity.time_in_market_pct),
         avg_exposure_pct=float(rep.equity.avg_gross_exposure_pct),
         by_regime={k: (len(v), sum(v, ZERO)) for k, v in sorted(regimes.items())},
         by_year={k: (len(v), sum(v, ZERO)) for k, v in sorted(years.items())},
@@ -427,7 +433,8 @@ def window_for(bundle: Bundle, scenario: CostScenario, period: Period, warmup_ba
 
 def run_cell(bundle: Bundle, period: Period, spec: StrategySpec, variant: Variant, scenario: CostScenario,
              initial_equity: Decimal = D("10000"), warmup_bars: int = WARMUP_BARS,
-             operating: OperatingAssumptions = DEFAULT_OPERATING, measure: bool = True) -> Cell:
+             operating: OperatingAssumptions = DEFAULT_OPERATING, measure: bool = True,
+             halt_review: str = MONTHLY_REVIEW) -> Cell:
     if bundle.interval_s != spec.interval_s:
         raise ValueError("Strategie %s braucht %d-s-Kerzen, der Datensatz hat %d s." % (spec.key, spec.interval_s,
                                                                                        bundle.interval_s))
@@ -435,7 +442,7 @@ def run_cell(bundle: Bundle, period: Period, spec: StrategySpec, variant: Varian
     if data.start > period.start - timedelta(seconds=bundle.interval_s * min(warmup_bars, 200)):
         raise ValueError("Zu wenig Vorlauf vor %s (Daten ab %s)." % (period.start, data.start))
     config = BacktestConfig(initial_equity=initial_equity, costs=scenario.costs, rin=variant.rin, sora=variant.sora,
-                            trade_from=period.start, close_at_end=True,
+                            trade_from=period.start, close_at_end=True, halt_review=halt_review,
                             label=cell_key(period.name, scenario.key, spec.key, variant.key))
     kibo, yuzu = variant.agents()
     logs: List[EventLog] = []
@@ -448,7 +455,7 @@ def run_cell(bundle: Bundle, period: Period, spec: StrategySpec, variant: Varian
     result = BacktestEngine(data, spec.factory(), config, kibo=kibo, yuzu=yuzu, log_factory=keep_log,
                             measure=measure).run()
     reviews = count_ai_reviews(logs[0]) if variant.ai_overlay else 0
-    card = scorecard(result, data, scenario, operating, reviews, variant.ai_overlay)
+    card = scorecard(result, data, scenario, operating, reviews, variant.ai_overlay, halt_review)
     lookup = RegimeLookup(data)
     kibo_v = getattr(kibo, "verdicts", None)
     yuzu_v = getattr(yuzu, "verdicts", None)
